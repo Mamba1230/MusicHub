@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark-theme">
+    <div id="splashScreen" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg-primary); z-index: 10000; display: flex; flex-direction: row; justify-content: center; align-items: center; transition: opacity 0.5s; backdrop-filter: blur(10px);">
+    
+
+    <div id="splashLeft" style="width: 20%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px; overflow-y: auto;">
+        <div id="splashLeftContent" style="text-align: center; width: 100%;"></div>
+    </div>
+    
+
+    <div style="width: 60%; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+        <div class="splash-logo" style="font-size: 80px; font-weight: 900; color: var(--accent-color); margin-bottom: 20px; animation: splashPulse 1.5s ease-in-out infinite;">M</div>
+        <div class="splash-title" style="font-size: 28px; font-weight: 600; margin-bottom: 10px;">MusicHub</div>
+        <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v2.4.0</div>
+        <div class="splash-tip" id="splashTip" style="font-size: 14px; color: var(--text-secondary); max-width: 400px; text-align: center; padding: 0 20px; margin-bottom: 20px;"></div>
+        <div class="splash-progress" style="width: 300px; height: 3px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
+            <div class="splash-progress-bar" style="width: 0%; height: 100%; background: var(--accent-color); transition: width 0.1s linear;"></div>
+        </div>
+    </div>
+    
+
+    <div id="splashRight" style="width: 20%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px; overflow-y: auto;">
+        <div id="splashRightContent" style="text-align: center; width: 100%;"></div>
+    </div>
+    
+</div>
+    <div id="titlebar">
+    <div id="drag-region">
+        MusicHub
+        <div class="titlebar-online" id="titlebarOnline">
+            <span class="online-dot-small"></span>
+            <span id="titlebarOnlineCount">0</span>
+        </div>
+        <div class="titlebar-equalizer" id="titlebar-eq">
+            <div class="eq-bar"></div><div class="eq-bar"></div><div class="eq-bar"></div>
+            <div class="eq-bar"></div><div class="eq-bar"></div><div class="eq-bar"></div>
+            <div class="eq-bar"></div><div class="eq-bar"></div>
+        </div>
+    </div>
+        <div id="window-controls">
+        <div class="win-btn" onclick="window.electronAPI.windowCtrl('min')">_</div>
+        <div class="win-btn" onclick="window.electronAPI.windowCtrl('max')">▢</div>
+        <div class="win-btn close-red" onclick="window.electronAPI.windowCtrl('close')">✕</div>
+    </div>
+</div>
+
+    <div class="app-container">
+        <div class="sidebar" id="sidebar">
+            <div class="logo">M</div>
+            
+            <div id="services-container"></div>
+            
+            <div class="spacer"></div>
+            
+            <div class="visualizer-container" id="visualizerContainer">
+    <canvas id="visualizer" width="150" height="100"></canvas>
+    <img id="gifOverlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; display: none; pointer-events: none;">
+    <button class="viz-expand-btn" onclick="expandVisualizer()">⤢</button>
+</div>
+
+            <button class="util-btn" id="miniBtn" onclick="toggleMini(this)">M</button>
+            <button class="util-btn" id="settingsBtn">⚙</button>
+            <button class="util-btn" onclick="reloadPage()">↻</button>
+            <button class="util-btn" onclick="captureVisualizer()">📸</button>
+            <button class="util-btn" id="chatBtn">💬</button>
+        </div>
+        <div class="content" id="content">
+             
+        </div>
+    </div>
+
+    <div id="settings-panel">
+        <h3>✨ Настройки MusicHub</h3>
+        
+        <div id="premiumStatus" style="text-align: center; padding: 10px; margin: 10px 0; border-radius: 8px; background: rgba(29,185,84,0.1);">
+    ⭐ Загрузка статуса...
+</div>
+<button id="premiumInfoBtn" style="background: gold; color: #000; border: none; padding: 8px; border-radius: 5px; cursor: pointer; width: 100%;">💎 Узнать о Premium</button>
+
+        <label>🎨 Тема:</label>
+        <select id="theme-select" onchange="changeThemeWithAnimation(this.value)">
+            <option value="dark">🌙 Темная</option>
+            <option value="light">☀️ Светлая</option>
+        </select>
+        
+        <label>🎨 Акцентный цвет:</label>
+        <input type="color" id="cp" onchange="changeAccentColor(this.value)">
+        
+        <label>🔍 Масштаб:</label>
+        <select id="zoom-select" onchange="setZoom(this.value)">
+            <option value="0.8">80%</option>
+            <option value="1.0" selected>100%</option>
+            <option value="1.2">120%</option>
+        </select>
+        
+        <label>🎵 Режим визуализации:</label>
+        <select id="viz-mode" onchange="changeVizMode(this.value)">
+            <option value="bars">📊 Полоски</option>
+            <option value="wave">🌊 Волна</option>
+            <option value="circle">⭕ Круг</option>
+            <option value="dots">🔴 Точки</option>
+            <option value="fire">🔥 Огонь</option>
+            <option value="particles">✨ Частицы</option>
+            <option value="spectrum">🌈 Спектр</option>
+            <option value="radial">🎯 Радиальный</option>
+            <option value="bubble">💭 Пузырьки</option>
+            <option value="tunnel3d">🌀 3D Туннель</option>
+            <option value="cube3d">🧊 3D Куб</option>
+            <option value="galaxy">🌌 Галактика</option>
+            <option value="aurora">🎆 Северное сияние</option>
+            <option value="meteor">☄️ Метеоритный дождь</option>
+            <option value="lava">🌋 Лава</option>
+            <option value="neon">💜 Неоновая сетка</option>
+            <option value="ripple">💧 Волны на воде</option>
+            <option value="vortex">🌀 Вихрь</option>
+            <option value="flower">🌸 Цветок</option>
+            <option value="fractal">🔮 Фрактал</option>
+            <option value="pulse">💗 Пульсирующее сердце</option>
+            <option value="equalizer">🎛️ Эквалайзер</option>
+            <option value="starburst">⭐ Звездный взрыв</option>
+            <option value="laser">🔫 Лазерное шоу</option>
+            <option value="glitch">📺 Глитч-эффект</option>
+            <option value="plasma">⚡ Плазма</option>
+            <option value="gif">🎞️ GIF анимация</option>
+        </select>
+        
+        <label>✨ Эффект кнопок:</label>
+        <select id="btn-effect" onchange="changeBtnEffect(this.value)">
+            <option value="pulse">💓 Пульсация</option>
+            <option value="glow">✨ Свечение</option>
+            <option value="none">🚫 Нет</option>
+        </select>
+        
+        <label>🎤 Устройство захвата звука:</label>
+        <select id="audio-device" onchange="selectAudioDevice(this.value)">
+            <option value="">🔇 Выключено</option>
+        </select>
+        
+        <label>📊 Чувствительность:</label>
+        <input type="range" id="viz-sensitivity" min="0.1" max="3" step="0.1" value="1" onchange="setSensitivity(this.value)">
+        
+        <label>🎵 Сервисы (макс. 2):</label>
+        <div id="services-list"></div>
+
+<label>🌐 Кастомные сайты (до 5):</label>
+<div id="customSitesList" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px;"></div>
+
+<div style="margin-top: 8px;">
+    <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+        <input type="text" id="newSiteName" placeholder="Название (например, Spotify)" style="flex: 1; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); padding: 10px; border-radius: 8px;">
+        <button id="addCustomSiteBtn" style="background: var(--accent-color); color: #000; border: none; padding: 8px 8px; border-radius: 8px; cursor: pointer; font-weight: bold;">➕ Добавить</button>
+    </div>
+    <input type="url" id="newSiteUrl" placeholder="https://..." style="width: 100%; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); padding: 10px; border-radius: 8px;">
+</div>
+
+<div style="margin: 10px 0;">
+    <button id="resetServicesBtn" style="background: #ff4444; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; width: 100%;">🔄 Сбросить сервисы до стандартных</button>
+</div>
+        
+        <label>🔊 Звук переключения:</label>
+<select id="sound-select" onchange="changeSound(this.value)">
+    <option value="off">🔇 Выключен</option>
+    <option value="beep1" selected>🔊 Короткий писк</option>
+    <option value="beep2">🔊 Двойной писк</option>
+    <option value="click">🔊 Щелчок</option>
+    <option value="whoosh">🔊 Вжух</option>
+</select>
+        
+
+
+<label>🔔 Звук уведомлений:</label>
+<select id="notify-sound-select" onchange="changeNotifySound(this.value)">
+    <option value="off">🔇 Выключен</option>
+    <option value="beep1" selected>🔊 Короткий писк</option>
+    <option value="beep2">🔊 Двойной писк</option>
+    <option value="click">🔊 Щелчок</option>
+    <option value="whoosh">🔊 Вжух</option>
+</select>
+
+<label>🔔 Показывать уведомления:</label>
+<div style="margin-bottom:15px;">
+    <label class="checkbox-label">
+        <input type="checkbox" id="showNotificationsCheckbox" checked> Показывать всплывающие уведомления
+    </label>
+</div>
+
+<label>🎞️ GIF для визуализатора:</label>
+<div style="display: flex; gap: 8px; margin-bottom: 15px;">
+    <input type="file" id="gifFileInput" accept="image/gif" style="flex: 2; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; cursor: pointer;">
+    <button id="previewGifBtn" style="background: var(--accent-color); color: #000; border: none; padding: 8px 12px; border-radius: 8px; cursor: pointer;">👁️ Предпросмотр</button>
+</div>
+<div id="gifPreview" style="display: none; margin-bottom: 15px; text-align: center;">
+    <img id="gifPreviewImg" style="max-width: 100%; max-height: 100px; border-radius: 8px;">
+    <button id="clearGifBtn" style="background: #ff4444; color: #fff; border: none; padding: 4px 8px; border-radius: 5px; cursor: pointer; margin-top: 5px;">✕ Удалить</button>
+</div>
+
+        <label>🚀 Запуск:</label>
+<div style="margin-bottom:15px;">
+    <label class="checkbox-label">
+        <input type="checkbox" id="startWithSystem"> Запускать с системой
+    </label>
+    <label class="checkbox-label" style="margin-left:15px;">
+        <input type="checkbox" id="startMinimized"> Запускать свернуто
+    </label>
+</div>
+        
+        <div class="settings-meta">
+            <div class="version-pill">MusicHub v2.4.0 ✨</div>
+            <div class="copyright">© 2026 MusicHub Labs | Made with Mamba1230
+        </div>
+        
+        <button class="close-btn" onclick="toggleSettings()">✨ Закрыть</button>
+    </div>
+</div>
+    
+
+     
+<div id="chat-panel">
+    <div class="chat-header">
+        <h3>MusicHub Chat</h3>
+        <button class="chat-close-btn" onclick="closeChat()">✕</button>
+    </div>
+    <div class="chat-status" id="chat-status">
+        🔌 Подключение...
+    </div>
+    <div class="chat-messages" id="chat-messages">
+        <div class="chat-message incoming">
+            <div class="message-sender">🎵 MusicHub Bot</div>
+            Добро пожаловать в чат! Здесь можно вводить команды /help и писать ии агенту.
+            <div class="message-time">только что</div>
+        </div>
+        <div class="chat-typing" id="chatTyping" style="display: none;">
+    <span>✍️</span>
+    <span id="typingUser"></span> печатает...
+</div>
+    </div>
+    <div class="chat-input-area">
+        <input type="text" class="chat-input" id="chat-input" placeholder="Введите сообщение..." onkeypress="handleChatKeypress(event)">
+        <button class="chat-send-btn" onclick="sendChatMessage()">➤</button>
+    </div>
+</div>
+
+<img id="gifVisualizer" style="display: none;">
+
+<!-- Premium модальное окно -->
+<div id="premiumModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 20000; justify-content: center; align-items: center;">
+    <div style="background: var(--bg-primary); border-radius: 20px; padding: 28px; max-width: 420px; width: 90%; box-shadow: 0 10px 40px rgba(0,0,0,0.3);">
+        <h3 style="color: gold; margin-bottom: 8px; font-size: 24px;">💎 MusicHub Premium</h3>
+        <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 14px;">Доступ ко всем возможностям</p>
+        
+        <div id="premiumStep1">
+            <div style="background: rgba(29,185,84,0.1); border-radius: 12px; padding: 12px; margin-bottom: 20px;">
+                <p style="margin: 4px 0;">✅ 25+ визуализаций (3D, GIF, Галактика)</p>
+                <p style="margin: 4px 0;">✅ Безлимитный AI в чате</p>
+                <p style="margin: 4px 0;">✅ Кастомные сайты (до 5)</p>
+                <p style="margin: 4px 0;">✅ Скриншоты визуализации</p>
+            </div>
+            
+            <button id="premiumBuyBtn" style="background: #1DB954; color: #000; padding: 14px; border: none; border-radius: 12px; width: 100%; margin: 8px 0; cursor: pointer; font-weight: bold; font-size: 16px;">💳 Купить Premium (50 ₽)</button>
+            
+            <hr style="margin: 20px 0; border-color: var(--border-color);">
+        </div>
+        
+        <div id="premiumKeyInput" style="margin: 20px 0;">
+    <label style="display: block; margin-bottom: 8px; font-weight: bold;">🔑 Ввести ключ активации:</label>
+    <div style="display: flex; gap: 10px;">
+        <input type="text" id="premiumKey" placeholder="XXXX-XXXX-XXXX-XXXX" style="flex: 2; background: var(--bg-secondary); color: var(--text-primary); border: 2px solid var(--border-color); border-radius: 12px; padding: 14px 16px; font-family: monospace; letter-spacing: 2px; font-size: 14px;">
+        <button id="activatePremiumBtn" style="background: linear-gradient(135deg, gold, #ffaa00); color: #000; border: none; border-radius: 12px; padding: 14px 24px; font-weight: bold; cursor: pointer;">Активировать</button>
+    </div>
+</div>
+        
+        <button id="premiumModalClose" style="margin-top: 20px; background: transparent; color: var(--text-secondary); padding: 8px; border: 1px solid var(--border-color); border-radius: 10px; width: 100%; cursor: pointer;">Закрыть</button>
+    </div>
+</div>
+
+    <script src="renderer.js"></script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+{
+  "name": "musichub",
+  "version": "2.4.0",
+  "description": "MusicHub - музыкальный агрегатор",
+  "author": "MusicHub Labs",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build-win": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.6.4",
+    "javascript-obfuscator": "^5.4.1"
+  },
+  "build": {
+    "appId": "com.musichub.app",
+    "productName": "MusicHub",
+    "copyright": "Copyright © 2026 MusicHub Labs",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "**/*",
+      "!node_modules/.cache"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "asar": true
+  },
+  "dependencies": {
+    "resend": "^6.10.0"
+  }
+}
