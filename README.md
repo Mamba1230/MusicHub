@@ -14,7 +14,7 @@
 
 ### Готовый установщик
 1. Скачай последнюю версию из [Releases](https://github.com/Mamba1230/MusicHub/releases)
-2. Запусти `MusicHub-Setup-2.3.5.exe`
+2. Запусти `MusicHub-Setup-2.4.0.exe`
 3. Следуй инструкциям установщика
 
 ### Из исходников
