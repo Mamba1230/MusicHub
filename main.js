@@ -10,8 +10,7 @@ const { URL } = require('url');
 const sessionKey = crypto.randomBytes(32).toString('hex');
 
  
-const APP_KEY = 'musichub-secret-key-2024';
-const STEAM_WORKER_URL = 'https://steam-proxy.170610maksim.workers.dev';
+
 
  
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = true;
