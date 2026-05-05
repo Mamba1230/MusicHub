@@ -1,11 +1,48 @@
+<!-- index.html -->
 <!DOCTYPE html>
 <html>
 <head>
+    <script src="https://cdn.jsdelivr.net/npm/gifuct-js@2.1.2/dist/gifuct-js.min.js"></script>
     <meta charset="UTF-8">
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="style.css">
 </head>
 <body class="dark-theme">
+
+    <div id="authModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 20001; justify-content: center; align-items: center;">
+    <div style="background: var(--bg-primary); border-radius: 20px; padding: 30px; max-width: 400px; width: 90%;">
+        <h3 id="authTitle" style="color: var(--accent-color); margin-bottom: 20px;">Вход в аккаунт</h3>
+        
+        <!-- Форма входа -->
+        <div id="authLoginForm">
+            <input type="email" id="loginEmail" placeholder="Email" style="width: 100%; padding: 12px; margin-bottom: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary);">
+            <input type="password" id="loginPassword" placeholder="Пароль" style="width: 100%; padding: 12px; margin-bottom: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary);">
+            <button id="loginBtn" style="width: 100%; padding: 12px; background: var(--accent-color); border: none; border-radius: 8px; color: #000; font-weight: bold; cursor: pointer;">Войти</button>
+            <p style="text-align: center; margin-top: 12px;">
+                <a href="#" onclick="switchToRegister(); return false;" style="color: var(--accent-color);">Нет аккаунта? Зарегистрироваться</a>
+            </p>
+        </div>
+        
+        <!-- Форма регистрации -->
+        <div id="authRegisterForm" style="display: none;">
+            <input type="text" id="regUsername" placeholder="Имя пользователя" style="width: 100%; padding: 12px; margin-bottom: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary);">
+            <input type="email" id="regEmail" placeholder="Email" style="width: 100%; padding: 12px; margin-bottom: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary);">
+            <input type="password" id="regPassword" placeholder="Пароль (мин. 6 символов)" style="width: 100%; padding: 12px; margin-bottom: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary);">
+            <input type="password" id="regConfirm" placeholder="Подтвердите пароль" style="width: 100%; padding: 12px; margin-bottom: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary);">
+            <button id="registerBtn" style="width: 100%; padding: 12px; background: var(--accent-color); border: none; border-radius: 8px; color: #000; font-weight: bold; cursor: pointer;">Зарегистрироваться</button>
+            <p style="text-align: center; margin-top: 12px;">
+                <a href="#" onclick="switchToLogin(); return false;" style="color: var(--accent-color);">Уже есть аккаунт? Войти</a>
+            </p>
+        </div>
+        
+        <hr style="margin: 20px 0; border-color: var(--border-color);">
+        
+        <button id="guestBtn" style="width: 100%; padding: 12px; background: transparent; border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary); cursor: pointer; margin-bottom: 12px;">🎭 Продолжить как гость</button>
+        
+        <button onclick="closeAuthModal()" style="width: 100%; padding: 12px; background: transparent; border: none; color: var(--text-secondary); cursor: pointer;">Закрыть</button>
+    </div>
+</div>
+    
     <div id="splashScreen" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg-primary); z-index: 10000; display: flex; flex-direction: row; justify-content: center; align-items: center; transition: opacity 0.5s; backdrop-filter: blur(10px);">
     
 
@@ -15,13 +52,16 @@
     
 
     <div style="width: 60%; display: flex; flex-direction: column; justify-content: center; align-items: center;">
-        <div class="splash-logo" style="font-size: 80px; font-weight: 900; color: var(--accent-color); margin-bottom: 20px; animation: splashPulse 1.5s ease-in-out infinite;">M</div>
-        <div class="splash-title" style="font-size: 28px; font-weight: 600; margin-bottom: 10px;">MusicHub</div>
-        <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v2.4.0</div>
-        <div class="splash-tip" id="splashTip" style="font-size: 14px; color: var(--text-secondary); max-width: 400px; text-align: center; padding: 0 20px; margin-bottom: 20px;"></div>
-        <div class="splash-progress" style="width: 300px; height: 3px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
-            <div class="splash-progress-bar" style="width: 0%; height: 100%; background: var(--accent-color); transition: width 0.1s linear;"></div>
-        </div>
+         <div id="splashLogoContainer" style="width: 200px; height: 200px; display: flex; justify-content: center; align-items: center; margin-bottom: 20px;">
+        <div id="splashLetter" class="splash-logo" style="font-size: 80px; font-weight: 900; color: var(--accent-color); animation: splashPulse 1.5s ease-in-out infinite;">M</div>
+        <img id="splashGif" style="max-width: 200px; max-height: 200px; display: none; border-radius: 20px;">
+    </div>
+    <div class="splash-title" style="font-size: 28px; font-weight: 600; margin-bottom: 10px;">MusicHub</div>
+    <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v2.5.5</div>
+    <div class="splash-tip" id="splashTip" style="font-size: 14px; color: var(--text-secondary); max-width: 400px; text-align: center; padding: 0 20px; margin-bottom: 20px;"></div>
+    <div class="splash-progress" style="width: 300px; height: 3px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
+        <div class="splash-progress-bar" style="width: 0%; height: 100%; background: var(--accent-color); transition: width 0.1s linear;"></div>
+    </div>
     </div>
     
 
@@ -30,23 +70,57 @@
     </div>
     
 </div>
-    <div id="titlebar">
+
+<div id="titlebar">
     <div id="drag-region">
-        MusicHub
+        <!-- Динамические кнопки окна (Win/Mac, слева/справа) -->
+        <div id="window-controls-dynamic" class="window-controls"></div>
+        
+        <!-- Онлайн счётчик -->
         <div class="titlebar-online" id="titlebarOnline">
             <span class="online-dot-small"></span>
             <span id="titlebarOnlineCount">0</span>
         </div>
+        
+        <!-- Эквалайзер -->
         <div class="titlebar-equalizer" id="titlebar-eq">
             <div class="eq-bar"></div><div class="eq-bar"></div><div class="eq-bar"></div>
             <div class="eq-bar"></div><div class="eq-bar"></div><div class="eq-bar"></div>
-            <div class="eq-bar"></div><div class="eq-bar"></div>
         </div>
-    </div>
-        <div id="window-controls">
-        <div class="win-btn" onclick="window.electronAPI.windowCtrl('min')">_</div>
-        <div class="win-btn" onclick="window.electronAPI.windowCtrl('max')">▢</div>
-        <div class="win-btn close-red" onclick="window.electronAPI.windowCtrl('close')">✕</div>
+
+        <!-- Кнопки навигации -->
+        <div class="nav-buttons">
+            <button class="nav-circle" onclick="goBack()" title="Назад">◀</button>
+            <button class="nav-circle" onclick="goForward()" title="Вперёд">▶</button>
+            <button class="nav-circle" onclick="reloadPage()" title="Обновить">↻</button>
+        </div>
+        
+        <!-- URL бар - динамический -->
+        <div class="url-bar-container">
+            <div class="url-bar" id="urlBar">
+                <img id="urlFavicon" class="url-favicon" src="" style="display: none;">
+                <span class="url-text" id="urlText">music.yandex.ru</span>
+            </div>
+        </div>
+        
+        <!-- Расширения: кнопка + выезжающая панель -->
+        <div class="extensions-bar">
+            <button class="ext-btn" id="extensionsPanelBtn">🧩</button>
+            <!-- Панель расширений (выезжающая) -->
+            <div id="extensionsPanel" style="display: none;">
+                <div class="ext-panel-header">
+                    <span>🧩 Расширения</span>
+                    <button id="closeExtensionsPanelBtn">✕</button>
+                </div>
+                <div id="extensionsList" class="ext-panel-list">
+                    <!-- Список загрузится через JS -->
+                </div>
+                <div class="ext-panel-footer">
+                    <button id="installExtensionBtn">➕ Установить расширение</button>
+                </div>
+            </div>
+        </div>
+        
     </div>
 </div>
 
@@ -66,7 +140,6 @@
 
             <button class="util-btn" id="miniBtn" onclick="toggleMini(this)">M</button>
             <button class="util-btn" id="settingsBtn">⚙</button>
-            <button class="util-btn" onclick="reloadPage()">↻</button>
             <button class="util-btn" onclick="captureVisualizer()">📸</button>
             <button class="util-btn" id="chatBtn">💬</button>
         </div>
@@ -75,31 +148,78 @@
         </div>
     </div>
 
-    <div id="settings-panel">
+<div id="settings-panel">
+    <div class="settings-header">
         <h3>✨ Настройки MusicHub</h3>
-        
-        <div id="premiumStatus" style="text-align: center; padding: 10px; margin: 10px 0; border-radius: 8px; background: rgba(29,185,84,0.1);">
-    ⭐ Загрузка статуса...
-</div>
-<button id="premiumInfoBtn" style="background: gold; color: #000; border: none; padding: 8px; border-radius: 5px; cursor: pointer; width: 100%;">💎 Узнать о Premium</button>
+        <button class="close-btn" onclick="toggleSettings()">✕</button>
+    </div>
+    
+    <div class="settings-content">
+        <!-- Premium блок + выход -->
+        <div class="settings-section">
+            <div class="premium-row">
+                <div id="premiumStatus" class="premium-status">⭐ Загрузка статуса...</div>
+                <div class="premium-actions">
+                    <button id="premiumInfoBtn" class="btn-premium">💎 Premium</button>
+                    <button id="logoutHeaderBtn" class="btn-logout" style="display: none;">🚪 Выйти</button>
+                </div>
+            </div>
+        </div>
 
-        <label>🎨 Тема:</label>
-        <select id="theme-select" onchange="changeThemeWithAnimation(this.value)">
-            <option value="dark">🌙 Темная</option>
-            <option value="light">☀️ Светлая</option>
-        </select>
-        
-        <label>🎨 Акцентный цвет:</label>
-        <input type="color" id="cp" onchange="changeAccentColor(this.value)">
-        
-        <label>🔍 Масштаб:</label>
-        <select id="zoom-select" onchange="setZoom(this.value)">
-            <option value="0.8">80%</option>
-            <option value="1.0" selected>100%</option>
-            <option value="1.2">120%</option>
-        </select>
-        
-        <label>🎵 Режим визуализации:</label>
+        <!-- Внешний вид -->
+        <div class="settings-section">
+            <div class="section-title">🎨 Внешний вид</div>
+            <div class="settings-grid">
+                <div class="setting-item">
+                    <label>Тема</label>
+                    <select id="theme-select" onchange="changeThemeWithAnimation(this.value)">
+                        <option value="dark">🌙 Темная</option>
+                        <option value="light">☀️ Светлая</option>
+                    </select>
+                </div>
+                <div class="setting-item">
+                    <label>Акцентный цвет</label>
+                    <input type="color" id="cp" onchange="changeAccentColor(this.value)">
+                </div>
+                <div class="setting-item">
+                    <label>Масштаб</label>
+                    <select id="zoom-select" onchange="setZoom(this.value)">
+                        <option value="0.8">80%</option>
+                        <option value="1.0" selected>100%</option>
+                        <option value="1.2">120%</option>
+                    </select>
+                </div>
+                <div class="setting-item">
+                    <label>Стиль кнопок окна</label>
+                    <select id="windowButtonsStyle" onchange="changeWindowButtonsStyle(this.value)">
+                        <option value="win">Windows (▢ _ ✕)</option>
+                        <option value="mac">macOS (🔴🟡🟢)</option>
+                    </select>
+                </div>
+                <div class="setting-item">
+                    <label>Позиция кнопок</label>
+                    <select id="windowButtonsPosition" onchange="changeWindowButtonsPosition(this.value)">
+                        <option value="left">Слева</option>
+                        <option value="right">Справа</option>
+                    </select>
+                </div>
+                <div class="setting-item">
+                    <label>Эффект кнопок</label>
+                    <select id="btn-effect" onchange="changeBtnEffect(this.value)">
+                        <option value="pulse">💓 Пульсация</option>
+                        <option value="glow">✨ Свечение</option>
+                        <option value="none">🚫 Нет</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Визуализация -->
+        <div class="settings-section">
+            <div class="section-title">🎵 Визуализация</div>
+            <div class="settings-grid">
+                <div class="setting-item full-width">
+                    <label>🎵 Режим визуализации:</label>
         <select id="viz-mode" onchange="changeVizMode(this.value)">
             <option value="bars">📊 Полоски</option>
             <option value="wave">🌊 Волна</option>
@@ -129,93 +249,121 @@
             <option value="plasma">⚡ Плазма</option>
             <option value="gif">🎞️ GIF анимация</option>
         </select>
-        
-        <label>✨ Эффект кнопок:</label>
-        <select id="btn-effect" onchange="changeBtnEffect(this.value)">
-            <option value="pulse">💓 Пульсация</option>
-            <option value="glow">✨ Свечение</option>
-            <option value="none">🚫 Нет</option>
-        </select>
-        
-        <label>🎤 Устройство захвата звука:</label>
-        <select id="audio-device" onchange="selectAudioDevice(this.value)">
-            <option value="">🔇 Выключено</option>
-        </select>
-        
-        <label>📊 Чувствительность:</label>
-        <input type="range" id="viz-sensitivity" min="0.1" max="3" step="0.1" value="1" onchange="setSensitivity(this.value)">
-        
-        <label>🎵 Сервисы (макс. 2):</label>
-        <div id="services-list"></div>
+                </div>
+                <div class="setting-item full-width">
+                    <label>Чувствительность</label>
+                    <input type="range" id="viz-sensitivity" min="0.1" max="3" step="0.1" value="1" onchange="setSensitivity(this.value)">
+                </div>
+                <div class="setting-item full-width">
+                    <label>🎞️ GIF анимация</label>
+                    <div class="gif-controls">
+                        <input type="file" id="gifFileInput" accept="image/gif">
+                        <button id="previewGifBtn" class="btn-secondary">👁️ Предпросмотр</button>
+                        <button id="clearGifBtn" class="btn-danger">✕ Удалить</button>
+                    </div>
+                    <div id="gifPreview" class="gif-preview" style="display: none;">
+                        <img id="gifPreviewImg">
+                    </div>
+                </div>
+            </div>
+        </div>
 
-<label>🌐 Кастомные сайты (до 5):</label>
-<div id="customSitesList" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px;"></div>
-
-<div style="margin-top: 8px;">
-    <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-        <input type="text" id="newSiteName" placeholder="Название (например, Spotify)" style="flex: 1; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); padding: 10px; border-radius: 8px;">
-        <button id="addCustomSiteBtn" style="background: var(--accent-color); color: #000; border: none; padding: 8px 8px; border-radius: 8px; cursor: pointer; font-weight: bold;">➕ Добавить</button>
-    </div>
-    <input type="url" id="newSiteUrl" placeholder="https://..." style="width: 100%; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); padding: 10px; border-radius: 8px;">
-</div>
-
-<div style="margin: 10px 0;">
-    <button id="resetServicesBtn" style="background: #ff4444; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; width: 100%;">🔄 Сбросить сервисы до стандартных</button>
-</div>
-        
-        <label>🔊 Звук переключения:</label>
-<select id="sound-select" onchange="changeSound(this.value)">
-    <option value="off">🔇 Выключен</option>
-    <option value="beep1" selected>🔊 Короткий писк</option>
-    <option value="beep2">🔊 Двойной писк</option>
-    <option value="click">🔊 Щелчок</option>
-    <option value="whoosh">🔊 Вжух</option>
-</select>
-        
-
-
-<label>🔔 Звук уведомлений:</label>
-<select id="notify-sound-select" onchange="changeNotifySound(this.value)">
-    <option value="off">🔇 Выключен</option>
-    <option value="beep1" selected>🔊 Короткий писк</option>
-    <option value="beep2">🔊 Двойной писк</option>
-    <option value="click">🔊 Щелчок</option>
-    <option value="whoosh">🔊 Вжух</option>
-</select>
-
-<label>🔔 Показывать уведомления:</label>
-<div style="margin-bottom:15px;">
-    <label class="checkbox-label">
-        <input type="checkbox" id="showNotificationsCheckbox" checked> Показывать всплывающие уведомления
-    </label>
-</div>
-
-<label>🎞️ GIF для визуализатора:</label>
-<div style="display: flex; gap: 8px; margin-bottom: 15px;">
-    <input type="file" id="gifFileInput" accept="image/gif" style="flex: 2; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; cursor: pointer;">
-    <button id="previewGifBtn" style="background: var(--accent-color); color: #000; border: none; padding: 8px 12px; border-radius: 8px; cursor: pointer;">👁️ Предпросмотр</button>
-</div>
-<div id="gifPreview" style="display: none; margin-bottom: 15px; text-align: center;">
-    <img id="gifPreviewImg" style="max-width: 100%; max-height: 100px; border-radius: 8px;">
-    <button id="clearGifBtn" style="background: #ff4444; color: #fff; border: none; padding: 4px 8px; border-radius: 5px; cursor: pointer; margin-top: 5px;">✕ Удалить</button>
-</div>
-
-        <label>🚀 Запуск:</label>
-<div style="margin-bottom:15px;">
-    <label class="checkbox-label">
-        <input type="checkbox" id="startWithSystem"> Запускать с системой
-    </label>
-    <label class="checkbox-label" style="margin-left:15px;">
-        <input type="checkbox" id="startMinimized"> Запускать свернуто
-    </label>
-</div>
-        
-        <div class="settings-meta">
-            <div class="version-pill">MusicHub v2.4.0 ✨</div>
-            <div class="copyright">© 2026 MusicHub Labs | Made with Mamba1230
+        <!-- Звук -->
+<div class="settings-section">
+    <div class="section-title">🔊 Звук</div>
+    <div class="settings-grid">
+        <div class="setting-item">
+            <label>Звук переключения</label>
+            <select id="sound-select" onchange="changeSound(this.value)">
+                <option value="off">🔇 Выключен</option>
+                <option value="beep1" selected>🔊 Короткий писк</option>
+                <option value="beep2">🔊 Двойной писк</option>
+                <option value="click">🔊 Щелчок</option>
+                <option value="whoosh">🔊 Вжух</option>
+            </select>
         </div>
         
-        <button class="close-btn" onclick="toggleSettings()">✨ Закрыть</button>
+        <div class="setting-item">
+            <label>Звук системных уведомлений</label>
+            <select id="notify-sound-select" onchange="changeNotifySound(this.value)">
+                <option value="off">🔇 Выключен</option>
+                <option value="beep1" selected>🔊 Короткий писк</option>
+                <option value="beep2">🔊 Двойной писк</option>
+                <option value="click">🔊 Щелчок</option>
+                <option value="whoosh">🔊 Вжух</option>
+            </select>
+        </div>
+        
+        <div class="setting-item">
+            <label>Устройство захвата</label>
+            <select id="audio-device" onchange="selectAudioDevice(this.value)">
+                <option value="">🔇 Выключено</option>
+            </select>
+        </div>
+        
+        <div class="setting-item full-width">
+            <label class="checkbox-label">
+                <input type="checkbox" id="showNotificationsCheckbox" checked> 🔔 Показывать всплывающие уведомления
+            </label>
+            <div class="setting-hint">При выключении уведомления не будут отображаться, но звук может остаться</div>
+        </div>
+    </div>
+</div>
+
+        <!-- Сервисы -->
+        <div class="settings-section">
+            <div class="section-title">🎵 Музыкальные сервисы</div>
+            <div id="services-list" class="services-list"></div>
+            <button id="resetServicesBtn" class="btn-danger" style="margin-top: 12px;">🔄 Сбросить до стандартных</button>
+        </div>
+
+        <!-- Кастомные сайты -->
+        <div class="settings-section">
+            <div class="section-title">🌐 Кастомные сайты</div>
+            <div id="customSitesList" class="custom-sites-list"></div>
+            <div class="add-custom-site">
+                <input type="text" id="newSiteName" placeholder="Название">
+                <input type="url" id="newSiteUrl" placeholder="https://...">
+            </div>
+            <button id="addCustomSiteBtn" class="btn-primary add-site-btn">➕ Добавить сайт</button>
+        </div>
+
+        <!-- Расширения -->
+        <div class="settings-section">
+            <div class="section-title">🧩 Расширения</div>
+            <div class="settings-grid">
+                <div class="setting-item full-width">
+                    <label>Установить по ID</label>
+                    <div class="extension-install">
+                        <input type="text" id="extensionIdInput" placeholder="ID расширения (например, cjpalhdlnbpafiamejdnhcphjbkeiagm)">
+                        <button id="installByIdBtn" class="btn-primary">📥 Установить</button>
+                    </div>
+                    <div id="extensionInstallStatus" class="install-status"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Запуск -->
+        <div class="settings-section">
+            <div class="section-title">🚀 Запуск</div>
+            <div class="settings-grid">
+                <div class="setting-item">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="startWithSystem"> Запускать с системой
+                    </label>
+                </div>
+                <div class="setting-item">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="startMinimized"> Запускать свернутым
+                    </label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="settings-footer">
+        <div class="version-pill">MusicHub v2.5.5</div>
+        <div class="copyright">© 2026 MusicHub Labs | Made with Mamba1230</div>
     </div>
 </div>
     
@@ -276,6 +424,18 @@
 </div>
         
         <button id="premiumModalClose" style="margin-top: 20px; background: transparent; color: var(--text-secondary); padding: 8px; border: 1px solid var(--border-color); border-radius: 10px; width: 100%; cursor: pointer;">Закрыть</button>
+    </div>
+</div>
+
+<div id="extensionIdModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 20003; justify-content: center; align-items: center;">
+    <div style="background: var(--bg-primary); border-radius: 16px; padding: 24px; width: 340px;">
+        <h3 style="margin-top: 0;">🧩 ID расширения</h3>
+        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 15px;">Введите ID из Chrome Web Store (например, <code>cjpalhdlnbpafiamejdnhcphjbkeiagm</code>)</p>
+        <input type="text" id="extensionIdInputField" placeholder="ID расширения" style="width: 100%; padding: 10px; margin-bottom: 20px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary);">
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+            <button id="extIdCancelBtn" style="padding: 8px 16px; background: transparent; border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer;">Отмена</button>
+            <button id="extIdOkBtn" style="padding: 8px 16px; background: var(--accent-color); border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">Установить</button>
+        </div>
     </div>
 </div>
 

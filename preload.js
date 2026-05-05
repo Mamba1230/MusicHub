@@ -1,29 +1,41 @@
-const { contextBridge, ipcRenderer, shell } = require('electron');
+// preload.js
+const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('electronAPI', {
+// Единый объект API
+const api = {
+    // Управление окном
+    windowCtrl: (cmd) => ipcRenderer.send('window-ctrl', cmd),
+    toggleMini: (isMini) => ipcRenderer.send('toggle-mini', isMini),
+    setAutostart: (enabled) => ipcRenderer.send('set-autostart', enabled),
+    restoreWindow: (bounds) => ipcRenderer.send('restore-window', bounds),
+    
+    // Открытие внешних ссылок
+    openExternal: (url) => ipcRenderer.invoke('open-external', url),
+    
+    // Мини-режим
+    onMinimizeWindow: (callback) => ipcRenderer.on('minimize-window', callback),
+    onGlobalSwitch: (callback) => ipcRenderer.on('global-switch', callback),
+    onInitActiveTab: (callback) => ipcRenderer.on('init-active-tab', callback),
+    onInitTheme: (callback) => ipcRenderer.on('init-theme', callback),
+    onOptimizeWebviews: (callback) => ipcRenderer.on('optimize-webviews', callback),
+    onAppBlur: (callback) => ipcRenderer.on('app-blur', callback),
+    onAppFocus: (callback) => ipcRenderer.on('app-focus', callback),
+    onAppHidden: (callback) => ipcRenderer.on('app-hidden', callback),
+    setStartMinimized: (value) => ipcRenderer.send('set-start-minimized', value),
+    onAppShown: (callback) => ipcRenderer.on('app-shown', callback),
+    onInitStartMinimized: (callback) => ipcRenderer.on('init-start-minimized', callback),
+    getStartMinimized: () => ipcRenderer.invoke('get-start-minimized'),
+    
+    // Steam
+    steamLogin: () => ipcRenderer.invoke('steam-login'),
+    
+    // РАСШИРЕНИЯ (добавляем недостающие методы)
+    openExtensionPopup: (extId) => ipcRenderer.invoke('open-extension-popup', extId),
+    getExtensions: () => ipcRenderer.invoke('get-extensions'),
+    installExtension: (path) => ipcRenderer.invoke('install-extension', path),
+    uninstallExtension: (extId) => ipcRenderer.invoke('uninstall-extension', extId),
+    installFromChrome: (extId) => ipcRenderer.invoke('install-from-chrome', extId),
+};
 
-  windowCtrl: (cmd) => ipcRenderer.send('window-ctrl', cmd),
-  toggleMini: (isMini) => ipcRenderer.send('toggle-mini', isMini),
-  setAutostart: (enabled) => ipcRenderer.send('set-autostart', enabled),
-  restoreWindow: (bounds) => ipcRenderer.send('restore-window', bounds),
-
-
-  onMinimizeWindow: (callback) => ipcRenderer.on('minimize-window', callback),
-  onGlobalSwitch: (callback) => ipcRenderer.on('global-switch', callback),
-  onInitActiveTab: (callback) => ipcRenderer.on('init-active-tab', callback),
-  onInitTheme: (callback) => ipcRenderer.on('init-theme', callback),
-  onOptimizeWebviews: (callback) => ipcRenderer.on('optimize-webviews', callback),
-  onAppBlur: (callback) => ipcRenderer.on('app-blur', callback),
-  onAppFocus: (callback) => ipcRenderer.on('app-focus', callback),
-  onAppHidden: (callback) => ipcRenderer.on('app-hidden', callback),
-  setStartMinimized: (value) => ipcRenderer.send('set-start-minimized', value),
-  onAppShown: (callback) => ipcRenderer.on('app-shown', callback),
-  onInitStartMinimized: (callback) => ipcRenderer.on('init-start-minimized', callback),
-  getStartMinimized: () => ipcRenderer.invoke('get-start-minimized'),
-
-
-  steamLogin: () => ipcRenderer.invoke('steam-login'),
-  
-
-openExternal: (url) => ipcRenderer.invoke('open-external', url)
-});
+// Экспортируем API (только один раз!)
+contextBridge.exposeInMainWorld('electronAPI', api);

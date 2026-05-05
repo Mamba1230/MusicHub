@@ -1,4 +1,4 @@
- 
+ // renderer.js
         let audioContext = null;
         let analyser = null;
         let source = null;
@@ -246,25 +246,31 @@ const STEAM_WORKER_URL = 'https://steam-proxy.170610maksim.workers.dev';
         }
 
          
-        function showToast(message, type = 'info') {
-            const toast = document.createElement('div');
-            toast.className = 'toast-notification';
-            const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : '🎵';
-            toast.innerHTML = `
-                <div class="toast-icon">${icon}</div>
-                <div class="toast-message">${message}</div>
-                <div class="toast-progress"></div>
-            `;
-            document.body.appendChild(toast);
-            
-            setTimeout(() => {
-                toast.classList.add('show');
-                setTimeout(() => {
-                    toast.classList.remove('show');
-                    setTimeout(() => toast.remove(), 300);
-                }, 3000);
-            }, 10);
-        }
+function showToast(message, type = 'info', playSound = false) {
+    if (playSound && notifySoundEnabled) {
+        playNotificationSound();
+    }
+    
+    if (!showNotifications) return;
+    
+    const toast = document.createElement('div');
+    toast.className = 'toast-notification';
+    const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : '🎵';
+    toast.innerHTML = `
+        <div class="toast-icon">${icon}</div>
+        <div class="toast-message">${message}</div>
+        <div class="toast-progress"></div>
+    `;
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.classList.add('show');
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }, 10);
+}
 
          
         let isPlaying = false;
@@ -1542,18 +1548,23 @@ if (gifIntensity < 0.05) {
     
      
     let fullscreenGif = null;
-    if (currentGifUrl && currentVizMode === 'gif') {
-        fullscreenGif = document.createElement('img');
-        fullscreenGif.src = currentGifUrl;
-        fullscreenGif.style.position = 'absolute';
-        fullscreenGif.style.top = '50%';
-        fullscreenGif.style.left = '50%';
-        fullscreenGif.style.transform = 'translate(-50%, -50%)';
-        fullscreenGif.style.maxWidth = '80%';
-        fullscreenGif.style.maxHeight = '80%';
-        fullscreenGif.style.objectFit = 'contain';
-        document.querySelector('.viz-fullscreen-overlay').appendChild(fullscreenGif);
-    }
+if (currentGifUrl && currentVizMode === 'gif') {
+    fullscreenGif = document.createElement('img');
+    fullscreenGif.src = currentGifUrl;
+    fullscreenGif.style.position = 'absolute';
+    fullscreenGif.style.top = '50%';
+    fullscreenGif.style.left = '50%';
+    fullscreenGif.style.transform = 'translate(-50%, -50%)';
+    fullscreenGif.style.maxWidth = '90%';
+    fullscreenGif.style.maxHeight = '90%';
+    fullscreenGif.style.minWidth = '300px';
+    fullscreenGif.style.minHeight = '300px';
+    fullscreenGif.style.width = 'auto';
+    fullscreenGif.style.height = 'auto';
+    fullscreenGif.style.objectFit = 'contain';
+    fullscreenGif.style.borderRadius = '20px';
+    document.querySelector('.viz-fullscreen-overlay').appendChild(fullscreenGif);
+}
     
     function draw() {
         if (!isFullscreen) return;
@@ -1987,9 +1998,7 @@ document.getElementById('premiumModalClose')?.addEventListener('click', () => {
 });
 
  
-document.getElementById('premiumBuyBtn')?.addEventListener('click', () => {
-    shell.openExternal('https://boosty.to/musichub/posts/c7486330-dd55-4e06-b08b-83fab5eb4f5f?share=post_link');
-});
+
 
 document.getElementById('premiumRequestCodeBtn')?.addEventListener('click', async () => {
     const email = document.getElementById('premiumEmail').value;
@@ -2083,19 +2092,7 @@ if (premiumModal) {
 }
 
  
-const premiumBuyBtn = document.getElementById('premiumBuyBtn');
-if (premiumBuyBtn) {
-    premiumBuyBtn.addEventListener('click', () => {
-         
-        if (window.electronAPI && window.electronAPI.openExternal) {
-            window.electronAPI.openExternal('https://boosty.to/musichub/posts/c7486330-dd55-4e06-b08b-83fab5eb4f5f?share=post_link');
-        } else {
-             
-            window.open('https://boosty.to/musichub/posts/c7486330-dd55-4e06-b08b-83fab5eb4f5f?share=post_link', '_blank');
-        }
-        showToast('🌐 Открыта страница оплаты. После оплаты вернитесь и активируйте Premium по коду!', 'info');
-    });
-}
+
 
 const premiumRequestCodeBtn = document.getElementById('premiumRequestCodeBtn');
 if (premiumRequestCodeBtn) {
@@ -2169,9 +2166,324 @@ if (premiumActivateBtn) {
     });
 }
 
+// ========== СИСТЕМА АККАУНТОВ ==========
+let currentUser = null;
+let authToken = localStorage.getItem('auth_token');
 
+// Загрузка сохранённого пользователя при старте
+async function loadSavedUser() {
+    if (authToken) {
+        try {
+            const response = await fetch(`${PREMIUM_WORKER}/verify`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: authToken })
+            });
+            const data = await response.json();
+            
+            if (data.success) {
+                currentUser = data.user;
+                updatePremiumUI();
+                updateAuthButton();
+                console.log('✅ Автоматический вход выполнен:', currentUser.username);
+            } else {
+                // Токен недействителен
+                authToken = null;
+                localStorage.removeItem('auth_token');
+                showGuestMode();
+            }
+        } catch (err) {
+            console.error('Ошибка проверки токена:', err);
+            showGuestMode();
+        }
+    } else {
+        showGuestMode();
+    }
+}
 
+function showGuestMode() {
+    currentUser = { isGuest: true, username: 'Гость', isPremium: true };
+    updateAuthButton();
+    updatePremiumUI();
+}
 
+function updateAuthButton() {
+    const authBtn = document.getElementById('authBtn');
+    if (!authBtn) return;
+    
+    if (currentUser?.isGuest) {
+        authBtn.innerHTML = '👤 Гость';
+        authBtn.title = 'Гостевой режим. Нажмите для входа';
+    } else if (currentUser) {
+        authBtn.innerHTML = `👤 ${currentUser.username}`;
+        authBtn.title = currentUser.email || currentUser.username;
+    } else {
+        authBtn.innerHTML = '🔓 Войти';
+    }
+}
+
+// Регистрация
+async function register(email, password, username) {
+    try {
+        const response = await fetch(`${PREMIUM_WORKER}/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, username })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            authToken = data.token;
+            localStorage.setItem('auth_token', authToken);
+            currentUser = data.user;
+            updateAuthButton();
+            updatePremiumUI();
+            closeAuthModal();
+            showToast(`🎉 Добро пожаловать, ${username}!`, 'success');
+            return true;
+        } else {
+            showToast(data.error, 'error');
+            return false;
+        }
+    } catch (err) {
+        showToast('Ошибка регистрации', 'error');
+        return false;
+    }
+}
+
+// Логин
+async function login(email, password) {
+    try {
+        const deviceId = await getDeviceId();
+        const response = await fetch(`${PREMIUM_WORKER}/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, deviceId })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            authToken = data.token;
+            localStorage.setItem('auth_token', authToken);
+            currentUser = data.user;
+            updateAuthButton();
+            updatePremiumUI();
+            closeAuthModal();
+            showToast(`✅ Добро пожаловать, ${currentUser.username}!`, 'success');
+            return true;
+        } else {
+            showToast(data.error, 'error');
+            return false;
+        }
+    } catch (err) {
+        showToast('Ошибка входа', 'error');
+        return false;
+    }
+}
+
+// Гостевой вход
+async function guestLogin() {
+    try {
+        const deviceId = await getDeviceId();
+        const response = await fetch(`${PREMIUM_WORKER}/guest`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ deviceId })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            authToken = data.token;
+            localStorage.setItem('auth_token', authToken);
+            currentUser = data.user;
+            updateAuthButton();
+            updatePremiumUI();
+            closeAuthModal();
+            showToast(`🎭 Гостевой режим: ${currentUser.username}`, 'info');
+            return true;
+        } else {
+            showToast('Ошибка гостевого входа', 'error');
+            return false;
+        }
+    } catch (err) {
+        showToast('Ошибка гостевого входа', 'error');
+        return false;
+    }
+}
+
+// Выход
+async function logout() {
+    if (authToken) {
+        try {
+            await fetch(`${PREMIUM_WORKER}/logout`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: authToken })
+            });
+        } catch (err) {}
+    }
+    
+    authToken = null;
+    localStorage.removeItem('auth_token');
+    currentUser = null;
+    showGuestMode();
+    showToast('👋 Вы вышли из аккаунта', 'info');
+}
+
+// Модальное окно авторизации
+function showAuthModal() {
+    const modal = document.getElementById('authModal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeAuthModal() {
+    const modal = document.getElementById('authModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function switchToLogin() {
+    document.getElementById('authLoginForm').style.display = 'block';
+    document.getElementById('authRegisterForm').style.display = 'none';
+    document.getElementById('authTitle').textContent = 'Вход в аккаунт';
+}
+
+function switchToRegister() {
+    document.getElementById('authLoginForm').style.display = 'none';
+    document.getElementById('authRegisterForm').style.display = 'block';
+    document.getElementById('authTitle').textContent = 'Регистрация';
+}
+
+// Обработчики форм
+document.getElementById('loginBtn')?.addEventListener('click', async () => {
+    const email = document.getElementById('loginEmail').value;
+    const password = document.getElementById('loginPassword').value;
+    await login(email, password);
+});
+
+document.getElementById('registerBtn')?.addEventListener('click', async () => {
+    const email = document.getElementById('regEmail').value;
+    const username = document.getElementById('regUsername').value;
+    const password = document.getElementById('regPassword').value;
+    const confirm = document.getElementById('regConfirm').value;
+    
+    if (password !== confirm) {
+        showToast('Пароли не совпадают', 'error');
+        return;
+    }
+    
+    if (password.length < 6) {
+        showToast('Пароль должен быть минимум 6 символов', 'error');
+        return;
+    }
+    
+    await register(email, password, username);
+});
+
+document.getElementById('guestBtn')?.addEventListener('click', async () => {
+    await guestLogin();
+});
+
+document.getElementById('logoutBtn')?.addEventListener('click', async () => {
+    await logout();
+});
+
+// Обновление UI Premium
+function updatePremiumUI() {
+    const premiumStatusDiv = document.getElementById('premiumStatus');
+    const premiumBuyBtn = document.getElementById('premiumBuyBtn');
+    
+    if (premiumStatusDiv) {
+        if (currentUser?.isPremium) {
+            premiumStatusDiv.innerHTML = `⭐ Premium активен (${currentUser.isGuest ? 'Гостевой режим' : currentUser.username})`;
+            premiumStatusDiv.style.color = 'gold';
+        } else {
+            premiumStatusDiv.innerHTML = `🎵 Бесплатная версия. Зарегистрируйтесь!`;
+            premiumStatusDiv.style.color = '#888';
+        }
+    }
+    
+    // Меняем кнопку "Купить Premium" на "Зарегистрироваться" для гостей
+    if (premiumBuyBtn) {
+        if (currentUser?.isGuest) {
+            premiumBuyBtn.textContent = '📝 Зарегистрироваться';
+            premiumBuyBtn.onclick = () => showAuthModal();
+        } else if (currentUser) {
+            premiumBuyBtn.textContent = '👤 Мой аккаунт';
+            premiumBuyBtn.onclick = () => showAuthModal();
+        } else {
+            premiumBuyBtn.textContent = '🔓 Войти';
+            premiumBuyBtn.onclick = () => showAuthModal();
+        }
+    }
+    
+    // Показываем/скрываем кнопку выхода
+    const logoutBtn = document.getElementById('logoutHeaderBtn');
+    if (logoutBtn) {
+        logoutBtn.style.display = currentUser && !currentUser.isGuest ? 'block' : 'none';
+    }
+}
+
+// Добавляем кнопку аккаунта в сайдбар
+function addAuthButton() {
+    const container = document.getElementById('services-container');
+    if (!container) return;
+    
+    const authBtn = document.createElement('button');
+    authBtn.id = 'authBtn';
+    authBtn.className = 'util-btn';
+    authBtn.style.marginTop = 'auto';
+    authBtn.style.marginBottom = '10px';
+    authBtn.onclick = () => showAuthModal();
+    container.parentElement?.insertBefore(authBtn, container.nextSibling);
+}
+
+// Инициализация
+document.addEventListener('DOMContentLoaded', async () => {
+    addAuthButton();
+    await loadSavedUser();
+    
+    // Добавляем кнопку выхода в настройки
+    const settingsPanel = document.getElementById('settings-panel');
+    if (settingsPanel && !document.getElementById('logoutHeaderBtn')) {
+        const logoutBtn = document.createElement('button');
+        logoutBtn.id = 'logoutHeaderBtn';
+        logoutBtn.textContent = '🚪 Выйти из аккаунта';
+        logoutBtn.style.cssText = 'background: #ff4444; color: white; margin-top: 10px;';
+        logoutBtn.onclick = async () => {
+            await logout();
+            closeAuthModal();
+        };
+        logoutBtn.style.display = 'none';
+        settingsPanel.appendChild(logoutBtn);
+    }
+});
+
+function playNotificationSound() {
+    if (!notifySoundEnabled) return;
+    
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        switch(notifySoundType) {
+            case 'beep1':
+                playTone(audioCtx, 880, 0.1);
+                break;
+            case 'beep2':
+                playTone(audioCtx, 880, 0.08);
+                setTimeout(() => playTone(audioCtx, 660, 0.08), 100);
+                break;
+            case 'click':
+                playNoise(audioCtx, 0.03);
+                break;
+            case 'whoosh':
+                playSweep(audioCtx, 400, 1200, 0.12);
+                break;
+            default:
+                playTone(audioCtx, 880, 0.1);
+        }
+    } catch(e) {
+        console.log('Звук уведомлений не поддерживается');
+    }
+}
 
 
 
@@ -2261,7 +2573,7 @@ if (premiumActivateBtn) {
 
          
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 MusicHub v2.4.0');
+    console.log('🚀 MusicHub v2.5.5');
     particleBackground = new ParticleBackground();
     loadSettings();
     loadCustomSites();  
@@ -2686,6 +2998,7 @@ function addServiceButton(id, icon, name) {
     container.appendChild(btn);
 }
 
+// Глобальные переменные
 let notifySoundEnabled = true;
 let notifySoundType = 'beep1';
 let showNotifications = true;
@@ -2695,6 +3008,7 @@ function changeNotifySound(value) {
     notifySoundEnabled = value !== 'off';
     localStorage.setItem('notifySound', value);
     
+    // Тестовый звук при смене (если включено)
     if (notifySoundEnabled) {
         playNotifySound();
     }
@@ -2726,6 +3040,7 @@ function playNotifySound() {
         console.log('Звук уведомлений не поддерживается');
     }
 }
+
 
 
 async function testPremiumExpire() {
@@ -2819,13 +3134,326 @@ function isAdmin(userId) {
 
 
 
+    // ---------- КНОПКИ ОКНА (WIN/MAC), URL, РАСШИРЕНИЯ ----------
+   function renderWindowButtons() {
+    const style = localStorage.getItem('windowButtonsStyle') || 'win';
+    const container = document.getElementById('window-controls-dynamic');
+    if (!container) return;
+    
+    if (style === 'mac') {
+        container.innerHTML = `
+            <div class="mac-buttons">
+                <div class="mac-dot red" data-action="close"></div>
+                <div class="mac-dot yellow" data-action="min"></div>
+                <div class="mac-dot green" data-action="max"></div>
+            </div>
+        `;
+    } else {
+        container.innerHTML = `
+            <div class="win-buttons">
+                <div class="win-btn" data-action="min">_</div>
+                <div class="win-btn" data-action="max">▢</div>
+                <div class="win-btn close" data-action="close">✕</div>
+            </div>
+        `;
+    }
+    
+    // ПРОСТОЙ ОБРАБОТЧИК – через onclick
+    const redBtn = container.querySelector('.mac-dot.red, .win-btn.close');
+    const yellowBtn = container.querySelector('.mac-dot.yellow, .win-btn[data-action="min"]');
+    const greenBtn = container.querySelector('.mac-dot.green, .win-btn[data-action="max"]');
+    
+    if (redBtn) redBtn.onclick = () => window.electronAPI.windowCtrl('close');
+    if (yellowBtn) yellowBtn.onclick = () => window.electronAPI.windowCtrl('min');
+    if (greenBtn) greenBtn.onclick = () => window.electronAPI.windowCtrl('max');
+}
+
+function applyButtonsPosition() {
+    const position = localStorage.getItem('windowButtonsPosition') || 'right';
+    const controls = document.getElementById('window-controls-dynamic');
+    const dragRegion = document.getElementById('drag-region');
+    if (!controls || !dragRegion) return;
+    
+    if (position === 'left') {
+        controls.style.order = '-1';
+        dragRegion.style.justifyContent = 'flex-start';
+    } else {
+        controls.style.order = '2';
+        dragRegion.style.justifyContent = 'space-between';
+    }
+}
+
+window.changeWindowButtonsStyle = function(style) {
+    localStorage.setItem('windowButtonsStyle', style);
+    renderWindowButtons();
+    applyButtonsPosition();
+};
+
+window.changeWindowButtonsPosition = function(position) {
+    localStorage.setItem('windowButtonsPosition', position);
+    applyButtonsPosition();
+};
+
+// Инициализация кнопок при загрузке
+setTimeout(() => {
+    renderWindowButtons();
+    applyButtonsPosition();
+}, 500);
+
+    // динамический URL
+    let currentUrl = '';
+    function updateUrlBar() {
+        const wv = document.querySelector('webview.active');
+        if (!wv) return;
+        wv.executeJavaScript('window.location.href').then(url => {
+            if (!url || url === currentUrl) return;
+            currentUrl = url;
+            let domain = '', path = '';
+            try { const u = new URL(url); domain = u.hostname; path = u.pathname + u.search + u.hash; } catch(e){ domain = url; }
+            const urlText = document.getElementById('urlText');
+            if (urlText) urlText.innerHTML = `<span class="url-domain">${domain}</span><span class="url-path">${path}</span>`;
+            wv.executeJavaScript(`(function(){const l=document.querySelector("link[rel*='icon']");return l?l.href:null;})()`)
+              .then(fav => { const img = document.getElementById('urlFavicon'); if(img && fav) { img.src = fav; img.style.display = 'inline'; } })
+              .catch(()=>{});
+            wv.executeJavaScript('document.title').then(t => { if(t) document.title = `MusicHub - ${t}`; }).catch(()=>{});
+        }).catch(()=>{});
+    }
+    function initUrlTracking() {
+        const wv = document.querySelector('webview.active');
+        if (!wv) return;
+        ['did-navigate', 'did-navigate-in-page', 'dom-ready'].forEach(ev => {
+            wv.removeEventListener(ev, updateUrlBar);
+            wv.addEventListener(ev, updateUrlBar);
+        });
+        updateUrlBar();
+    }
+    document.getElementById('urlBar')?.addEventListener('click', async () => {
+        const wv = document.querySelector('webview.active');
+        if (!wv) return;
+        const cur = await wv.executeJavaScript('window.location.href');
+        const nu = prompt('Перейти на адрес:', cur);
+        if (nu && nu !== cur) wv.loadURL(nu);
+    });
+
+    // расширения
+function openExtensionsWindow() {
+    window.electronAPI.openExtensionsWindow();
+}
+    // навигация (если ещё не определена)
+    if (typeof window.goBack === 'undefined') {
+        window.goBack = () => document.querySelector('webview.active')?.goBack();
+        window.goForward = () => document.querySelector('webview.active')?.goForward();
+        window.reloadPage = () => document.querySelector('webview.active')?.reload();
+    }
+
+    // переопределяем переключение вкладок, чтобы обновлять URL
+    const originalSw = window.sw;
+    if (originalSw) {
+        window.sw = function(id, btn) {
+            originalSw(id, btn);
+            setTimeout(initUrlTracking, 300);
+        };
+    }
+
+    // инициализация
+    if (!localStorage.getItem('windowButtonsStyle')) localStorage.setItem('windowButtonsStyle', 'win');
+    if (!localStorage.getItem('windowButtonsPosition')) localStorage.setItem('windowButtonsPosition', 'right');
+    renderWindowButtons();
+    applyButtonsPosition();
+    const styleSel = document.getElementById('windowButtonsStyle');
+    const posSel = document.getElementById('windowButtonsPosition');
+    if (styleSel) {
+        styleSel.value = localStorage.getItem('windowButtonsStyle');
+        styleSel.onchange = (e) => window.changeWindowButtonsStyle(e.target.value);
+    }
+    if (posSel) {
+        posSel.value = localStorage.getItem('windowButtonsPosition');
+        posSel.onchange = (e) => window.changeWindowButtonsPosition(e.target.value);
+    }
+    setTimeout(initUrlTracking, 1000);
+
+
+// ---------- Панель расширений ----------
+(function() {
+    const extBtn = document.getElementById('extensionsPanelBtn');
+    const panel = document.getElementById('extensionsPanel');
+    const closePanelBtn = document.getElementById('closeExtensionsPanelBtn');
+    const installBtn = document.getElementById('installExtensionBtn');
+    
+    if (!extBtn || !panel) {
+        console.warn('Элементы панели расширений не найдены');
+        return;
+    }
+    
+    function togglePanel() {
+        const isVisible = panel.classList.contains('show');
+        if (isVisible) {
+            panel.classList.remove('show');
+            setTimeout(() => { panel.style.display = 'none'; }, 200);
+        } else {
+            panel.style.display = 'block';
+            setTimeout(() => panel.classList.add('show'), 10);
+            loadExtensionsList();
+        }
+    }
+    
+    function closePanel() {
+        panel.classList.remove('show');
+        setTimeout(() => { panel.style.display = 'none'; }, 200);
+    }
+    
+    async function loadExtensionsList() {
+        const listContainer = document.getElementById('extensionsList');
+        if (!listContainer) return;
+        try {
+            const extensions = await window.electronAPI.getExtensions();
+            if (!extensions.length) {
+                listContainer.innerHTML = '<div style="padding: 12px; text-align: center; opacity: 0.6;">Нет установленных расширений</div>';
+                return;
+            }
+            listContainer.innerHTML = extensions.map(ext => `
+                <div class="extension-item" data-id="${ext.id}">
+                    ${ext.icon ? `<img class="extension-icon" src="file://${ext.icon}" onerror="this.style.display='none'">` : '<div class="extension-icon" style="background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center;">🧩</div>'}
+                    <span class="extension-name" title="${ext.name}">${ext.name}</span>
+                    <button class="extension-delete" data-id="${ext.id}" title="Удалить">🗑️</button>
+                </div>
+            `).join('');
+            
+            // Обработчики удаления
+            document.querySelectorAll('.extension-delete').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const extId = btn.dataset.id;
+                    if (confirm(`Удалить расширение "${extId}"?`)) {
+                        await window.electronAPI.uninstallExtension(extId);
+                        loadExtensionsList();
+                    }
+                });
+            });
+            
+            // Обработчики клика по расширению (можно открыть попап)
+            document.querySelectorAll('.extension-item').forEach(item => {
+item.addEventListener('click', async (e) => {
+    if (e.target.classList.contains('extension-delete')) return;
+    const extId = item.dataset.id;
+    try {
+        await window.electronAPI.openExtensionPopup(extId);
+    } catch (err) {
+        showToast('Ошибка открытия: ' + err.message, 'error');
+    }
+});
+            });
+        } catch (err) {
+            console.error('Ошибка загрузки расширений:', err);
+            listContainer.innerHTML = '<div style="padding: 12px; text-align: center; color: #ff8888;">Ошибка загрузки</div>';
+        }
+    }
+    
+    async function installExtensionFlow() {
+    const choice = confirm('Установить расширение?\n\n"OK" — ввести ID из Chrome Web Store\n"Отмена" — выбрать папку с расширением');
+    if (choice) {
+        // Показываем модальное окно для ввода ID
+        const modal = document.getElementById('extensionIdModal');
+        const input = document.getElementById('extensionIdInputField');
+        const okBtn = document.getElementById('extIdOkBtn');
+        const cancelBtn = document.getElementById('extIdCancelBtn');
+        
+        modal.style.display = 'flex';
+        input.value = '';
+        
+        const onOk = async () => {
+            const extId = input.value.trim();
+            modal.style.display = 'none';
+            if (!extId) return;
+            
+            const statusDiv = document.getElementById('extensionInstallStatus') || (() => {
+                const div = document.createElement('div');
+                div.id = 'extensionInstallStatus';
+                div.style.position = 'fixed';
+                div.style.bottom = '20px';
+                div.style.right = '20px';
+                div.style.background = 'rgba(0,0,0,0.8)';
+                div.style.color = '#fff';
+                div.style.padding = '8px 16px';
+                div.style.borderRadius = '8px';
+                div.style.zIndex = '10002';
+                document.body.appendChild(div);
+                return div;
+            })();
+            statusDiv.style.display = 'block';
+            statusDiv.innerHTML = '⏳ Установка...';
+            try {
+                const result = await window.electronAPI.installFromChrome(extId);
+                if (result.success) {
+                    statusDiv.innerHTML = '✅ Установлено! Перезагрузите приложение.';
+                    setTimeout(() => statusDiv.style.display = 'none', 3000);
+                    loadExtensionsList();
+                } else {
+                    statusDiv.innerHTML = `❌ ${result.error}`;
+                }
+            } catch(e) {
+                statusDiv.innerHTML = `❌ ${e.message}`;
+            }
+            clean();
+        };
+        
+        const onCancel = () => {
+            modal.style.display = 'none';
+            clean();
+        };
+        
+        const clean = () => {
+            okBtn.removeEventListener('click', onOk);
+            cancelBtn.removeEventListener('click', onCancel);
+        };
+        
+        okBtn.addEventListener('click', onOk);
+        cancelBtn.addEventListener('click', onCancel);
+        
+    } else {
+        // Установка из папки
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.webkitdirectory = true;
+        input.onchange = async (e) => {
+            const path = e.target.files[0]?.path;
+            if (path) {
+                const result = await window.electronAPI.installExtension(path);
+                if (result.success) {
+                    showToast('✅ Расширение установлено!', 'success');
+                    loadExtensionsList();
+                } else {
+                    showToast('❌ Ошибка: ' + result.error, 'error');
+                }
+            }
+        };
+        input.click();
+    }
+}
+    
+    extBtn.addEventListener('click', togglePanel);
+    if (closePanelBtn) closePanelBtn.addEventListener('click', closePanel);
+    if (installBtn) installBtn.addEventListener('click', installExtensionFlow);
+    
+    // Закрыть при клике вне панели
+    document.addEventListener('click', (e) => {
+        if (panel.classList.contains('show') && !panel.contains(e.target) && e.target !== extBtn) {
+            closePanel();
+        }
+    });
+})();
 
 
 
-
-
-
-
+window.changeWindowButtonsStyle = function(style) {
+    localStorage.setItem('windowButtonsStyle', style);
+    if (typeof renderWindowButtons === 'function') renderWindowButtons();
+    if (typeof applyButtonsPosition === 'function') applyButtonsPosition();
+};
+window.changeWindowButtonsPosition = function(pos) {
+    localStorage.setItem('windowButtonsPosition', pos);
+    if (typeof applyButtonsPosition === 'function') applyButtonsPosition();
+};
 
 
 
@@ -3590,8 +4218,18 @@ function addReaction(messageId, emoji) {
 }
 
  
+
 function showChatNotification(message, sender) {
+    // Звук всегда играем, если он включен (независимо от уведомлений)
+    if (notifySoundEnabled) {
+        playNotifySound();
+    }
+    
+    // Если уведомления выключены в настройках — не показываем попап
+    if (!showNotifications) return;
+    
     if (!notificationsEnabled) return;
+    
     const notification = document.createElement('div');
     notification.className = 'chat-notification';
     notification.innerHTML = `
@@ -3603,16 +4241,10 @@ function showChatNotification(message, sender) {
         <div class="notification-close">✕</div>
     `;
     
-    if (!showNotifications) return;
-        playNotifySound();
-
-    
     document.body.appendChild(notification);
     
-     
     setTimeout(() => notification.classList.add('show'), 10);
     
-     
     notification.addEventListener('click', (e) => {
         if (!e.target.classList.contains('notification-close')) {
             toggleChat();
@@ -3620,7 +4252,6 @@ function showChatNotification(message, sender) {
         }
     });
     
-     
     const closeBtn = notification.querySelector('.notification-close');
     closeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -3628,7 +4259,6 @@ function showChatNotification(message, sender) {
         setTimeout(() => notification.remove(), 300);
     });
     
-     
     setTimeout(() => {
         if (notification.parentNode) {
             notification.classList.remove('show');
