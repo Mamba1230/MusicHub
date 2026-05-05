@@ -93,7 +93,7 @@
 
 ```bash
 # Клонируем репозиторий
-git clone https://github.com/ваш-ник/musichub.git
+git clone https://github.com/Mamba1230/musichub.git
 cd musichub
 
 # Устанавливаем зависимости
