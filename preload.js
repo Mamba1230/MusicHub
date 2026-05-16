@@ -8,13 +8,11 @@ const api = {
     toggleMini: (isMini) => ipcRenderer.send('toggle-mini', isMini),
     setAutostart: (enabled) => ipcRenderer.send('set-autostart', enabled),
     restoreWindow: (bounds) => ipcRenderer.send('restore-window', bounds),
-    
-    // Открытие внешних ссылок
     openExternal: (url) => ipcRenderer.invoke('open-external', url),
-    
-    // Мини-режим
+    updateArtwork: (url) => ipcRenderer.send('update-artwork', url),
     onMinimizeWindow: (callback) => ipcRenderer.on('minimize-window', callback),
     onGlobalSwitch: (callback) => ipcRenderer.on('global-switch', callback),
+    updateArtworkForTray: (url) => ipcRenderer.send('update-artwork-for-tray', url),
     onInitActiveTab: (callback) => ipcRenderer.on('init-active-tab', callback),
     onInitTheme: (callback) => ipcRenderer.on('init-theme', callback),
     onOptimizeWebviews: (callback) => ipcRenderer.on('optimize-webviews', callback),
@@ -25,11 +23,9 @@ const api = {
     onAppShown: (callback) => ipcRenderer.on('app-shown', callback),
     onInitStartMinimized: (callback) => ipcRenderer.on('init-start-minimized', callback),
     getStartMinimized: () => ipcRenderer.invoke('get-start-minimized'),
-    
-    // Steam
-    steamLogin: () => ipcRenderer.invoke('steam-login'),
-    
-    // РАСШИРЕНИЯ (добавляем недостающие методы)
+    updateTrackInfo: (info) => ipcRenderer.send('update-track-info', info),
+    updateArtworkBase64: (base64, trackInfo) => ipcRenderer.send('update-artwork-base64', base64, trackInfo),
+    updateTabBinding: (data) => ipcRenderer.send('update-tab-binding', data),
     openExtensionPopup: (extId) => ipcRenderer.invoke('open-extension-popup', extId),
     getExtensions: () => ipcRenderer.invoke('get-extensions'),
     installExtension: (path) => ipcRenderer.invoke('install-extension', path),

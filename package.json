@@ -1,6 +1,6 @@
 {
   "name": "musichub",
-  "version": "2.4.0",
+  "version": "2.6.0",
   "description": "MusicHub - музыкальный агрегатор",
   "author": "MusicHub Labs",
   "main": "main.js",
@@ -8,8 +8,12 @@
     "start": "electron .",
     "build-win": "electron-builder --win"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mamba1230/MusicHub"
+  },
   "devDependencies": {
-    "electron": "^28.0.0",
+    "electron": "^34.2.0",
     "electron-builder": "^24.6.4",
     "javascript-obfuscator": "^5.4.1"
   },
@@ -37,6 +41,19 @@
     "asar": true
   },
   "dependencies": {
-    "resend": "^6.10.0"
+    "@capacitor/android": "^8.3.1",
+    "@capacitor/cli": "^8.3.1",
+    "@capacitor/core": "^8.3.1",
+    "adm-zip": "^0.5.17",
+    "electron-chrome-extensions": "^4.9.0",
+    "iconv-lite": "^0.7.2",
+    "imap": "^0.8.19",
+    "mailparser": "^3.9.8",
+    "node-fetch": "^2.7.0",
+    "nodemailer": "^8.0.5",
+    "quoted-printable": "^1.0.1",
+    "resend": "^6.10.0",
+    "update-electron-app": "^3.2.0",
+    "win32-api": "^26.1.2"
   }
 }

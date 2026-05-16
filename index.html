@@ -2,7 +2,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <script src="https://cdn.jsdelivr.net/npm/gifuct-js@2.1.2/dist/gifuct-js.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/omggif@1.0.10/omggif.js"></script>
     <meta charset="UTF-8">
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="style.css">
@@ -11,35 +11,16 @@
 
     <div id="authModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 20001; justify-content: center; align-items: center;">
     <div style="background: var(--bg-primary); border-radius: 20px; padding: 30px; max-width: 400px; width: 90%;">
-        <h3 id="authTitle" style="color: var(--accent-color); margin-bottom: 20px;">Вход в аккаунт</h3>
         
-        <!-- Форма входа -->
-        <div id="authLoginForm">
-            <input type="email" id="loginEmail" placeholder="Email" style="width: 100%; padding: 12px; margin-bottom: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary);">
-            <input type="password" id="loginPassword" placeholder="Пароль" style="width: 100%; padding: 12px; margin-bottom: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary);">
-            <button id="loginBtn" style="width: 100%; padding: 12px; background: var(--accent-color); border: none; border-radius: 8px; color: #000; font-weight: bold; cursor: pointer;">Войти</button>
-            <p style="text-align: center; margin-top: 12px;">
-                <a href="#" onclick="switchToRegister(); return false;" style="color: var(--accent-color);">Нет аккаунта? Зарегистрироваться</a>
-            </p>
-        </div>
         
-        <!-- Форма регистрации -->
-        <div id="authRegisterForm" style="display: none;">
-            <input type="text" id="regUsername" placeholder="Имя пользователя" style="width: 100%; padding: 12px; margin-bottom: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary);">
-            <input type="email" id="regEmail" placeholder="Email" style="width: 100%; padding: 12px; margin-bottom: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary);">
-            <input type="password" id="regPassword" placeholder="Пароль (мин. 6 символов)" style="width: 100%; padding: 12px; margin-bottom: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary);">
-            <input type="password" id="regConfirm" placeholder="Подтвердите пароль" style="width: 100%; padding: 12px; margin-bottom: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary);">
-            <button id="registerBtn" style="width: 100%; padding: 12px; background: var(--accent-color); border: none; border-radius: 8px; color: #000; font-weight: bold; cursor: pointer;">Зарегистрироваться</button>
-            <p style="text-align: center; margin-top: 12px;">
-                <a href="#" onclick="switchToLogin(); return false;" style="color: var(--accent-color);">Уже есть аккаунт? Войти</a>
-            </p>
-        </div>
         
-        <hr style="margin: 20px 0; border-color: var(--border-color);">
         
-        <button id="guestBtn" style="width: 100%; padding: 12px; background: transparent; border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary); cursor: pointer; margin-bottom: 12px;">🎭 Продолжить как гость</button>
         
-        <button onclick="closeAuthModal()" style="width: 100%; padding: 12px; background: transparent; border: none; color: var(--text-secondary); cursor: pointer;">Закрыть</button>
+        
+        
+        
+        
+        
     </div>
 </div>
     
@@ -57,7 +38,7 @@
         <img id="splashGif" style="max-width: 200px; max-height: 200px; display: none; border-radius: 20px;">
     </div>
     <div class="splash-title" style="font-size: 28px; font-weight: 600; margin-bottom: 10px;">MusicHub</div>
-    <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v2.5.5</div>
+    <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v2.6.0</div>
     <div class="splash-tip" id="splashTip" style="font-size: 14px; color: var(--text-secondary); max-width: 400px; text-align: center; padding: 0 20px; margin-bottom: 20px;"></div>
     <div class="splash-progress" style="width: 300px; height: 3px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
         <div class="splash-progress-bar" style="width: 0%; height: 100%; background: var(--accent-color); transition: width 0.1s linear;"></div>
@@ -105,21 +86,20 @@
         
         <!-- Расширения: кнопка + выезжающая панель -->
         <div class="extensions-bar">
-            <button class="ext-btn" id="extensionsPanelBtn">🧩</button>
-            <!-- Панель расширений (выезжающая) -->
-            <div id="extensionsPanel" style="display: none;">
-                <div class="ext-panel-header">
-                    <span>🧩 Расширения</span>
-                    <button id="closeExtensionsPanelBtn">✕</button>
-                </div>
-                <div id="extensionsList" class="ext-panel-list">
-                    <!-- Список загрузится через JS -->
-                </div>
-                <div class="ext-panel-footer">
-                    <button id="installExtensionBtn">➕ Установить расширение</button>
-                </div>
+    <button class="ext-btn" id="extensionsPanelBtn">🎵</button>
+    <!-- Панель обложки -->
+    <div id="extensionsPanel" style="display: none;">
+        <div class="ext-panel-header">
+            <span>🎵 Обложка трека</span>
+            <button id="closeExtensionsPanelBtn">✕</button>
+        </div>
+        <div id="nowPlayingPanel" class="now-playing-panel">
+            <div class="panel-artwork-container">
+                <img id="panelArtwork" class="panel-artwork" src="">
             </div>
         </div>
+    </div>
+</div>
         
     </div>
 </div>
@@ -177,10 +157,10 @@
                         <option value="light">☀️ Светлая</option>
                     </select>
                 </div>
-                <div class="setting-item">
-                    <label>Акцентный цвет</label>
-                    <input type="color" id="cp" onchange="changeAccentColor(this.value)">
-                </div>
+<div class="setting-item">
+    <label>🎨 Акцентный цвет</label>
+    <input type="color" id="cp" onchange="changeAccentColor(this.value)" value="#1DB954">
+</div>
                 <div class="setting-item">
                     <label>Масштаб</label>
                     <select id="zoom-select" onchange="setZoom(this.value)">
@@ -267,6 +247,24 @@
                 </div>
             </div>
         </div>
+        
+        <div class="settings-section">
+    <div class="section-title">🎨 Дополнительно</div>
+    <div class="settings-grid">
+        <div class="setting-item full-width">
+            <label class="checkbox-label">
+                <input type="checkbox" id="autoColorFromArtwork"> 🎨 Авто-цвет из обложки
+            </label>
+            <div class="setting-hint">Акцентный цвет будет подстраиваться под цвет текущей обложки</div>
+        </div>
+        <div class="setting-item full-width">
+            <label class="checkbox-label">
+                <input type="checkbox" id="simpleGradientCheckbox"> 🌈 Цветной фон под обложку
+            </label>
+            <div class="setting-hint">Фон будет подсвечиваться цветом обложки</div>
+        </div>
+    </div>
+</div>
 
         <!-- Звук -->
 <div class="settings-section">
@@ -343,6 +341,33 @@
             </div>
         </div>
 
+<div class="settings-section">
+    <div class="section-title">⌨️ Горячие клавиши</div>
+    <div class="hotkey-settings">
+        <div class="hotkey-row">
+            <label>🎮 Переключение вкладок</label>
+            <div class="hotkey-controls">
+                <input type="checkbox" id="enableTabBinding" checked>
+                <span>Вкл</span>
+                <input type="text" id="tabBindingKey" value="Ctrl+Tab" readonly>
+                <button id="changeTabBindingBtn">Изменить</button>
+                <button id="resetTabBindingBtn">Сброс</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="settings-section">
+    <div class="section-title">🖼️ Обложка трека</div>
+    <div class="setting-item full-width">
+        <button id="openArtworkLinkBtn" class="btn-primary">🌐 Открыть обложку в браузере</button>
+        <div class="setting-hint" style="font-size: 11px; margin-top: 8px;">
+            Откроется страница с текущей обложкой: 
+            <code id="artworkUrlDisplay">http://127.0.0.1:3456/</code>
+        </div>
+    </div>
+</div>
+
         <!-- Запуск -->
         <div class="settings-section">
             <div class="section-title">🚀 Запуск</div>
@@ -362,7 +387,7 @@
     </div>
 
     <div class="settings-footer">
-        <div class="version-pill">MusicHub v2.5.5</div>
+        <div class="version-pill">MusicHub v2.6.0</div>
         <div class="copyright">© 2026 MusicHub Labs | Made with Mamba1230</div>
     </div>
 </div>
@@ -396,34 +421,16 @@
 
 <img id="gifVisualizer" style="display: none;">
 
-<!-- Premium модальное окно -->
 <div id="premiumModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 20000; justify-content: center; align-items: center;">
-    <div style="background: var(--bg-primary); border-radius: 20px; padding: 28px; max-width: 420px; width: 90%; box-shadow: 0 10px 40px rgba(0,0,0,0.3);">
-        <h3 style="color: gold; margin-bottom: 8px; font-size: 24px;">💎 MusicHub Premium</h3>
-        <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 14px;">Доступ ко всем возможностям</p>
-        
-        <div id="premiumStep1">
-            <div style="background: rgba(29,185,84,0.1); border-radius: 12px; padding: 12px; margin-bottom: 20px;">
-                <p style="margin: 4px 0;">✅ 25+ визуализаций (3D, GIF, Галактика)</p>
-                <p style="margin: 4px 0;">✅ Безлимитный AI в чате</p>
-                <p style="margin: 4px 0;">✅ Кастомные сайты (до 5)</p>
-                <p style="margin: 4px 0;">✅ Скриншоты визуализации</p>
-            </div>
-            
-            <button id="premiumBuyBtn" style="background: #1DB954; color: #000; padding: 14px; border: none; border-radius: 12px; width: 100%; margin: 8px 0; cursor: pointer; font-weight: bold; font-size: 16px;">💳 Купить Premium (50 ₽)</button>
-            
-            <hr style="margin: 20px 0; border-color: var(--border-color);">
+    <div style="background: var(--bg-primary); border-radius: 20px; padding: 28px; max-width: 400px; width: 90%; text-align: center;">
+        <h3 style="color: gold; margin-bottom: 20px;">💎 MusicHub Premium</h3>
+        <div style="text-align: left; margin-bottom: 20px;">
+            <div style="margin: 8px 0;">✅ 25+ визуализаций</div>
+            <div style="margin: 8px 0;">✅ Безлимитный AI в чате</div>
+            <div style="margin: 8px 0;">✅ Кастомные сайты (до 5)</div>
+            <div style="margin: 8px 0;">✅ Скриншоты визуализации</div>
         </div>
-        
-        <div id="premiumKeyInput" style="margin: 20px 0;">
-    <label style="display: block; margin-bottom: 8px; font-weight: bold;">🔑 Ввести ключ активации:</label>
-    <div style="display: flex; gap: 10px;">
-        <input type="text" id="premiumKey" placeholder="XXXX-XXXX-XXXX-XXXX" style="flex: 2; background: var(--bg-secondary); color: var(--text-primary); border: 2px solid var(--border-color); border-radius: 12px; padding: 14px 16px; font-family: monospace; letter-spacing: 2px; font-size: 14px;">
-        <button id="activatePremiumBtn" style="background: linear-gradient(135deg, gold, #ffaa00); color: #000; border: none; border-radius: 12px; padding: 14px 24px; font-weight: bold; cursor: pointer;">Активировать</button>
-    </div>
-</div>
-        
-        <button id="premiumModalClose" style="margin-top: 20px; background: transparent; color: var(--text-secondary); padding: 8px; border: 1px solid var(--border-color); border-radius: 10px; width: 100%; cursor: pointer;">Закрыть</button>
+        <button onclick="closePremiumModal()" style="background: transparent; color: var(--text-secondary); padding: 10px; border: 1px solid var(--border-color); border-radius: 10px; width: 100%; cursor: pointer;">Закрыть</button>
     </div>
 </div>
 

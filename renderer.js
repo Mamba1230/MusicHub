@@ -34,6 +34,31 @@ const PREMIUM_WORKER = 'https://premium-api.170610maksim.workers.dev';
 
 openExternal: (url) => ipcRenderer.invoke('open-external', url)
 
+window.debugBindings = function() {
+    console.log('=== ОТЛАДКА БИНДОВ ===');
+    console.log('electronAPI:', window.electronAPI);
+    console.log('updateTabBinding функция:', window.electronAPI?.updateTabBinding);
+    
+    const savedBinding = localStorage.getItem('tabBinding');
+    const savedEnabled = localStorage.getItem('tabBindingEnabled');
+    console.log('Сохраненное сочетание:', savedBinding);
+    console.log('Сохраненное включение:', savedEnabled);
+    
+    // Отправляем принудительно
+    if (window.electronAPI && window.electronAPI.updateTabBinding) {
+        window.electronAPI.updateTabBinding({ 
+            enabled: savedEnabled !== 'false', 
+            binding: savedBinding || 'Control+Tab' 
+        });
+        console.log('✅ Отправлено в main');
+    }
+};
+
+// Вызов через 2 секунды после загрузки
+setTimeout(() => {
+    window.debugBindings();
+}, 2000);
+
 async function getDeviceId() {
     let deviceId = localStorage.getItem('device_id');
     if (!deviceId) {
@@ -121,56 +146,25 @@ function hasFeature(feature) {
 }
 
 function updatePremiumUI() {
-    if (!premiumStatus) return;
+    const isPremium = premiumStatus?.isPremium || true; // По умолчанию true для гостя
     
-    const daysLeft = premiumStatus.daysLeft || 0;
-    const isPremium = premiumStatus.isPremium;
-    
-    const premiumStatusDiv = document.getElementById('premiumStatus');
-    if (premiumStatusDiv) {
-        if (isPremium) {
-            premiumStatusDiv.innerHTML = `⭐ Premium активен (осталось ${daysLeft} дн.)`;
-            premiumStatusDiv.style.color = 'gold';
-        } else {
-            premiumStatusDiv.innerHTML = `🎵 Бесплатная версия. Приобретите Premium!`;
-            premiumStatusDiv.style.color = '#888';
-        }
+    if (isPremium) {
+        premiumStatusDiv.innerHTML = `⭐ Premium активен (Гостевой режим)`;
+        premiumStatusDiv.style.color = 'gold';
+    } else {
+        premiumStatusDiv.innerHTML = `🎵 Бесплатная версия`;
     }
     
-     
-    if (!hasFeature('custom_sites') && customSites.length > 0) {
-         
-        resetServicesToDefault();
-    }
-    
-     
-    if (!hasFeature('full_viz')) {
-        const fullModes = ['galaxy', 'aurora', 'meteor', 'lava', 'neon', 'ripple', 'vortex', 'flower', 'fractal', 'pulse', 'equalizer', 'starburst', 'laser', 'glitch', 'plasma', 'tunnel3d', 'cube3d', 'gif'];
-        if (fullModes.includes(currentVizMode)) {
-            currentVizMode = 'bars';
-            document.getElementById('viz-mode').value = 'bars';
-            localStorage.setItem('vizMode', 'bars');
-        }
-        
-        const vizSelect = document.getElementById('viz-mode');
-        if (vizSelect) {
-            for (let option of vizSelect.options) {
-                if (fullModes.includes(option.value)) {
-                    option.disabled = true;
-                    option.textContent = option.textContent.replace(' ⭐Premium', '') + ' ⭐Premium';
-                }
-            }
-        }
-    }
-    
-    if (!hasFeature('screenshot')) {
-        const screenshotBtn = document.querySelector('[onclick="captureVisualizer()"]');
-        if (screenshotBtn) screenshotBtn.style.opacity = '0.5';
-    }
+    // Убрать кнопку выхода
+    document.getElementById('logoutHeaderBtn')?.remove();
 }
-        
+
+function closePremiumModal() {
+    document.getElementById('premiumModal').style.display = 'none';
+}
+
 const APP_KEY_STEAM = 'musichub-secret-key-2024';
-const STEAM_WORKER_URL = 'https://steam-proxy.170610maksim.workers.dev';
+
 
         
          
@@ -534,6 +528,7 @@ function playSwitchSound() {
          
         function loadSettings() {
             const savedColor = localStorage.getItem('hubC') || '#1DB954';
+            const autoColorEnabled = localStorage.getItem('autoColorFromArtwork') === 'true';
             const savedZoom = localStorage.getItem('hubZoom') || '1.0';
             const savedSensitivity = localStorage.getItem('vizSensitivity') || '1';
             const savedVizMode = localStorage.getItem('vizMode') || 'bars';
@@ -549,6 +544,7 @@ function playSwitchSound() {
             }
             
             changeAccentColor(savedColor);
+            document.getElementById('autoColorFromArtwork').checked = autoColorEnabled;
             document.getElementById('cp').value = savedColor;
             document.getElementById('zoom-select').value = savedZoom;
             document.getElementById('viz-sensitivity').value = savedSensitivity;
@@ -569,6 +565,12 @@ function playSwitchSound() {
             
             soundType = savedSound;
             soundEnabled = savedSound !== 'off';
+        const savedUserColor = localStorage.getItem('hubC') || '#1DB954';
+    originalAccentColor = savedUserColor;
+    
+    // Загружаем настройки градиента и авто-цвета
+    initSimpleGradient();
+    loadAutoColorSetting();
             
             changeTheme(savedTheme);
             
@@ -2166,192 +2168,21 @@ if (premiumActivateBtn) {
     });
 }
 
-// ========== СИСТЕМА АККАУНТОВ ==========
-let currentUser = null;
-let authToken = localStorage.getItem('auth_token');
 
-// Загрузка сохранённого пользователя при старте
-async function loadSavedUser() {
-    if (authToken) {
-        try {
-            const response = await fetch(`${PREMIUM_WORKER}/verify`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ token: authToken })
-            });
-            const data = await response.json();
-            
-            if (data.success) {
-                currentUser = data.user;
-                updatePremiumUI();
-                updateAuthButton();
-                console.log('✅ Автоматический вход выполнен:', currentUser.username);
-            } else {
-                // Токен недействителен
-                authToken = null;
-                localStorage.removeItem('auth_token');
-                showGuestMode();
-            }
-        } catch (err) {
-            console.error('Ошибка проверки токена:', err);
-            showGuestMode();
-        }
-    } else {
-        showGuestMode();
-    }
-}
 
-function showGuestMode() {
-    currentUser = { isGuest: true, username: 'Гость', isPremium: true };
-    updateAuthButton();
-    updatePremiumUI();
-}
 
-function updateAuthButton() {
-    const authBtn = document.getElementById('authBtn');
-    if (!authBtn) return;
-    
-    if (currentUser?.isGuest) {
-        authBtn.innerHTML = '👤 Гость';
-        authBtn.title = 'Гостевой режим. Нажмите для входа';
-    } else if (currentUser) {
-        authBtn.innerHTML = `👤 ${currentUser.username}`;
-        authBtn.title = currentUser.email || currentUser.username;
-    } else {
-        authBtn.innerHTML = '🔓 Войти';
-    }
-}
 
-// Регистрация
-async function register(email, password, username) {
-    try {
-        const response = await fetch(`${PREMIUM_WORKER}/register`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password, username })
-        });
-        const data = await response.json();
-        
-        if (data.success) {
-            authToken = data.token;
-            localStorage.setItem('auth_token', authToken);
-            currentUser = data.user;
-            updateAuthButton();
-            updatePremiumUI();
-            closeAuthModal();
-            showToast(`🎉 Добро пожаловать, ${username}!`, 'success');
-            return true;
-        } else {
-            showToast(data.error, 'error');
-            return false;
-        }
-    } catch (err) {
-        showToast('Ошибка регистрации', 'error');
-        return false;
-    }
-}
 
-// Логин
-async function login(email, password) {
-    try {
-        const deviceId = await getDeviceId();
-        const response = await fetch(`${PREMIUM_WORKER}/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password, deviceId })
-        });
-        const data = await response.json();
-        
-        if (data.success) {
-            authToken = data.token;
-            localStorage.setItem('auth_token', authToken);
-            currentUser = data.user;
-            updateAuthButton();
-            updatePremiumUI();
-            closeAuthModal();
-            showToast(`✅ Добро пожаловать, ${currentUser.username}!`, 'success');
-            return true;
-        } else {
-            showToast(data.error, 'error');
-            return false;
-        }
-    } catch (err) {
-        showToast('Ошибка входа', 'error');
-        return false;
-    }
-}
 
-// Гостевой вход
-async function guestLogin() {
-    try {
-        const deviceId = await getDeviceId();
-        const response = await fetch(`${PREMIUM_WORKER}/guest`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ deviceId })
-        });
-        const data = await response.json();
-        
-        if (data.success) {
-            authToken = data.token;
-            localStorage.setItem('auth_token', authToken);
-            currentUser = data.user;
-            updateAuthButton();
-            updatePremiumUI();
-            closeAuthModal();
-            showToast(`🎭 Гостевой режим: ${currentUser.username}`, 'info');
-            return true;
-        } else {
-            showToast('Ошибка гостевого входа', 'error');
-            return false;
-        }
-    } catch (err) {
-        showToast('Ошибка гостевого входа', 'error');
-        return false;
-    }
-}
 
-// Выход
-async function logout() {
-    if (authToken) {
-        try {
-            await fetch(`${PREMIUM_WORKER}/logout`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ token: authToken })
-            });
-        } catch (err) {}
-    }
-    
-    authToken = null;
-    localStorage.removeItem('auth_token');
-    currentUser = null;
-    showGuestMode();
-    showToast('👋 Вы вышли из аккаунта', 'info');
-}
 
-// Модальное окно авторизации
-function showAuthModal() {
-    const modal = document.getElementById('authModal');
-    if (modal) modal.style.display = 'flex';
-}
 
-function closeAuthModal() {
-    const modal = document.getElementById('authModal');
-    if (modal) modal.style.display = 'none';
-}
 
-function switchToLogin() {
-    document.getElementById('authLoginForm').style.display = 'block';
-    document.getElementById('authRegisterForm').style.display = 'none';
-    document.getElementById('authTitle').textContent = 'Вход в аккаунт';
-}
 
-function switchToRegister() {
-    document.getElementById('authLoginForm').style.display = 'none';
-    document.getElementById('authRegisterForm').style.display = 'block';
-    document.getElementById('authTitle').textContent = 'Регистрация';
-}
+
+
+
+
 
 // Обработчики форм
 document.getElementById('loginBtn')?.addEventListener('click', async () => {
@@ -2423,24 +2254,12 @@ function updatePremiumUI() {
     }
 }
 
-// Добавляем кнопку аккаунта в сайдбар
-function addAuthButton() {
-    const container = document.getElementById('services-container');
-    if (!container) return;
-    
-    const authBtn = document.createElement('button');
-    authBtn.id = 'authBtn';
-    authBtn.className = 'util-btn';
-    authBtn.style.marginTop = 'auto';
-    authBtn.style.marginBottom = '10px';
-    authBtn.onclick = () => showAuthModal();
-    container.parentElement?.insertBefore(authBtn, container.nextSibling);
-}
+
 
 // Инициализация
 document.addEventListener('DOMContentLoaded', async () => {
-    addAuthButton();
-    await loadSavedUser();
+    currentUser = { isGuest: true, username: 'Гость', isPremium: true };
+    updatePremiumUI();
     
     // Добавляем кнопку выхода в настройки
     const settingsPanel = document.getElementById('settings-panel');
@@ -2486,10 +2305,221 @@ function playNotificationSound() {
 }
 
 
+// ========== ИНИЦИАЛИЗАЦИЯ ГОРЯЧИХ КЛАВИШ ==========
+(function initHotkeys() {
+    console.log('🎮 Инициализация горячих клавиш (renderer)...');
+    
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initHotkeys);
+        return;
+    }
+    
+    let savedBinding = localStorage.getItem('tabBinding');
+    let savedEnabled = localStorage.getItem('tabBindingEnabled');
+    
+    if (!savedBinding || savedBinding === '1' || savedBinding === 'null' || savedBinding === 'undefined') {
+        savedBinding = 'Control+Tab';
+        localStorage.setItem('tabBinding', 'Control+Tab');
+    }
+    if (savedEnabled === null || savedEnabled === '1') {
+        savedEnabled = 'true';
+        localStorage.setItem('tabBindingEnabled', 'true');
+    }
+    
+    const bindingInput = document.getElementById('tabBindingKey');
+    const enableCheck = document.getElementById('enableTabBinding');
+    
+    if (bindingInput) bindingInput.value = savedBinding;
+    if (enableCheck) enableCheck.checked = savedEnabled === 'true';
+    
+    if (window.electronAPI && window.electronAPI.updateTabBinding) {
+        window.electronAPI.updateTabBinding({ 
+            enabled: savedEnabled === 'true', 
+            binding: savedBinding 
+        });
+    }
+    
+    // Обработчик смены
+    const changeBtn = document.getElementById('changeTabBindingBtn');
+if (changeBtn) {
+    changeBtn.onclick = () => {
+        const input = document.getElementById('tabBindingKey');
+        if (!input) return;
+        
+        input.value = '🎹 Нажми и отпусти...';
+        input.style.opacity = '0.6';
+        
+        // Храним нажатые клавиши
+        let pressedKeys = new Set();
+        
+        const onKeyDown = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // Добавляем клавишу в набор
+            let key = e.key;
+            if (key === ' ') key = 'Space';
+            if (key === 'Tab') key = 'Tab';
+            if (key === 'Escape') key = 'Escape';
+            if (key.length === 1) key = key.toUpperCase();
+            
+            // Модификаторы
+            if (e.ctrlKey) pressedKeys.add('Control');
+            if (e.altKey) pressedKeys.add('Alt');
+            if (e.shiftKey) pressedKeys.add('Shift');
+            if (e.metaKey) pressedKeys.add('Meta');
+            
+            if (key !== 'Control' && key !== 'Alt' && key !== 'Shift' && key !== 'Meta') {
+                pressedKeys.add(key);
+            }
+            
+            // Показываем текущую комбинацию
+            const currentBinding = Array.from(pressedKeys).join('+');
+            if (currentBinding) {
+                input.value = currentBinding;
+            }
+        };
+        
+        const onKeyUp = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // Формируем финальную комбинацию
+            let keys = [];
+            if (e.ctrlKey) keys.push('Control');
+            if (e.altKey) keys.push('Alt');
+            if (e.shiftKey) keys.push('Shift');
+            if (e.metaKey) keys.push('Meta');
+            
+            let key = e.key;
+            if (key === ' ') key = 'Space';
+            if (key === 'Tab') key = 'Tab';
+            if (key === 'Escape') key = 'Escape';
+            if (key.length === 1) key = key.toUpperCase();
+            
+            if (key !== 'Control' && key !== 'Alt' && key !== 'Shift' && key !== 'Meta') {
+                keys.push(key);
+            }
+            
+            // Если ничего не нажато - используем последнюю комбинацию из pressedKeys
+            let binding = keys.join('+');
+            if (!binding || binding === 'Control' || binding === 'Alt' || binding === 'Shift') {
+                binding = Array.from(pressedKeys).join('+');
+            }
+            if (!binding || binding === '') {
+                binding = 'Control+Tab';
+            }
+            
+            input.value = binding;
+            input.style.opacity = '1';
+            
+            // Сохраняем
+            localStorage.setItem('tabBinding', binding);
+            const enabled = document.getElementById('enableTabBinding')?.checked ?? true;
+            localStorage.setItem('tabBindingEnabled', enabled);
+            
+            if (window.electronAPI && window.electronAPI.updateTabBinding) {
+                window.electronAPI.updateTabBinding({ enabled: enabled, binding: binding });
+            }
+            
+            showToast(`✅ Сочетание: ${binding}`, 'success');
+            
+            // Убираем обработчики
+            document.removeEventListener('keydown', onKeyDown);
+            document.removeEventListener('keyup', onKeyUp);
+            pressedKeys.clear();
+        };
+        
+        document.addEventListener('keydown', onKeyDown);
+        document.addEventListener('keyup', onKeyUp);
+        
+        // Таймаут на случай, если пользователь передумал
+        setTimeout(() => {
+            if (input.style.opacity === '0.6') {
+                input.value = localStorage.getItem('tabBinding') || 'Control+Tab';
+                input.style.opacity = '1';
+                document.removeEventListener('keydown', onKeyDown);
+                document.removeEventListener('keyup', onKeyUp);
+                pressedKeys.clear();
+            }
+        }, 5000);
+    };
+}
+    
+    // Кнопка сброса
+    const resetBtn = document.getElementById('resetTabBindingBtn');
+    if (resetBtn) {
+        resetBtn.onclick = () => {
+            localStorage.setItem('tabBinding', 'Control+Tab');
+            localStorage.setItem('tabBindingEnabled', 'true');
+            if (bindingInput) bindingInput.value = 'Control+Tab';
+            if (enableCheck) enableCheck.checked = true;
+            if (window.electronAPI && window.electronAPI.updateTabBinding) {
+                window.electronAPI.updateTabBinding({ enabled: true, binding: 'Control+Tab' });
+            }
+            showToast('🔄 Сброшено на Ctrl+Tab', 'info');
+        };
+    }
+    
+    // Чекбокс
+    if (enableCheck) {
+        enableCheck.onchange = () => {
+            const enabled = enableCheck.checked;
+            localStorage.setItem('tabBindingEnabled', enabled);
+            const binding = localStorage.getItem('tabBinding') || 'Control+Tab';
+            if (window.electronAPI && window.electronAPI.updateTabBinding) {
+                window.electronAPI.updateTabBinding({ enabled: enabled, binding: binding });
+            }
+        };
+    }
+    
+    console.log('✅ Горячие клавиши инициализированы');
+})();
 
 
+// Сохраняем ручной цвет пользователя
+let manualAccentColor = localStorage.getItem('manualAccentColor') || '#1DB954';
 
+// Функция применения цвета (универсальная)
+function applyAccentColor(color, saveAsManual = false) {
+    document.documentElement.style.setProperty('--accent-color', color);
+    
+    if (saveAsManual) {
+        manualAccentColor = color;
+        localStorage.setItem('manualAccentColor', color);
+        localStorage.setItem('hubC', color);
+    }
+}
 
+// Обработчик ручного выбора цвета
+document.getElementById('manualAccentColor')?.addEventListener('input', (e) => {
+    const color = e.target.value;
+    autoColorEnabled = false;
+    localStorage.setItem('autoColorFromArtwork', 'false');
+    document.getElementById('autoColorFromArtwork').checked = false;
+    applyAccentColor(color, true);
+});
+
+// Обновленный обработчик авто-цвета
+document.getElementById('autoColorFromArtwork')?.addEventListener('change', async (e) => {
+    const isEnabled = e.target.checked;
+    localStorage.setItem('autoColorFromArtwork', isEnabled);
+    
+    if (!isEnabled) {
+        // Возвращаем цвет из палитры (cp)
+        const manualColor = document.getElementById('cp').value;
+        changeAccentColor(manualColor);
+    } else {
+        // Применяем цвет из обложки
+        const artwork = document.getElementById('panelArtwork')?.src;
+        if (artwork && artwork !== '') {
+            const color = await getDominantColorFromImage(artwork);
+            if (color && color !== '#000000') {
+                changeAccentColor(color);
+            }
+        }
+    }
+});
 
 
 
@@ -2573,7 +2603,7 @@ function playNotificationSound() {
 
          
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 MusicHub v2.5.5');
+    console.log('🚀 MusicHub v2.6.0');
     particleBackground = new ParticleBackground();
     loadSettings();
     loadCustomSites();  
@@ -3272,6 +3302,17 @@ function openExtensionsWindow() {
     }
     setTimeout(initUrlTracking, 1000);
 
+// При открытии панели расширений
+function showExtensionsWarning() {
+    const warning = document.createElement('div');
+    warning.className = 'extensions-warning';
+    warning.innerHTML = `
+        <div style="background: #ff9800; color: #000; padding: 12px; border-radius: 8px; margin-bottom: 12px;">
+            ⚠️ <strong>Важно:</strong> 99% расширений из Chrome Web Store не будут работать в Electron-приложении из-за отсутствия полноценной поддержки Chrome API.
+        </div>
+    `;
+    document.getElementById('extensionsList').prepend(warning);
+}
 
 // ---------- Панель расширений ----------
 (function() {
@@ -3350,7 +3391,7 @@ item.addEventListener('click', async (e) => {
     }
     
     async function installExtensionFlow() {
-    const choice = confirm('Установить расширение?\n\n"OK" — ввести ID из Chrome Web Store\n"Отмена" — выбрать папку с расширением');
+    const choice = confirm('Установить расширение?    99% не будут работать.\n\n"OK" — ввести ID из Chrome Web Store\n"Отмена" — выбрать папку с расширением');
     if (choice) {
         // Показываем модальное окно для ввода ID
         const modal = document.getElementById('extensionIdModal');
@@ -3454,6 +3495,644 @@ window.changeWindowButtonsPosition = function(pos) {
     localStorage.setItem('windowButtonsPosition', pos);
     if (typeof applyButtonsPosition === 'function') applyButtonsPosition();
 };
+
+
+
+
+
+
+
+
+
+// Получение обложки из активного webview
+async function getCurrentTrackArtwork() {
+    const webview = document.querySelector('webview.active');
+    if (!webview) return null;
+    
+
+
+    const serviceId = webview.id;
+    
+    const selectors = {
+        youtube: `
+            (function() {
+                try {
+                    const img = document.querySelector('ytmusic-player-bar img.image');
+                    if (!img || !img.src) return null;
+                    if (!img.src.startsWith('http')) return null;
+                    // Если src ведет на страницу, а не на картинку - игнорируем
+                    if (img.src.includes('music.youtube.com')) return null;
+                    let url = img.src.split('=')[0];
+                    return url;
+                } catch(e) {
+                    return null;
+                }
+            })();
+        `,
+yandex: `
+    (function() {
+        // Ищем обложку в плеере
+        const selectors = [
+            '.PlayerBarDesktopWithBackgroundProgressBar_cover__MKmEt img',
+            '.player-bar__cover img',
+            '.track-cover__image',
+            '[class*="PlayerBarDesktop"] img',
+            '[class*="progress-bar_cover"] img'
+        ];
+        
+        for (let sel of selectors) {
+            const img = document.querySelector(sel);
+            if (img && img.src) {
+                // Берем большую версию (200x200 вместо 100x100)
+                let url = img.src;
+                if (url.includes('100x100')) {
+                    url = url.replace('100x100', '200x200');
+                }
+                if (url.includes('50x50')) {
+                    url = url.replace('50x50', '400x400');
+                }
+                return url;
+            }
+        }
+        
+        // Альтернатива: через data-атрибуты
+        const coverDiv = document.querySelector('[class*="cover"]');
+        if (coverDiv) {
+            const bgImage = getComputedStyle(coverDiv).backgroundImage;
+            const match = bgImage.match(/url\\(["']?([^"')]+)["']?\\)/);
+            if (match) {
+                return match[1];
+            }
+        }
+        
+        return null;
+    })();
+`,
+        soundcloud: `
+    (function() {
+        // Способы поиска обложки в SoundCloud
+        
+        // 1. Через span с background-image
+        const artworkSpan = document.querySelector('.sc-artwork, .playbackSoundBadge__artwork, .sound__artwork, .trackListItem__artwork');
+        if (artworkSpan) {
+            const bgImage = getComputedStyle(artworkSpan).backgroundImage;
+            const match = bgImage.match(/url\\(["']?([^"')]+)["']?\\)/);
+            if (match) {
+                let url = match[1];
+                // Заменяем размер на максимальный (t500x500)
+                url = url.replace(/t[0-9]+x[0-9]+/, 't500x500');
+                url = url.split('?')[0];
+                return url;
+            }
+        }
+        
+        // 2. Через img в плеере
+        const imgSelectors = [
+            '.playbackSoundBadge__artwork img',
+            '.sound__artwork img',
+            '.track__artwork img',
+            '.playlist__artwork img',
+            '.image__full',
+            'img[src*="i1.sndcdn.com"]',
+            'img[src*="artworks"]'
+        ];
+        
+        for (let sel of imgSelectors) {
+            const img = document.querySelector(sel);
+            if (img && img.src && img.src.includes('sndcdn.com')) {
+                let url = img.src;
+                url = url.replace(/t[0-9]+x[0-9]+/, 't500x500');
+                url = url.split('?')[0];
+                return url;
+            }
+        }
+        
+        // 3. Поиск всех картинок на странице (последний шанс)
+        const allImages = document.querySelectorAll('img');
+        for (let img of allImages) {
+            if (img.src && img.src.includes('sndcdn.com') && img.src.includes('artworks')) {
+                let url = img.src;
+                url = url.replace(/t[0-9]+x[0-9]+/, 't500x500');
+                url = url.split('?')[0];
+                return url;
+            }
+        }
+        
+        // 4. Через meta-теги (Open Graph)
+        const ogImage = document.querySelector('meta[property="og:image"]');
+        if (ogImage && ogImage.content) {
+            let url = ogImage.content;
+            url = url.replace(/t[0-9]+x[0-9]+/, 't500x500');
+            return url;
+        }
+        
+        return null;
+    })();
+`,
+        spotify: `
+            (function() {
+                const img = document.querySelector('[data-testid="cover-art-image"]');
+                if (img && img.src) return img.src;
+                return null;
+            })();
+        `,
+        vk: `
+            (function() {
+                const img = document.querySelector('.audio_page_player_cover_img, .audio_playlist_cover_img, .AudioCover__image');
+                if (img && img.src) return img.src;
+                return null;
+            })();
+        `
+    };
+    
+     const jsCode = selectors[serviceId] || selectors.youtube;
+    
+    try {
+        let artworkUrl = await webview.executeJavaScript(jsCode);
+        
+        if (artworkUrl && artworkUrl !== 'null') {
+            // Показываем в интерфейсе
+            if (simpleGradientEnabled) await updateSimpleGradient(artworkUrl);
+            await applyColorFromArtwork(artworkUrl);  // <-- новая строка
+    updateNowPlayingArtwork(artworkUrl);
+    updatePanelArtwork(artworkUrl);
+            
+            // Конвертируем изображение в Base64 и отправляем в main
+            const base64 = await urlToBase64(artworkUrl);
+            if (base64) {
+                // Получаем информацию о треке
+                const trackInfo = await getCurrentTrackInfo();
+                window.electronAPI.updateArtworkBase64(base64, trackInfo);
+                updatePanelArtwork(artworkUrl);
+            }
+            
+            return artworkUrl;
+        }
+    } catch (err) {
+        console.log('Ошибка получения обложки:', err);
+    }
+    return null;
+}
+
+function urlToBase64(url) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'Anonymous';
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            const base64 = canvas.toDataURL('image/jpeg', 0.8);
+            resolve(base64);
+        };
+        img.onerror = () => {
+            console.log('Ошибка загрузки изображения:', url);
+            resolve(null);
+        };
+        img.src = url;
+    });
+}
+
+
+// Обновление UI с обложкой
+async function updateNowPlayingArtwork(url) {
+    let container = document.getElementById('nowPlayingArtwork');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'nowPlayingArtwork';
+        container.style.cssText = `
+            position: fixed;
+            bottom: 0px;
+            right: 0px;
+            width: 0px;
+            height: 0px;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            cursor: pointer;
+            z-index: 1000;
+            transition: transform 0.2s;
+        `;
+        container.onclick = () => {
+            const img = container.querySelector('img');
+            if (img && img.src) {
+                const win = window.open();
+                win.document.write(`<img src="${img.src}" style="max-width: 100%; background: #000;">`);
+            }
+        };
+        document.body.appendChild(container);
+    }
+    
+    container.innerHTML = `<img src="${url}" style="width: 100%; height: 100%; object-fit: cover;">`;
+    container.style.display = 'block';
+    container.style.transform = 'scale(0.9)';
+    setTimeout(() => { container.style.transform = 'scale(1)'; }, 50);
+    
+    clearTimeout(window.artworkTimeout);
+    window.artworkTimeout = setTimeout(() => {
+        if (container) container.style.display = 'none';
+    }, 5000);
+
+    // Проверяем, играет ли музыка
+    const isPlaying = await isMusicPlaying();
+    
+    if (isPlaying && window.electronAPI && window.electronAPI.updateArtworkForTray) {
+        window.electronAPI.updateArtworkForTray(url);
+        
+        // Возвращаем стандартную иконку через 5 секунд
+        setTimeout(() => {
+            if (window.electronAPI && window.electronAPI.updateArtworkForTray) {
+                window.electronAPI.updateArtworkForTray(null);
+            }
+        }, 5000);
+    }
+}
+
+async function isMusicPlaying() {
+    const webview = document.querySelector('webview.active');
+    if (!webview) return false;
+    
+    const jsCode = `
+        (function() {
+            const pauseSelectors = [
+                '[aria-label="Пауза"]',
+                '[aria-label="Pause"]',
+                '.ytp-play-button[aria-label="Пауза"]',
+                '.player-controls__btn_pause',
+                '[data-testid="pause-button"]',
+                '.playControl.playing',
+                '.audio_pause'
+            ];
+            
+            for (let sel of pauseSelectors) {
+                const btn = document.querySelector(sel);
+                if (btn && btn.offsetParent !== null) {
+                    return true;
+                }
+            }
+            return false;
+        })();
+    `;
+    
+    try {
+        return await webview.executeJavaScript(jsCode);
+    } catch (err) {
+        return false;
+    }
+}
+
+// История обложек
+let artworkHistory = [];
+
+function saveToHistory(url) {
+    artworkHistory.unshift({ url, timestamp: Date.now() });
+    if (artworkHistory.length > 20) artworkHistory.pop();
+    localStorage.setItem('artworkHistory', JSON.stringify(artworkHistory));
+}
+
+// Автоматическое получение обложки при смене трека
+let lastTrackUrl = '';
+
+async function pollCurrentTrack() {
+    const webview = document.querySelector('webview.active');
+    if (!webview) return;
+    
+    // Получаем текущий URL трека (для определения смены)
+    let currentTrackUrl = await getCurrentTrackIdentifier();
+    
+    if (currentTrackUrl && currentTrackUrl !== lastTrackUrl) {
+        lastTrackUrl = currentTrackUrl;
+        await getCurrentTrackArtwork();
+    }
+}
+
+async function getCurrentTrackIdentifier() {
+    const webview = document.querySelector('webview.active');
+    if (!webview) return null;
+    
+    const jsCode = `
+        (function() {
+            const title = document.title;
+            const url = window.location.href;
+            return title + '|' + url;
+        })();
+    `;
+    return await webview.executeJavaScript(jsCode);
+}
+
+// Запускаем polling каждые 2 секунды
+setInterval(pollCurrentTrack, 2000);
+
+
+
+
+
+// Функция получения названия трека и исполнителя
+async function getCurrentTrackInfo() {
+    const webview = document.querySelector('webview.active');
+    if (!webview) return null;
+    
+    const jsCode = `
+        (function() {
+            // YouTube Music
+            const ytTitle = document.querySelector('yt-formatted-string.title');
+            const ytArtist = document.querySelector('yt-formatted-string.byline');
+            if (ytTitle) return { title: ytTitle.innerText, artist: ytArtist?.innerText || '' };
+            
+            // Яндекс Музыка
+            const yaTitle = document.querySelector('.track__title, [class*="track__title"]');
+            const yaArtist = document.querySelector('.track__artists, [class*="artists"]');
+            if (yaTitle) return { title: yaTitle.innerText, artist: yaArtist?.innerText || '' };
+            
+            // SoundCloud
+            const scTitle = document.querySelector('.playbackSoundBadge__titleLink, .soundTitle__title');
+            const scArtist = document.querySelector('.playbackSoundBadge__lightLink, .soundTitle__username');
+            if (scTitle) return { title: scTitle.innerText, artist: scArtist?.innerText || '' };
+            
+            // Spotify
+            const spTitle = document.querySelector('[data-testid="context-item-info-title"], [data-testid="now-playing-widget"] [dir="auto"]');
+            const spArtist = document.querySelector('[data-testid="context-item-info-artist"], [data-testid="now-playing-widget"] a');
+            if (spTitle) return { title: spTitle.innerText, artist: spArtist?.innerText || '' };
+            
+            return null;
+        })();
+    `;
+    
+    try {
+        return await webview.executeJavaScript(jsCode);
+    } catch(e) {
+        return null;
+    }
+}
+
+
+async function pollCurrentTrack() {
+    const webview = document.querySelector('webview.active');
+    if (!webview) return;
+    
+    await getCurrentTrackInfo();
+    await getCurrentTrackArtwork();
+
+}
+
+document.getElementById('openArtworkLinkBtn')?.addEventListener('click', () => {
+    const url = 'http://127.0.0.1:3456/';
+    window.electronAPI.openExternal(url);
+    showToast('🌐 Открыто в браузере', 'info');
+});
+
+// Обновляем отображение ссылки
+document.getElementById('artworkUrlDisplay').textContent = 'http://127.0.0.1:3456/';
+
+
+// Функция получения доминирующего цвета из изображения
+async function getDominantColorFromImage(imageUrl) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'Anonymous';
+        
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, img.width, img.height);
+            
+            const imageData = ctx.getImageData(0, 0, img.width, img.height);
+            const data = imageData.data;
+            
+            // Сначала проверяем, черно-белая ли обложка
+            let isBlackWhite = true;
+            let colorSamples = [];
+            
+            for (let i = 0; i < data.length; i += 40) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                const diff = Math.abs(r - g) + Math.abs(g - b) + Math.abs(r - b);
+                if (diff > 30) {
+                    isBlackWhite = false;
+                    break;
+                }
+                colorSamples.push((r + g + b) / 3);
+            }
+            
+            // Если черно-белая обложка
+            if (isBlackWhite) {
+                // Находим среднюю яркость (не слишком темную)
+                let avgBrightness = colorSamples.reduce((a, b) => a + b, 0) / colorSamples.length;
+                // Берем яркость не ниже 100
+                const targetBrightness = Math.max(avgBrightness, 120);
+                // Возвращаем серый цвет
+                const grayValue = Math.floor(targetBrightness);
+                const hex = '#' + ((1 << 24) + (grayValue << 16) + (grayValue << 8) + grayValue).toString(16).slice(1);
+                resolve(hex);
+                return;
+            }
+            
+            // Для цветных обложек - старая логика
+            let bestColor = null;
+            let bestScore = -1;
+            
+            for (let i = 0; i < data.length; i += 20) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                
+                const brightness = (r + g + b) / 3;
+                if (brightness < 30) continue;
+                
+                const avg = (r + g + b) / 3;
+                const saturation = Math.abs(r - avg) + Math.abs(g - avg) + Math.abs(b - avg);
+                
+                let frequency = 1;
+                for (let j = 0; j < data.length; j += 20) {
+                    if (Math.abs(data[j] - r) < 30 && 
+                        Math.abs(data[j+1] - g) < 30 && 
+                        Math.abs(data[j+2] - b) < 30) {
+                        frequency++;
+                    }
+                }
+                
+                let score = saturation * Math.sqrt(frequency) * (brightness / 100);
+                
+                if (r > g + 30 && r > b + 30) score *= 1.5;
+                if (g > r + 30 && g > b + 30) score *= 1.5;
+                if (b > r + 30 && b > g + 30) score *= 1.5;
+                
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestColor = `rgb(${r}, ${g}, ${b})`;
+                }
+            }
+            
+            if (bestColor) {
+                const rgb = bestColor.match(/\d+/g);
+                const hex = '#' + ((1 << 24) + (parseInt(rgb[0]) << 16) + (parseInt(rgb[1]) << 8) + parseInt(rgb[2])).toString(16).slice(1);
+                resolve(hex);
+            } else {
+                const savedColor = document.getElementById('cp')?.value || '#1DB954';
+                resolve(savedColor);
+            }
+        };
+        
+        img.onerror = () => {
+            const savedColor = document.getElementById('cp')?.value || '#1DB954';
+            resolve(savedColor);
+        };
+        img.src = imageUrl;
+    });
+}
+
+// Авто-цвет из обложки
+let autoColorEnabled = false;
+let originalAccentColor = '#1DB954';
+
+function loadAutoColorSetting() {
+    autoColorEnabled = localStorage.getItem('autoColorFromArtwork') === 'true';
+    const checkbox = document.getElementById('autoColorFromArtwork');
+    if (checkbox) checkbox.checked = autoColorEnabled;
+}
+
+async function applyColorFromArtwork(artworkUrl) {
+    if (!autoColorEnabled || !artworkUrl || artworkUrl === 'null') return;
+    
+    try {
+        const color = await getDominantColorFromImage(artworkUrl);
+        if (color && color !== '#000000') {
+            changeAccentColor(color);
+        }
+    } catch (err) {
+        console.log('Ошибка получения цвета из обложки:', err);
+    }
+}
+
+// Сохраняем оригинальный цвет при выключении
+function resetToOriginalColor() {
+    if (!autoColorEnabled) {
+        // Возвращаем СОХРАНЕННЫЙ цвет пользователя
+        const savedColor = localStorage.getItem('hubC') || '#1DB954';
+        changeAccentColor(savedColor);
+    }
+}
+
+
+document.getElementById('autoColorFromArtwork')?.addEventListener('change', async (e) => {
+    autoColorEnabled = e.target.checked;
+    localStorage.setItem('autoColorFromArtwork', autoColorEnabled);
+    
+    if (!autoColorEnabled) {
+        // Возвращаем цвет пользователя
+        const savedColor = localStorage.getItem('hubC') || '#1DB954';
+        changeAccentColor(savedColor);
+    } else {
+        // Если включили - сразу применить цвет из текущей обложки
+        const artwork = document.getElementById('panelArtwork')?.src;
+        if (artwork && artwork !== '') {
+            const color = await getDominantColorFromImage(artwork);
+            if (color) changeAccentColor(color);
+        }
+    }
+});
+
+function changeAccentColor(color) {
+    document.documentElement.style.setProperty('--accent-color', color);
+    localStorage.setItem('hubC', color);
+    
+    // Если авто-цвет выключен - сохраняем как пользовательский
+    if (!autoColorEnabled) {
+        localStorage.setItem('userAccentColor', color);
+    }
+}
+
+
+// ========== ПРОСТОЙ ГРАДИЕНТ ==========
+let simpleGradientEnabled = false;
+
+function initSimpleGradient() {
+    simpleGradientEnabled = localStorage.getItem('simpleGradientEnabled') === 'true';
+    const checkbox = document.getElementById('simpleGradientCheckbox');
+    if (checkbox) checkbox.checked = simpleGradientEnabled;
+    
+    // НЕ ПРИМЕНЯЕМ ГРАДИЕНТ ПРИ ЗАГРУЗКЕ, ТОЛЬКО ЕСЛИ ВКЛЮЧЕН
+    if (simpleGradientEnabled) {
+        const artwork = document.getElementById('panelArtwork')?.src;
+        if (artwork && artwork !== '') {
+            updateSimpleGradient(artwork);
+        }
+    } else {
+        removeSimpleGradient();
+    }
+}
+
+function applySimpleGradient(color) {
+    // Сохраняем оригинальный фон только один раз
+    if (!window.originalBodyBg) {
+        window.originalBodyBg = document.body.style.background;
+    }
+    document.body.style.background = `radial-gradient(circle at 30% 40%, ${color}, #0a0a0a)`;
+}
+
+function removeSimpleGradient() {
+    // Возвращаем стандартный темный фон (не #1DB954, а #0a0a0a)
+    const theme = document.body.classList.contains('dark-theme') ? '#0a0a0a' : '#f5f5f5';
+    document.body.style.background = theme;
+}
+
+async function getColorFromArtworkSimple(artworkUrl) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'Anonymous';
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 30;
+            canvas.height = 30;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, 30, 30);
+            
+            const pixel = ctx.getImageData(15, 15, 1, 1).data;
+            const r = Math.floor(pixel[0] * 0.5);
+            const g = Math.floor(pixel[1] * 0.5);
+            const b = Math.floor(pixel[2] * 0.5);
+            
+            resolve(`rgb(${r}, ${g}, ${b})`);
+        };
+        img.onerror = () => resolve('#1DB954');
+        img.src = artworkUrl;
+    });
+}
+
+async function updateSimpleGradient(artworkUrl) {
+    if (!simpleGradientEnabled || !artworkUrl || artworkUrl === 'null') return;
+    
+    const color = await getColorFromArtworkSimple(artworkUrl);
+    applySimpleGradient(color);
+}
+
+// В getCurrentTrackArtwork добавь:
+// if (artworkUrl && simpleGradientEnabled) {
+//     await updateSimpleGradient(artworkUrl);
+// }
+
+// Обработчик
+document.getElementById('simpleGradientCheckbox')?.addEventListener('change', (e) => {
+    simpleGradientEnabled = e.target.checked;
+    localStorage.setItem('simpleGradientEnabled', simpleGradientEnabled);
+    
+    if (simpleGradientEnabled) {
+        // Берем цвет из текущей обложки
+        const artwork = document.getElementById('panelArtwork')?.src;
+        if (artwork && artwork !== '') {
+            updateSimpleGradient(artwork);
+        } else {
+            applySimpleGradient('#1DB954');
+        }
+    } else {
+        removeSimpleGradient();
+    }
+});
 
 
 
@@ -4547,6 +5226,23 @@ function setChatUserName(newName) {
                 name: newName.trim()
             }));
         }
+    }
+}
+
+// ЭТОТ БЛОК НУЖНО УДАЛИТЬ (он дублирует первый):
+function updatePanelArtwork(artworkUrl, trackTitle) {
+    const panelArtwork = document.getElementById('panelArtwork');
+    const panelTitle = document.getElementById('panelTrackTitle');
+    
+    if (panelArtwork && artworkUrl && artworkUrl !== 'null' && artworkUrl !== 'undefined') {
+        panelArtwork.src = artworkUrl;
+        panelArtwork.style.display = 'block';
+    } else if (panelArtwork) {
+        panelArtwork.src = '';
+    }
+    
+    if (panelTitle && trackTitle) {
+        panelTitle.textContent = trackTitle;
     }
 }
 
