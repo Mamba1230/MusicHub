@@ -31,6 +31,8 @@ const api = {
     installExtension: (path) => ipcRenderer.invoke('install-extension', path),
     uninstallExtension: (extId) => ipcRenderer.invoke('uninstall-extension', extId),
     installFromChrome: (extId) => ipcRenderer.invoke('install-from-chrome', extId),
+    reloadArtworkPage: () => ipcRenderer.send('reload-artwork-page'),
+    updateArtworkUrl: (url, trackInfo) => ipcRenderer.send('update-artwork-url', url, trackInfo),
 };
 
 // Экспортируем API (только один раз!)

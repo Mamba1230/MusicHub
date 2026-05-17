@@ -133,7 +133,6 @@ function hasFeature(feature) {
     const freeFeatures = {
         'basic_viz': true,       
         'chat': true,
-        'steam_login': true,
         'basic_services': true,
         'custom_sites': false,
         'full_viz': false,
@@ -163,7 +162,6 @@ function closePremiumModal() {
     document.getElementById('premiumModal').style.display = 'none';
 }
 
-const APP_KEY_STEAM = 'musichub-secret-key-2024';
 
 
         
@@ -2603,7 +2601,7 @@ document.getElementById('autoColorFromArtwork')?.addEventListener('change', asyn
 
          
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 MusicHub v2.6.0');
+    console.log('🚀 MusicHub v2.6.5');
     particleBackground = new ParticleBackground();
     loadSettings();
     loadCustomSites();  
@@ -2694,86 +2692,7 @@ window.electronAPI.setStartMinimized(startMinimized);
             if (fullscreenAnimationFrame) cancelAnimationFrame(fullscreenAnimationFrame);
         });
 
-document.getElementById('steamLoginBtn')?.addEventListener('click', async () => {
-     
-    const profileUrl = prompt(
-        '🎮 Вход через Steam\n\nВведите ссылку на ваш профиль Steam:\n\n' +
-        'Примеры:\n' +
-        '• https://steamcommunity.com/id/username/\n' +
-        '• https://steamcommunity.com/profiles/76561198000000000/\n\n' +
-        'Или просто укажите ваш Steam ID (число)'
-    );
-    
-    if (!profileUrl) return;
-    
-    addChatMessage(`🔍 Ищу профиль...`, false, 'system');
-    
-    try {
-        let steamId = profileUrl.trim();
-        
-         
-        if (steamId.includes('/id/')) {
-             
-            const match = steamId.match(/\/id\/([^\/]+)/);
-            if (match) {
-                const vanity = match[1];
-                 
-                const keyResponse = await fetch(`${STEAM_WORKER_URL}/steam-key`, {
-                    headers: { 'X-App-Key': APP_KEY }
-                });
-                const keyData = await keyResponse.json();
-                if (!keyData.success) throw new Error(keyData.error);
-                
-                const resolveResponse = await fetch(
-                    `https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key=${keyData.key}&vanityurl=${vanity}`
-                );
-                const resolveData = await resolveResponse.json();
-                if (resolveData.response.success === 1) {
-                    steamId = resolveData.response.steamid;
-                } else {
-                    addChatMessage(`❌ Не найден профиль: ${vanity}`, false, 'system');
-                    return;
-                }
-            }
-        } else if (steamId.includes('/profiles/')) {
-            const match = steamId.match(/\/profiles\/(\d+)/);
-            if (match) steamId = match[1];
-        }
-        
-         
-        if (!/^\d+$/.test(steamId)) {
-            addChatMessage(`❌ Неверный формат. Введите ссылку или Steam ID`, false, 'system');
-            return;
-        }
-        
-         
-        const keyResponse = await fetch(`${STEAM_WORKER_URL}/steam-key`, {
-            headers: { 'X-App-Key': APP_KEY }
-        });
-        const keyData = await keyResponse.json();
-        if (!keyData.success) throw new Error(keyData.error);
-        
-        const userResponse = await fetch(
-            `https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=${keyData.key}&steamids=${steamId}`
-        );
-        const userData = await userResponse.json();
-        const player = userData.response.players[0];
-        
-        if (player) {
-            setChatUserName(player.personaname);
-            addChatMessage(`✅ Вошли как ${player.personaname} через Steam!`, false, 'system');
-            localStorage.setItem('steam_id', steamId);
-            localStorage.setItem('steam_name', player.personaname);
-            if (player.avatarfull) localStorage.setItem('steam_avatar', player.avatarfull);
-        } else {
-            addChatMessage(`❌ Профиль не найден или скрыт`, false, 'system');
-        }
-        
-    } catch (err) {
-        console.error('Steam error:', err);
-        addChatMessage(`❌ Ошибка: ${err.message}`, false, 'system');
-    }
-});
+
 
  
 let customSoundBuffer = null;
@@ -3155,12 +3074,7 @@ async function generatePremiumKey(type) {
     return data.key;
 }
 
-function isAdmin(userId) {
-     
-     
-    const adminSteamId = localStorage.getItem('steam_id');
-    return adminSteamId === 'твой-steam-id-для-админа';
-}
+
 
 
 
@@ -3514,16 +3428,17 @@ async function getCurrentTrackArtwork() {
     const serviceId = webview.id;
     
     const selectors = {
-        youtube: `
+       youtube: `
             (function() {
                 try {
                     const img = document.querySelector('ytmusic-player-bar img.image');
                     if (!img || !img.src) return null;
-                    if (!img.src.startsWith('http')) return null;
-                    // Если src ведет на страницу, а не на картинку - игнорируем
-                    if (img.src.includes('music.youtube.com')) return null;
-                    let url = img.src.split('=')[0];
-                    return url;
+                    let url = img.src;
+                    // Для интерфейса берем 100x100
+                    let smallUrl = url.replace(/=w\d+-h\d+/, '=w100-h100-nd');
+                    // Для сервера берем оригинал 512x512
+                    let originalUrl = url.split('=')[0];
+                    return JSON.stringify({ small: smallUrl, original: originalUrl });
                 } catch(e) {
                     return null;
                 }
@@ -3645,28 +3560,58 @@ yandex: `
         `
     };
     
-     const jsCode = selectors[serviceId] || selectors.youtube;
+      const jsCode = selectors[serviceId] || selectors.youtube;
     
     try {
-        let artworkUrl = await webview.executeJavaScript(jsCode);
+        let result = await webview.executeJavaScript(jsCode);
         
-        if (artworkUrl && artworkUrl !== 'null') {
-            // Показываем в интерфейсе
-            if (simpleGradientEnabled) await updateSimpleGradient(artworkUrl);
-            await applyColorFromArtwork(artworkUrl);  // <-- новая строка
-    updateNowPlayingArtwork(artworkUrl);
-    updatePanelArtwork(artworkUrl);
-            
-            // Конвертируем изображение в Base64 и отправляем в main
-            const base64 = await urlToBase64(artworkUrl);
-            if (base64) {
-                // Получаем информацию о треке
-                const trackInfo = await getCurrentTrackInfo();
-                window.electronAPI.updateArtworkBase64(base64, trackInfo);
-                updatePanelArtwork(artworkUrl);
+        if (result && result !== 'null') {
+            let urls;
+            try {
+                urls = JSON.parse(result);
+            } catch(e) {
+                // Если не JSON, значит просто URL
+                urls = { small: result, original: result };
             }
             
-            return artworkUrl;
+if (urls.small && urls.small !== 'null') {
+    // 1. Для цветов и градиента - маленькая base64 100x100
+    const smallBase64 = await urlToBase64(urls.small, 100);
+    
+    // 2. Для показа в интерфейсе - оригинальный URL (качественная картинка)
+    if (urls.original && urls.original !== 'null') {
+        updateNowPlayingArtwork(urls.original);
+        updatePanelArtwork(urls.original);
+    }
+
+    if (urls.original && urls.original !== 'null') {
+    // Просто перезагружаем страницу http://127.0.0.1:3456/
+    window.electronAPI.reloadArtworkPage();
+}
+    
+    // 3. Для локального сервера - отправляем оригинальный URL
+    if (urls.original && urls.original !== 'null') {
+        window.electronAPI.updateArtworkUrl(urls.original, null);
+    }
+
+    if (urls.original && urls.original !== 'null') {
+    window.electronAPI.updateArtworkUrl(urls.original, null);
+}
+
+
+    
+    // 4. Обновляем иконку в трее при смене трека (если музыка играет)
+    const isPlaying = await isMusicPlaying();
+    if (isPlaying && window.electronAPI && window.electronAPI.updateArtworkForTray) {
+        window.electronAPI.updateArtworkForTray(urls.original);
+    }
+    
+    // 5. Цвета и градиент - с маленькой обложки (быстро)
+    if (simpleGradientEnabled) await updateSimpleGradient(smallBase64);
+    await applyColorFromArtwork(smallBase64);
+    
+    return urls.small;
+}
         }
     } catch (err) {
         console.log('Ошибка получения обложки:', err);
@@ -3674,29 +3619,38 @@ yandex: `
     return null;
 }
 
-function urlToBase64(url) {
+const artworkCache = new Map();
+let lastServerUpdate = 0;
+
+function urlToBase64(url, targetSize = 100) {
+    const cacheKey = `${url}_${targetSize}`;
+    
+    if (artworkCache.has(cacheKey)) {
+        return Promise.resolve(artworkCache.get(cacheKey));
+    }
+    
     return new Promise((resolve) => {
         const img = new Image();
         img.crossOrigin = 'Anonymous';
         img.onload = () => {
             const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
+            canvas.width = targetSize;
+            canvas.height = targetSize;
             const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0);
-            const base64 = canvas.toDataURL('image/jpeg', 0.8);
+            ctx.drawImage(img, 0, 0, targetSize, targetSize);
+            const base64 = canvas.toDataURL('image/jpeg', targetSize === 100 ? 0.5 : 0.7);
+            
+            artworkCache.set(cacheKey, base64);
+            setTimeout(() => artworkCache.delete(cacheKey), 60000);
+            
             resolve(base64);
         };
-        img.onerror = () => {
-            console.log('Ошибка загрузки изображения:', url);
-            resolve(null);
-        };
+        img.onerror = () => resolve(null);
         img.src = url;
     });
 }
 
 
-// Обновление UI с обложкой
 async function updateNowPlayingArtwork(url) {
     let container = document.getElementById('nowPlayingArtwork');
     if (!container) {
@@ -3734,21 +3688,32 @@ async function updateNowPlayingArtwork(url) {
     window.artworkTimeout = setTimeout(() => {
         if (container) container.style.display = 'none';
     }, 5000);
+}
 
-    // Проверяем, играет ли музыка
+let lastPlayingState = false;
+let playingCheckInterval = null;
+
+async function checkAndUpdateTray() {
     const isPlaying = await isMusicPlaying();
     
-    if (isPlaying && window.electronAPI && window.electronAPI.updateArtworkForTray) {
-        window.electronAPI.updateArtworkForTray(url);
+    if (isPlaying !== lastPlayingState) {
+        lastPlayingState = isPlaying;
         
-        // Возвращаем стандартную иконку через 5 секунд
-        setTimeout(() => {
-            if (window.electronAPI && window.electronAPI.updateArtworkForTray) {
-                window.electronAPI.updateArtworkForTray(null);
+        if (isPlaying && window.electronAPI && window.electronAPI.updateArtworkForTray) {
+            // Музыка играет - показываем обложку
+            const artwork = document.getElementById('panelArtwork')?.src;
+            if (artwork && !artwork.startsWith('data:')) {
+                window.electronAPI.updateArtworkForTray(artwork);
             }
-        }, 5000);
+        } else if (!isPlaying && window.electronAPI && window.electronAPI.updateArtworkForTray) {
+            // Музыка остановилась - убираем обложку
+            window.electronAPI.updateArtworkForTray(null);
+        }
     }
 }
+
+// Запускаем проверку каждую секунду
+setInterval(checkAndUpdateTray, 1000);
 
 async function isMusicPlaying() {
     const webview = document.querySelector('webview.active');
@@ -3775,7 +3740,7 @@ async function isMusicPlaying() {
             return false;
         })();
     `;
-    
+    // УБЕРИ ЭТУ СТРОКУ: updateNowPlayingArtwork
     try {
         return await webview.executeJavaScript(jsCode);
     } catch (err) {
@@ -4111,10 +4076,7 @@ async function updateSimpleGradient(artworkUrl) {
     applySimpleGradient(color);
 }
 
-// В getCurrentTrackArtwork добавь:
-// if (artworkUrl && simpleGradientEnabled) {
-//     await updateSimpleGradient(artworkUrl);
-// }
+
 
 // Обработчик
 document.getElementById('simpleGradientCheckbox')?.addEventListener('change', (e) => {
@@ -4376,60 +4338,11 @@ MusicHub — это десктопный музыкальный плеер с в
     }
 }
 
-let pendingSteamName = null;
 
-async function autoSteamLogin() {
-    const savedSteamId = localStorage.getItem('steam_id');
-    if (!savedSteamId) {
-        console.log('❌ Нет сохранённого Steam ID');
-        return false;
-    }
+     
+     
     
-    console.log('🔄 Авто-вход через Steam...');
-    
-    try {
-        const keyResponse = await fetch(`${STEAM_WORKER_URL}/steam-key`, {
-            headers: { 'X-App-Key': APP_KEY_STEAM }
-        });
-        const keyData = await keyResponse.json();
-        if (!keyData.success) throw new Error(keyData.error);
-        
-        const userResponse = await fetch(
-            `https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=${keyData.key}&steamids=${savedSteamId}`
-        );
-        const userData = await userResponse.json();
-        const player = userData.response.players[0];
-        
-        if (player) {
-            localStorage.setItem('steam_name', player.personaname);
-            setChatUserName(player.personaname);
-            pendingSteamName = player.personaname;
-            console.log(`✅ Steam имя загружено: ${player.personaname}`);
-            return true;
-        }
-        return false;
-    } catch (err) {
-        console.error('❌ Ошибка авто-входа:', err);
-        return false;
-    }
-}
 
-function initChat() {
-    currentChatUser = getOrCreateUserId();
-    
-     
-     
-    
-     
-    const statusEl = document.getElementById('chat-status');
-    if (statusEl) {
-        statusEl.innerHTML = '🤖 AI режим • Доступны команды: /help';
-        statusEl.style.color = '#1DB954';
-    }
-    
-     
-    updateTitlebarOnline(1);
-}
 
 let customSites = [];
 
@@ -5137,63 +5050,8 @@ function getOrCreateUserId() {
     return userId;
 }
 
-function getUserName() {
 
-    const steamName = localStorage.getItem('steam_name');
-    if (steamName) return steamName;
-    
 
-    let userName = localStorage.getItem('chat_user_name');
-    if (!userName) {
-        userName = 'Музыкант_' + Math.floor(Math.random() * 1000);
-        localStorage.setItem('chat_user_name', userName);
-    }
-    return userName;
-}
-
-async function syncSteamName() {
-    const savedSteamId = localStorage.getItem('steam_id');
-    if (!savedSteamId) {
-        console.log('❌ Нет сохранённого Steam ID');
-        return false;
-    }
-    
-    console.log('🔄 Синхронизация Steam...');
-    
-    try {
-        const keyResponse = await fetch(`${STEAM_WORKER_URL}/steam-key`, {
-            headers: { 'X-App-Key': APP_KEY_STEAM }
-        });
-        const keyData = await keyResponse.json();
-        if (!keyData.success) throw new Error(keyData.error);
-        
-        const userResponse = await fetch(
-            `https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=${keyData.key}&steamids=${savedSteamId}`
-        );
-        const userData = await userResponse.json();
-        const player = userData.response.players[0];
-        
-        if (player) {
-            const currentName = localStorage.getItem('steam_name');
-            const newName = player.personaname;
-
-            setChatUserName(newName);
-            localStorage.setItem('steam_name', newName);
-            
-            if (currentName !== newName) {
-                console.log(`🔄 Steam ник обновлён: ${currentName} → ${newName}`);
-                addChatMessage(`🔄 Steam ник обновлён: ${newName}`, false, 'system');
-            } else {
-                console.log(`✅ Steam ник актуален: ${newName}`);
-            }
-            return true;
-        }
-        return false;
-    } catch (err) {
-        console.error('❌ Ошибка синхронизации Steam:', err);
-        return false;
-    }
-}
 
 
 function initChat() {
@@ -5229,7 +5087,6 @@ function setChatUserName(newName) {
     }
 }
 
-// ЭТОТ БЛОК НУЖНО УДАЛИТЬ (он дублирует первый):
 function updatePanelArtwork(artworkUrl, trackTitle) {
     const panelArtwork = document.getElementById('panelArtwork');
     const panelTitle = document.getElementById('panelTrackTitle');

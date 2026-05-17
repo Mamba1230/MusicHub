@@ -74,22 +74,21 @@ const saveConfig = () => {
 function updateTrayWithArtwork(imageUrl) {
     if (!tray) return;
     
-    // Если нет URL - ставим стандартную иконку
+    const { nativeImage } = require('electron');
+    const iconPath = path.join(__dirname, 'icon.png');
+    const defaultIcon = fs.existsSync(iconPath) ? nativeImage.createFromPath(iconPath) : null;
+    
     if (!imageUrl || imageUrl === 'null') {
-        const iconPath = path.join(__dirname, 'icon.png');
-        if (fs.existsSync(iconPath)) {
-            tray.setImage(require('electron').nativeImage.createFromPath(iconPath));
-        }
+        if (defaultIcon) tray.setImage(defaultIcon);
         return;
     }
     
-    // Скачиваем изображение и конвертируем в NativeImage
-    const https = require('https');
-    const http = require('http');
-    const { nativeImage } = require('electron');
+    if (!imageUrl.startsWith('http')) {
+        if (defaultIcon) tray.setImage(defaultIcon);
+        return;
+    }
     
     const protocol = imageUrl.startsWith('https') ? https : http;
-    
     protocol.get(imageUrl, (response) => {
         let chunks = [];
         response.on('data', (chunk) => chunks.push(chunk));
@@ -97,23 +96,13 @@ function updateTrayWithArtwork(imageUrl) {
             try {
                 const buffer = Buffer.concat(chunks);
                 const image = nativeImage.createFromBuffer(buffer);
-                // Ресайзим до 16x16 для трея
                 const resized = image.resize({ width: 16, height: 16 });
                 tray.setImage(resized);
-                
-                // Возвращаем стандартную иконку через 5 секунд (чтобы не мелькала)
-                setTimeout(() => {
-                    const iconPath = path.join(__dirname, 'icon.png');
-                    if (fs.existsSync(iconPath)) {
-                        tray.setImage(nativeImage.createFromPath(iconPath));
-                    }
-                }, 5000);
-            } catch (err) {
-                console.log('Ошибка установки иконки трея:', err);
-            }
+                // НЕТ ТАЙМАУТА - горит постоянно!
+            } catch (err) {}
         });
-    }).on('error', (err) => {
-        console.log('Ошибка загрузки обложки для трея:', err);
+    }).on('error', () => {
+        if (defaultIcon) tray.setImage(defaultIcon);
     });
 }
 
@@ -131,33 +120,41 @@ function startArtworkServer() {
         const url = req.url.split('?')[0];
         
         if (url === '/') {
-            res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' });
+            res.writeHead(200, { 'Content-Type': 'text/html' });
             res.end(`<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="refresh" content="1">
     <style>body{margin:0;background:#000}img{width:100%;height:100%;object-fit:contain}</style>
 </head>
 <body>
-    <img src="/artwork" onload="setInterval(()=>this.src='/artwork?t='+Date.now(),1000)">
+    <img id="artwork" src="/artwork">
+    <script>
+        // Принудительная перезагрузка картинки каждые 2 секунды (или при смене трека будем перезагружать всю страницу)
+        setInterval(() => {
+            const img = document.getElementById('artwork');
+            img.src = '/artwork?t=' + Date.now();
+        }, 2000);
+    </script>
 </body>
 </html>`);
-        } 
-        else if (url === '/artwork') {
-            if (currentArtworkBase64) {
-                res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-cache' });
-                const imageBuffer = Buffer.from(currentArtworkBase64.split(',')[1], 'base64');
-                res.end(imageBuffer);
-            } else {
-                const transparentPixel = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-                res.writeHead(200, { 'Content-Type': 'image/gif' });
-                res.end(Buffer.from(transparentPixel, 'base64'));
-            }
         }
-        else if (url === '/track-info') {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(currentTrackInfo));
+        else if (url === '/artwork') {
+            if (currentArtworkUrl && currentArtworkUrl.startsWith('http')) {
+                const protocol = currentArtworkUrl.startsWith('https') ? https : http;
+                protocol.get(currentArtworkUrl, (proxyRes) => {
+                    res.writeHead(200, {
+                        'Content-Type': proxyRes.headers['content-type'] || 'image/jpeg'
+                    });
+                    proxyRes.pipe(res);
+                }).on('error', () => {
+                    res.writeHead(404);
+                    res.end();
+                });
+            } else {
+                res.writeHead(204);
+                res.end();
+            }
         }
         else {
             res.writeHead(404);
@@ -169,6 +166,26 @@ function startArtworkServer() {
         console.log(`✅ Artwork server: http://127.0.0.1:${PORT}/`);
     });
 }
+
+let artworkWindow = null;
+
+function getOrCreateArtworkWindow() {
+    if (artworkWindow && !artworkWindow.isDestroyed()) return artworkWindow;
+    artworkWindow = new BrowserWindow({
+        width: 400,
+        height: 400,
+        show: false,
+        webPreferences: { nodeIntegration: false, contextIsolation: true }
+    });
+    artworkWindow.loadURL('http://127.0.0.1:3456/');
+    artworkWindow.on('closed', () => { artworkWindow = null; });
+    return artworkWindow;
+}
+
+ipcMain.on('reload-artwork-page', () => {
+    const win = getOrCreateArtworkWindow();
+    win.reload();
+});
 
 // ========== IPC HANDLERS ==========
 
@@ -233,10 +250,12 @@ ipcMain.handle('open-external', async (event, url) => {
 
 ipcMain.on('set-autostart', (e, s) => app.setLoginItemSettings({ openAtLogin: s }));
 
-ipcMain.on('update-artwork-base64', (event, base64, trackInfo) => {
-    currentArtworkBase64 = base64;
+ipcMain.on('update-artwork-url', (event, url, trackInfo) => {
+    currentArtworkUrl = url;  // храним URL, не base64
     if (trackInfo) currentTrackInfo = trackInfo;
 });
+
+let currentArtworkUrl = null;
 
 // ========== РАСШИРЕНИЯ ==========
 async function loadExtensions() {
