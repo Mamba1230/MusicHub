@@ -2891,3 +2891,22 @@ body.light-theme {
     background: #f5f5f5;
     color: #333333;
 }
+
+:root {
+    --accent-color: #1DB954;
+    transition: --accent-color 0.5s ease;
+}
+
+* {
+    transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* Для кнопок и элементов интерфейса */
+.nav-btn, .util-btn, .settings-btn, .viz-expand-btn {
+    transition: background-color 0.3s ease, transform 0.2s ease, box-shadow 0.3s ease;
+}
+
+/* Для градиента фона */
+.gradient-bg {
+    transition: background 0.8s ease-in-out;
+}

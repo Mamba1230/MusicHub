@@ -33,6 +33,9 @@ const api = {
     installFromChrome: (extId) => ipcRenderer.invoke('install-from-chrome', extId),
     reloadArtworkPage: () => ipcRenderer.send('reload-artwork-page'),
     updateArtworkUrl: (url, trackInfo) => ipcRenderer.send('update-artwork-url', url, trackInfo),
+    getWindowsMediaInfo: () => ipcRenderer.invoke('get-windows-media-info'),
+    getMediaFromFiles: () => ipcRenderer.invoke('get-media-from-files'),
+    updateArtworkForTray: (imageData) => ipcRenderer.send('update-artwork-for-tray', imageData),
 };
 
 // Экспортируем API (только один раз!)

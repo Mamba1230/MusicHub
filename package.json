@@ -1,60 +1,63 @@
 {
   "name": "musichub",
-  "version": "2.6.5",
-  "description": "MusicHub - музыкальный агрегатор",
-  "author": "MusicHub Labs",
+  "version": "2.7.0",
+  "description": "MusicHub - десктопный музыкальный плеер с визуализациями",
+  "author": "Mamba1230",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build-win": "electron-builder --win"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/Mamba1230/MusicHub"
+    "build": "electron-builder --win",
+    "build:portable": "electron-builder --win portable"
   },
   "devDependencies": {
-    "electron": "^34.2.0",
-    "electron-builder": "^24.6.4",
-    "javascript-obfuscator": "^5.4.1"
+    "electron": "^34.5.8",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.14",
+    "ws": "^8.18.0"
   },
   "build": {
     "appId": "com.musichub.app",
     "productName": "MusicHub",
-    "copyright": "Copyright © 2026 MusicHub Labs",
+    "copyright": "© 2026 MusicHub Labs",
     "directories": {
-      "output": "release"
+      "output": "dist"
     },
     "files": [
       "**/*",
-      "!node_modules/.cache"
+      "!node_modules/.cache",
+      "!*.py",
+      "!__pycache__",
+      "!media_watcher.py",
+      "!*.map"
+    ],
+    "extraResources": [
+      {
+        "from": "media_watcher.exe",
+        "to": "media_watcher.exe"
+      }
     ],
     "win": {
-      "target": "nsis",
-      "icon": "icon.ico"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "icon.ico",
+      "artifactName": "MusicHub.Setup.${version}.exe"
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": true,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "shortcutName": "MusicHub"
     },
-    "asar": true
-  },
-  "dependencies": {
-    "@capacitor/android": "^8.3.1",
-    "@capacitor/cli": "^8.3.1",
-    "@capacitor/core": "^8.3.1",
-    "adm-zip": "^0.5.17",
-    "electron-chrome-extensions": "^4.9.0",
-    "iconv-lite": "^0.7.2",
-    "imap": "^0.8.19",
-    "mailparser": "^3.9.8",
-    "node-fetch": "^2.7.0",
-    "nodemailer": "^8.0.5",
-    "quoted-printable": "^1.0.1",
-    "resend": "^6.10.0",
-    "update-electron-app": "^3.2.0",
-    "win32-api": "^26.1.2",
-    "ws": "^8.20.1"
+    "portable": {
+      "artifactName": "MusicHub.Portable.${version}.exe"
+    }
   }
 }

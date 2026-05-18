@@ -1832,10 +1832,35 @@ function renderServices() {
         }
 
          
-        function changeAccentColor(color) {
-            document.documentElement.style.setProperty('--accent-color', color);
-            localStorage.setItem('hubC', color);
+let isAnimating = false;
+let pendingColor = null;
+
+function changeAccentColor(color, animate = true) {
+    const currentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim() || '#1DB954';
+    
+    if (!animate || currentColor === color) {
+        document.documentElement.style.setProperty('--accent-color', color);
+        localStorage.setItem('hubC', color);
+        return;
+    }
+    
+    if (isAnimating) {
+        pendingColor = color;
+        return;
+    }
+    
+    isAnimating = true;
+    animateColorChange(currentColor, color, 400).then(() => {
+        isAnimating = false;
+        localStorage.setItem('hubC', color);
+        
+        if (pendingColor) {
+            const nextColor = pendingColor;
+            pendingColor = null;
+            changeAccentColor(nextColor, true);
         }
+    });
+}
 
         function setZoom(value) {
             document.querySelectorAll('webview').forEach(w => { try { w.setZoomFactor(parseFloat(value)); } catch(e) {} });
@@ -2520,7 +2545,53 @@ document.getElementById('autoColorFromArtwork')?.addEventListener('change', asyn
 });
 
 
+let currentGradientColors = ['#1DB954', '#0a0a0a'];
 
+function animateGradient(colors, duration = 1000) {
+    if (gradientAnimation) {
+        cancelAnimationFrame(gradientAnimation);
+    }
+    
+    const startColors = [...currentGradientColors];
+    const endColors = colors;
+    const startTime = performance.now();
+    
+    function step(now) {
+        const elapsed = now - startTime;
+        const progress = Math.min(1, elapsed / duration);
+        
+        // Интерполируем каждый цвет
+        const r1 = hexToRgb(startColors[0]);
+        const g1 = hexToRgb(startColors[1]);
+        const r2 = hexToRgb(endColors[0]);
+        const g2 = hexToRgb(endColors[1]);
+        
+        if (r1 && r2 && g1 && g2) {
+            const r = Math.floor(r1.r + (r2.r - r1.r) * progress);
+            const gr = Math.floor(r1.g + (r2.g - r1.g) * progress);
+            const b = Math.floor(r1.b + (r2.b - r1.b) * progress);
+            
+            const r2c = Math.floor(g1.r + (g2.r - g1.r) * progress);
+            const g2c = Math.floor(g1.g + (g2.g - g1.g) * progress);
+            const b2c = Math.floor(g1.b + (g2.b - g1.b) * progress);
+            
+            const color1 = `rgb(${r}, ${gr}, ${b})`;
+            const color2 = `rgb(${r2c}, ${g2c}, ${b2c})`;
+            
+            document.body.style.background = `radial-gradient(circle at 30% 40%, ${color1}, ${color2})`;
+        }
+        
+        if (progress < 1) {
+            gradientAnimation = requestAnimationFrame(step);
+        } else {
+            document.body.style.background = `radial-gradient(circle at 30% 40%, ${endColors[0]}, ${endColors[1]})`;
+            currentGradientColors = [...endColors];
+            gradientAnimation = null;
+        }
+    }
+    
+    gradientAnimation = requestAnimationFrame(step);
+}
 
 
 
@@ -2601,7 +2672,7 @@ document.getElementById('autoColorFromArtwork')?.addEventListener('change', asyn
 
          
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 MusicHub v2.6.5');
+    console.log('🚀 MusicHub v2.7.0');
     particleBackground = new ParticleBackground();
     loadSettings();
     loadCustomSites();  
@@ -3145,89 +3216,90 @@ setTimeout(() => {
 }, 500);
 
     // динамический URL
-    let currentUrl = '';
-    function updateUrlBar() {
-        const wv = document.querySelector('webview.active');
-        if (!wv) return;
-        wv.executeJavaScript('window.location.href').then(url => {
+let currentUrl = '';
+let urlTrackingInterval = null;
+
+function updateUrlBar() {
+    const wv = document.querySelector('webview.active');
+    if (!wv) return;
+    
+    wv.executeJavaScript('window.location.href')
+        .then(url => {
             if (!url || url === currentUrl) return;
             currentUrl = url;
             let domain = '', path = '';
-            try { const u = new URL(url); domain = u.hostname; path = u.pathname + u.search + u.hash; } catch(e){ domain = url; }
+            try {
+                const u = new URL(url);
+                domain = u.hostname;
+                path = u.pathname + u.search + u.hash;
+            } catch(e) {
+                domain = url;
+            }
             const urlText = document.getElementById('urlText');
             if (urlText) urlText.innerHTML = `<span class="url-domain">${domain}</span><span class="url-path">${path}</span>`;
-            wv.executeJavaScript(`(function(){const l=document.querySelector("link[rel*='icon']");return l?l.href:null;})()`)
-              .then(fav => { const img = document.getElementById('urlFavicon'); if(img && fav) { img.src = fav; img.style.display = 'inline'; } })
-              .catch(()=>{});
-            wv.executeJavaScript('document.title').then(t => { if(t) document.title = `MusicHub - ${t}`; }).catch(()=>{});
-        }).catch(()=>{});
+        })
+        .catch(() => {});
+    
+    wv.executeJavaScript(`(function(){const l=document.querySelector("link[rel*='icon']");return l?l.href:null;})()`)
+        .then(fav => {
+            const img = document.getElementById('urlFavicon');
+            if (img && fav) {
+                img.src = fav;
+                img.style.display = 'inline';
+            }
+        })
+        .catch(() => {});
+    
+    wv.executeJavaScript('document.title')
+        .then(t => {
+            if (t) document.title = `MusicHub - ${t}`;
+        })
+        .catch(() => {});
+}
+
+function initUrlTracking() {
+    // Очищаем старый интервал
+    if (urlTrackingInterval) {
+        clearInterval(urlTrackingInterval);
     }
-    function initUrlTracking() {
-        const wv = document.querySelector('webview.active');
-        if (!wv) return;
-        ['did-navigate', 'did-navigate-in-page', 'dom-ready'].forEach(ev => {
+    
+    const wv = document.querySelector('webview.active');
+    if (!wv) return;
+    
+    // Обновляем сразу
+    updateUrlBar();
+    
+    // Добавляем слушатели событий webview
+    const events = ['did-navigate', 'did-navigate-in-page', 'dom-ready', 'did-frame-finish-load'];
+    events.forEach(ev => {
+        try {
             wv.removeEventListener(ev, updateUrlBar);
             wv.addEventListener(ev, updateUrlBar);
-        });
-        updateUrlBar();
-    }
-    document.getElementById('urlBar')?.addEventListener('click', async () => {
-        const wv = document.querySelector('webview.active');
-        if (!wv) return;
-        const cur = await wv.executeJavaScript('window.location.href');
-        const nu = prompt('Перейти на адрес:', cur);
-        if (nu && nu !== cur) wv.loadURL(nu);
+        } catch(e) {}
     });
-
-    // расширения
-function openExtensionsWindow() {
-    window.electronAPI.openExtensionsWindow();
+    
+    // Запасной вариант - обновляем каждые 2 секунды (если события не срабатывают)
+    urlTrackingInterval = setInterval(() => {
+        const activeWv = document.querySelector('webview.active');
+        if (activeWv && activeWv === wv) {
+            updateUrlBar();
+        }
+    }, 2000);
 }
-    // навигация (если ещё не определена)
-    if (typeof window.goBack === 'undefined') {
-        window.goBack = () => document.querySelector('webview.active')?.goBack();
-        window.goForward = () => document.querySelector('webview.active')?.goForward();
-        window.reloadPage = () => document.querySelector('webview.active')?.reload();
-    }
 
-    // переопределяем переключение вкладок, чтобы обновлять URL
-    const originalSw = window.sw;
-    if (originalSw) {
-        window.sw = function(id, btn) {
-            originalSw(id, btn);
-            setTimeout(initUrlTracking, 300);
-        };
-    }
+// При переключении вкладок
+const originalSw = window.sw;
+if (originalSw) {
+    window.sw = function(id, btn) {
+        originalSw(id, btn);
+        setTimeout(initUrlTracking, 500);
+    };
+}
 
-    // инициализация
-    if (!localStorage.getItem('windowButtonsStyle')) localStorage.setItem('windowButtonsStyle', 'win');
-    if (!localStorage.getItem('windowButtonsPosition')) localStorage.setItem('windowButtonsPosition', 'right');
-    renderWindowButtons();
-    applyButtonsPosition();
-    const styleSel = document.getElementById('windowButtonsStyle');
-    const posSel = document.getElementById('windowButtonsPosition');
-    if (styleSel) {
-        styleSel.value = localStorage.getItem('windowButtonsStyle');
-        styleSel.onchange = (e) => window.changeWindowButtonsStyle(e.target.value);
-    }
-    if (posSel) {
-        posSel.value = localStorage.getItem('windowButtonsPosition');
-        posSel.onchange = (e) => window.changeWindowButtonsPosition(e.target.value);
-    }
+// Инициализация при загрузке
+document.addEventListener('DOMContentLoaded', () => {
     setTimeout(initUrlTracking, 1000);
-
-// При открытии панели расширений
-function showExtensionsWarning() {
-    const warning = document.createElement('div');
-    warning.className = 'extensions-warning';
-    warning.innerHTML = `
-        <div style="background: #ff9800; color: #000; padding: 12px; border-radius: 8px; margin-bottom: 12px;">
-            ⚠️ <strong>Важно:</strong> 99% расширений из Chrome Web Store не будут работать в Electron-приложении из-за отсутствия полноценной поддержки Chrome API.
-        </div>
-    `;
-    document.getElementById('extensionsList').prepend(warning);
-}
-
+});
 // ---------- Панель расширений ----------
 (function() {
     const extBtn = document.getElementById('extensionsPanelBtn');
@@ -3410,247 +3482,6 @@ window.changeWindowButtonsPosition = function(pos) {
     if (typeof applyButtonsPosition === 'function') applyButtonsPosition();
 };
 
-
-
-
-
-
-
-
-
-// Получение обложки из активного webview
-async function getCurrentTrackArtwork() {
-    const webview = document.querySelector('webview.active');
-    if (!webview) return null;
-    
-
-
-    const serviceId = webview.id;
-    
-    const selectors = {
-       youtube: `
-            (function() {
-                try {
-                    const img = document.querySelector('ytmusic-player-bar img.image');
-                    if (!img || !img.src) return null;
-                    let url = img.src;
-                    // Для интерфейса берем 100x100
-                    let smallUrl = url.replace(/=w\d+-h\d+/, '=w100-h100-nd');
-                    // Для сервера берем оригинал 512x512
-                    let originalUrl = url.split('=')[0];
-                    return JSON.stringify({ small: smallUrl, original: originalUrl });
-                } catch(e) {
-                    return null;
-                }
-            })();
-        `,
-yandex: `
-    (function() {
-        // Ищем обложку в плеере
-        const selectors = [
-            '.PlayerBarDesktopWithBackgroundProgressBar_cover__MKmEt img',
-            '.player-bar__cover img',
-            '.track-cover__image',
-            '[class*="PlayerBarDesktop"] img',
-            '[class*="progress-bar_cover"] img'
-        ];
-        
-        for (let sel of selectors) {
-            const img = document.querySelector(sel);
-            if (img && img.src) {
-                // Берем большую версию (200x200 вместо 100x100)
-                let url = img.src;
-                if (url.includes('100x100')) {
-                    url = url.replace('100x100', '200x200');
-                }
-                if (url.includes('50x50')) {
-                    url = url.replace('50x50', '400x400');
-                }
-                return url;
-            }
-        }
-        
-        // Альтернатива: через data-атрибуты
-        const coverDiv = document.querySelector('[class*="cover"]');
-        if (coverDiv) {
-            const bgImage = getComputedStyle(coverDiv).backgroundImage;
-            const match = bgImage.match(/url\\(["']?([^"')]+)["']?\\)/);
-            if (match) {
-                return match[1];
-            }
-        }
-        
-        return null;
-    })();
-`,
-        soundcloud: `
-    (function() {
-        // Способы поиска обложки в SoundCloud
-        
-        // 1. Через span с background-image
-        const artworkSpan = document.querySelector('.sc-artwork, .playbackSoundBadge__artwork, .sound__artwork, .trackListItem__artwork');
-        if (artworkSpan) {
-            const bgImage = getComputedStyle(artworkSpan).backgroundImage;
-            const match = bgImage.match(/url\\(["']?([^"')]+)["']?\\)/);
-            if (match) {
-                let url = match[1];
-                // Заменяем размер на максимальный (t500x500)
-                url = url.replace(/t[0-9]+x[0-9]+/, 't500x500');
-                url = url.split('?')[0];
-                return url;
-            }
-        }
-        
-        // 2. Через img в плеере
-        const imgSelectors = [
-            '.playbackSoundBadge__artwork img',
-            '.sound__artwork img',
-            '.track__artwork img',
-            '.playlist__artwork img',
-            '.image__full',
-            'img[src*="i1.sndcdn.com"]',
-            'img[src*="artworks"]'
-        ];
-        
-        for (let sel of imgSelectors) {
-            const img = document.querySelector(sel);
-            if (img && img.src && img.src.includes('sndcdn.com')) {
-                let url = img.src;
-                url = url.replace(/t[0-9]+x[0-9]+/, 't500x500');
-                url = url.split('?')[0];
-                return url;
-            }
-        }
-        
-        // 3. Поиск всех картинок на странице (последний шанс)
-        const allImages = document.querySelectorAll('img');
-        for (let img of allImages) {
-            if (img.src && img.src.includes('sndcdn.com') && img.src.includes('artworks')) {
-                let url = img.src;
-                url = url.replace(/t[0-9]+x[0-9]+/, 't500x500');
-                url = url.split('?')[0];
-                return url;
-            }
-        }
-        
-        // 4. Через meta-теги (Open Graph)
-        const ogImage = document.querySelector('meta[property="og:image"]');
-        if (ogImage && ogImage.content) {
-            let url = ogImage.content;
-            url = url.replace(/t[0-9]+x[0-9]+/, 't500x500');
-            return url;
-        }
-        
-        return null;
-    })();
-`,
-        spotify: `
-            (function() {
-                const img = document.querySelector('[data-testid="cover-art-image"]');
-                if (img && img.src) return img.src;
-                return null;
-            })();
-        `,
-        vk: `
-            (function() {
-                const img = document.querySelector('.audio_page_player_cover_img, .audio_playlist_cover_img, .AudioCover__image');
-                if (img && img.src) return img.src;
-                return null;
-            })();
-        `
-    };
-    
-      const jsCode = selectors[serviceId] || selectors.youtube;
-    
-    try {
-        let result = await webview.executeJavaScript(jsCode);
-        
-        if (result && result !== 'null') {
-            let urls;
-            try {
-                urls = JSON.parse(result);
-            } catch(e) {
-                // Если не JSON, значит просто URL
-                urls = { small: result, original: result };
-            }
-            
-if (urls.small && urls.small !== 'null') {
-    // 1. Для цветов и градиента - маленькая base64 100x100
-    const smallBase64 = await urlToBase64(urls.small, 100);
-    
-    // 2. Для показа в интерфейсе - оригинальный URL (качественная картинка)
-    if (urls.original && urls.original !== 'null') {
-        updateNowPlayingArtwork(urls.original);
-        updatePanelArtwork(urls.original);
-    }
-
-    if (urls.original && urls.original !== 'null') {
-    // Просто перезагружаем страницу http://127.0.0.1:3456/
-    window.electronAPI.reloadArtworkPage();
-}
-    
-    // 3. Для локального сервера - отправляем оригинальный URL
-    if (urls.original && urls.original !== 'null') {
-        window.electronAPI.updateArtworkUrl(urls.original, null);
-    }
-
-    if (urls.original && urls.original !== 'null') {
-    window.electronAPI.updateArtworkUrl(urls.original, null);
-}
-
-
-    
-    // 4. Обновляем иконку в трее при смене трека (если музыка играет)
-    const isPlaying = await isMusicPlaying();
-    if (isPlaying && window.electronAPI && window.electronAPI.updateArtworkForTray) {
-        window.electronAPI.updateArtworkForTray(urls.original);
-    }
-    
-    // 5. Цвета и градиент - с маленькой обложки (быстро)
-    if (simpleGradientEnabled) await updateSimpleGradient(smallBase64);
-    await applyColorFromArtwork(smallBase64);
-    
-    return urls.small;
-}
-        }
-    } catch (err) {
-        console.log('Ошибка получения обложки:', err);
-    }
-    return null;
-}
-
-const artworkCache = new Map();
-let lastServerUpdate = 0;
-
-function urlToBase64(url, targetSize = 100) {
-    const cacheKey = `${url}_${targetSize}`;
-    
-    if (artworkCache.has(cacheKey)) {
-        return Promise.resolve(artworkCache.get(cacheKey));
-    }
-    
-    return new Promise((resolve) => {
-        const img = new Image();
-        img.crossOrigin = 'Anonymous';
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = targetSize;
-            canvas.height = targetSize;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, targetSize, targetSize);
-            const base64 = canvas.toDataURL('image/jpeg', targetSize === 100 ? 0.5 : 0.7);
-            
-            artworkCache.set(cacheKey, base64);
-            setTimeout(() => artworkCache.delete(cacheKey), 60000);
-            
-            resolve(base64);
-        };
-        img.onerror = () => resolve(null);
-        img.src = url;
-    });
-}
-
-
 async function updateNowPlayingArtwork(url) {
     let container = document.getElementById('nowPlayingArtwork');
     if (!container) {
@@ -3690,107 +3521,90 @@ async function updateNowPlayingArtwork(url) {
     }, 5000);
 }
 
-let lastPlayingState = false;
-let playingCheckInterval = null;
+let lastWindowsTrackKey = '';
 
-async function checkAndUpdateTray() {
-    const isPlaying = await isMusicPlaying();
-    
-    if (isPlaying !== lastPlayingState) {
-        lastPlayingState = isPlaying;
+function animateColorChange(fromColor, toColor, duration = 500) {
+    return new Promise((resolve) => {
+        // Парсим цвета
+        const from = hexToRgb(fromColor);
+        const to = hexToRgb(toColor);
         
-        if (isPlaying && window.electronAPI && window.electronAPI.updateArtworkForTray) {
-            // Музыка играет - показываем обложку
-            const artwork = document.getElementById('panelArtwork')?.src;
-            if (artwork && !artwork.startsWith('data:')) {
-                window.electronAPI.updateArtworkForTray(artwork);
-            }
-        } else if (!isPlaying && window.electronAPI && window.electronAPI.updateArtworkForTray) {
-            // Музыка остановилась - убираем обложку
-            window.electronAPI.updateArtworkForTray(null);
+        if (!from || !to) {
+            document.documentElement.style.setProperty('--accent-color', toColor);
+            resolve();
+            return;
         }
-    }
-}
-
-// Запускаем проверку каждую секунду
-setInterval(checkAndUpdateTray, 1000);
-
-async function isMusicPlaying() {
-    const webview = document.querySelector('webview.active');
-    if (!webview) return false;
-    
-    const jsCode = `
-        (function() {
-            const pauseSelectors = [
-                '[aria-label="Пауза"]',
-                '[aria-label="Pause"]',
-                '.ytp-play-button[aria-label="Пауза"]',
-                '.player-controls__btn_pause',
-                '[data-testid="pause-button"]',
-                '.playControl.playing',
-                '.audio_pause'
-            ];
+        
+        const startTime = performance.now();
+        
+        function step(currentTime) {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(1, elapsed / duration);
             
-            for (let sel of pauseSelectors) {
-                const btn = document.querySelector(sel);
-                if (btn && btn.offsetParent !== null) {
-                    return true;
-                }
+            // Интерполяция
+            const r = Math.floor(from.r + (to.r - from.r) * progress);
+            const g = Math.floor(from.g + (to.g - from.g) * progress);
+            const b = Math.floor(from.b + (to.b - from.b) * progress);
+            const currentColor = `rgb(${r}, ${g}, ${b})`;
+            
+            document.documentElement.style.setProperty('--accent-color', currentColor);
+            
+            if (progress < 1) {
+                requestAnimationFrame(step);
+            } else {
+                document.documentElement.style.setProperty('--accent-color', toColor);
+                resolve();
             }
-            return false;
-        })();
-    `;
-    // УБЕРИ ЭТУ СТРОКУ: updateNowPlayingArtwork
-    try {
-        return await webview.executeJavaScript(jsCode);
-    } catch (err) {
-        return false;
-    }
+        }
+        
+        requestAnimationFrame(step);
+    });
 }
 
-// История обложек
-let artworkHistory = [];
-
-function saveToHistory(url) {
-    artworkHistory.unshift({ url, timestamp: Date.now() });
-    if (artworkHistory.length > 20) artworkHistory.pop();
-    localStorage.setItem('artworkHistory', JSON.stringify(artworkHistory));
+// Конвертер HEX в RGB
+function hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : null;
 }
 
-// Автоматическое получение обложки при смене трека
-let lastTrackUrl = '';
+
 
 async function pollCurrentTrack() {
-    const webview = document.querySelector('webview.active');
-    if (!webview) return;
-    
-    // Получаем текущий URL трека (для определения смены)
-    let currentTrackUrl = await getCurrentTrackIdentifier();
-    
-    if (currentTrackUrl && currentTrackUrl !== lastTrackUrl) {
-        lastTrackUrl = currentTrackUrl;
-        await getCurrentTrackArtwork();
+    try {
+        console.log('🔍 Запрашиваем медиа-информацию...');
+        const mediaInfo = await window.electronAPI.getWindowsMediaInfo();
+        console.log('📦 Получено:', mediaInfo);
+        
+        if (mediaInfo && mediaInfo.title) {
+            const trackKey = `${mediaInfo.artist}|${mediaInfo.title}`;
+            console.log('🎵 Трек:', trackKey);
+            
+            if (trackKey !== lastWindowsTrackKey) {
+                lastWindowsTrackKey = trackKey;
+                
+                if (mediaInfo.artwork_base64) {
+                    console.log('🖼️ Есть обложка, длина base64:', mediaInfo.artwork_base64.length);
+                    const artworkUrl = `data:image/jpeg;base64,${mediaInfo.artwork_base64}`;
+                    updateNowPlayingArtwork(artworkUrl);
+                    updatePanelArtwork(artworkUrl);
+                } else {
+                    console.log('❌ Нет обложки в mediaInfo');
+                }
+            }
+        } else {
+            console.log('❌ Нет медиа-информации');
+        }
+    } catch (err) {
+        console.log('Ошибка:', err);
     }
 }
 
-async function getCurrentTrackIdentifier() {
-    const webview = document.querySelector('webview.active');
-    if (!webview) return null;
-    
-    const jsCode = `
-        (function() {
-            const title = document.title;
-            const url = window.location.href;
-            return title + '|' + url;
-        })();
-    `;
-    return await webview.executeJavaScript(jsCode);
-}
-
-// Запускаем polling каждые 2 секунды
-setInterval(pollCurrentTrack, 2000);
-
-
+// Запускаем раз в секунду
+setInterval(pollCurrentTrack, 1000);
 
 
 
@@ -3838,11 +3652,11 @@ async function pollCurrentTrack() {
     if (!webview) return;
     
     await getCurrentTrackInfo();
-    await getCurrentTrackArtwork();
 
 }
 
 document.getElementById('openArtworkLinkBtn')?.addEventListener('click', () => {
+    // Открываем страницу с обложкой (не картинку напрямую)
     const url = 'http://127.0.0.1:3456/';
     window.electronAPI.openExternal(url);
     showToast('🌐 Открыто в браузере', 'info');
@@ -3851,6 +3665,13 @@ document.getElementById('openArtworkLinkBtn')?.addEventListener('click', () => {
 // Обновляем отображение ссылки
 document.getElementById('artworkUrlDisplay').textContent = 'http://127.0.0.1:3456/';
 
+async function updateCurrentArtworkInMain() {
+    const mediaInfo = await window.electronAPI.getMediaFromFiles();
+    if (mediaInfo && mediaInfo.artwork_base64) {
+        // Отправляем свежую обложку в main
+        window.electronAPI.updateArtworkForTray(`data:image/jpeg;base64,${mediaInfo.artwork_base64}`);
+    }
+}
 
 // Функция получения доминирующего цвета из изображения
 async function getDominantColorFromImage(imageUrl) {
@@ -3967,7 +3788,7 @@ async function applyColorFromArtwork(artworkUrl) {
     try {
         const color = await getDominantColorFromImage(artworkUrl);
         if (color && color !== '#000000') {
-            changeAccentColor(color);
+            changeAccentColor(color, true); // true = анимировать
         }
     } catch (err) {
         console.log('Ошибка получения цвета из обложки:', err);
@@ -3982,6 +3803,8 @@ function resetToOriginalColor() {
         changeAccentColor(savedColor);
     }
 }
+
+
 
 
 document.getElementById('autoColorFromArtwork')?.addEventListener('change', async (e) => {
@@ -4033,11 +3856,12 @@ function initSimpleGradient() {
 }
 
 function applySimpleGradient(color) {
-    // Сохраняем оригинальный фон только один раз
     if (!window.originalBodyBg) {
         window.originalBodyBg = document.body.style.background;
     }
-    document.body.style.background = `radial-gradient(circle at 30% 40%, ${color}, #0a0a0a)`;
+    
+    const darkColor = '#0a0a0a';
+    animateGradient([color, darkColor], 800);
 }
 
 function removeSimpleGradient() {
@@ -4073,7 +3897,16 @@ async function updateSimpleGradient(artworkUrl) {
     if (!simpleGradientEnabled || !artworkUrl || artworkUrl === 'null') return;
     
     const color = await getColorFromArtworkSimple(artworkUrl);
-    applySimpleGradient(color);
+    
+    // Добавляем fade эффект
+    const bg = document.body;
+    bg.style.transition = 'background 0.8s ease-in-out';
+    bg.style.background = `radial-gradient(circle at 30% 40%, ${color}, #0a0a0a)`;
+    
+    // Сбрасываем transition
+    setTimeout(() => {
+        bg.style.transition = '';
+    }, 800);
 }
 
 
@@ -4099,10 +3932,67 @@ document.getElementById('simpleGradientCheckbox')?.addEventListener('change', (e
 
 
 
+// ========== НОВАЯ СИСТЕМА ОБЛОЖЕК ЧЕРЕЗ ФАЙЛЫ ==========
+let lastTrackKey = '';
 
+async function pollMediaFiles() {
+    try {
+        const mediaInfo = await window.electronAPI.getMediaFromFiles();
+        
+        if (mediaInfo && mediaInfo.title) {
+            const trackKey = `${mediaInfo.artist}|${mediaInfo.title}`;
+            
+            if (trackKey !== lastTrackKey && trackKey !== '|') {
+                lastTrackKey = trackKey;
+                console.log('🎵 Трек:', mediaInfo.artist, '-', mediaInfo.title);
+                
+                if (mediaInfo.artwork_base64) {
+                    const artworkUrl = `data:image/jpeg;base64,${mediaInfo.artwork_base64}`;
+                    updateNowPlayingArtwork(artworkUrl);
+                    updatePanelArtwork(artworkUrl);
+                    window.electronAPI.updateArtworkUrl(artworkUrl, {
+                        title: mediaInfo.title,
+                        artist: mediaInfo.artist
+                    });
+                    if (simpleGradientEnabled) await updateSimpleGradient(artworkUrl);
+                    await applyColorFromArtwork(artworkUrl);
+                    await updateCurrentArtworkInMain();
+                }
+            }
+            
+            // Проверяем звук через analyser
+            const hasSound = isSoundPlayingFromAnalyser();
+            
+            if (hasSound && window.electronAPI.updateArtworkForTray && mediaInfo.artwork_base64) {
+                window.electronAPI.updateArtworkForTray(`data:image/jpeg;base64,${mediaInfo.artwork_base64}`);
+            } else if (!hasSound && window.electronAPI.updateArtworkForTray) {
+                window.electronAPI.updateArtworkForTray(null);
+            }
+        }
+    } catch (err) {
+        console.log('Ошибка:', err);
+    }
+}
 
+// Запускаем проверку каждую секунду
+setInterval(pollMediaFiles, 1000);
 
-
+function isSoundPlayingFromAnalyser() {
+    if (!analyser || useFakeVisualizer) return false;
+    
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(dataArray);
+    
+    // Проверяем, есть ли хоть какой-то уровень громкости
+    let sum = 0;
+    for (let i = 0; i < dataArray.length; i++) {
+        sum += dataArray[i];
+    }
+    const avg = sum / dataArray.length;
+    
+    // Если средний уровень выше порога - звук есть
+    return avg > 5; // порог можно настроить
+}
 
 
 
