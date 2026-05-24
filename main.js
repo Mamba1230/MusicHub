@@ -182,27 +182,28 @@ function getMediaFilesPath() {
 }
 
 function getMediaFromFiles() {
-    // Фиксированный путь для всех пользователей Windows
-    const appData = process.env.APPDATA; // C:\Users\USERNAME\AppData\Roaming
+    const appData = process.env.APPDATA;
     const basePath = path.join(appData, 'musichub');
-    
     const infoPath = path.join(basePath, 'media_info.json');
     const coverPath = path.join(basePath, 'cover.jpg');
     
     console.log('🔍 Looking for files in:', basePath);
-    console.log('   info exists:', fs.existsSync(infoPath));
-    console.log('   cover exists:', fs.existsSync(coverPath));
     
     try {
         if (!fs.existsSync(infoPath)) {
-            console.log('❌ media_info.json not found');
             return null;
         }
         
-        const info = JSON.parse(fs.readFileSync(infoPath, 'utf8'));
+        // Читаем файл как буфер и удаляем BOM
+        let content = fs.readFileSync(infoPath, 'utf8');
+        // Удаляем BOM если есть (символы \uFEFF или я╗┐)
+        if (content.charCodeAt(0) === 0xFEFF || content.startsWith('я╗┐')) {
+            content = content.replace(/^[\uFEFFя╗┐]/, '');
+        }
+        
+        const info = JSON.parse(content);
         
         if (!info.title) {
-            console.log('❌ No title in info');
             return null;
         }
         
@@ -214,14 +215,41 @@ function getMediaFromFiles() {
         
         return info;
     } catch (err) {
-        console.log('Ошибка чтения:', err);
+        console.log('Ошибка чтения:', err.message);
         return null;
     }
 }
 
+
+
+ipcMain.handle('get-artwork-from-server', async () => {
+    const appData = process.env.APPDATA;
+    const coverPath = path.join(appData, 'musichub', 'cover.jpg');
+    
+    if (fs.existsSync(coverPath)) {
+        try {
+            const coverBuffer = fs.readFileSync(coverPath);
+            return coverBuffer.toString('base64');
+        } catch (err) {
+            console.log('Error reading cover:', err);
+            return null;
+        }
+    }
+    return null;
+});
 // IPC для renderer
 ipcMain.handle('get-media-from-files', async () => {
-    return getMediaFromFiles();
+    console.log('📥 Запрос из renderer в', new Date().toLocaleTimeString());
+    const result = getMediaFromFiles();
+    
+    // ПРОВЕРЯЕМ, ЧТО ВОЗВРАЩАЕТСЯ
+    if (result && result.artwork_base64) {
+        console.log('✅ artwork_base64 есть, длина:', result.artwork_base64.length);
+    } else {
+        console.log('❌ artwork_base64 ОТСУТСТВУЕТ');
+    }
+    
+    return result;
 });
 
 // Функция чтения информации из файлов

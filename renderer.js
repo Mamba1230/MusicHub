@@ -2672,7 +2672,7 @@ function animateGradient(colors, duration = 1000) {
 
          
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 MusicHub v2.7.0');
+    console.log('🚀 MusicHub v2.7.5');
     particleBackground = new ParticleBackground();
     loadSettings();
     loadCustomSites();  
@@ -3942,31 +3942,25 @@ async function pollMediaFiles() {
         if (mediaInfo && mediaInfo.title) {
             const trackKey = `${mediaInfo.artist}|${mediaInfo.title}`;
             
-            if (trackKey !== lastTrackKey && trackKey !== '|') {
+            if (trackKey !== lastTrackKey) {
                 lastTrackKey = trackKey;
                 console.log('🎵 Трек:', mediaInfo.artist, '-', mediaInfo.title);
                 
-                if (mediaInfo.artwork_base64) {
-                    const artworkUrl = `data:image/jpeg;base64,${mediaInfo.artwork_base64}`;
+                // ✅ ПОЛУЧАЕМ ОБЛОЖКУ НАПРЯМУЮ ИЗ MAIN
+                const artworkBase64 = await window.electronAPI.getArtworkFromServer();
+                
+                if (artworkBase64) {
+                    const artworkUrl = `data:image/jpeg;base64,${artworkBase64}`;
                     updateNowPlayingArtwork(artworkUrl);
                     updatePanelArtwork(artworkUrl);
-                    window.electronAPI.updateArtworkUrl(artworkUrl, {
-                        title: mediaInfo.title,
-                        artist: mediaInfo.artist
-                    });
+                    
+                    if (window.electronAPI.updateArtworkForTray) {
+                        window.electronAPI.updateArtworkForTray(artworkUrl);
+                    }
+                    
                     if (simpleGradientEnabled) await updateSimpleGradient(artworkUrl);
                     await applyColorFromArtwork(artworkUrl);
-                    await updateCurrentArtworkInMain();
                 }
-            }
-            
-            // Проверяем звук через analyser
-            const hasSound = isSoundPlayingFromAnalyser();
-            
-            if (hasSound && window.electronAPI.updateArtworkForTray && mediaInfo.artwork_base64) {
-                window.electronAPI.updateArtworkForTray(`data:image/jpeg;base64,${mediaInfo.artwork_base64}`);
-            } else if (!hasSound && window.electronAPI.updateArtworkForTray) {
-                window.electronAPI.updateArtworkForTray(null);
             }
         }
     } catch (err) {
@@ -3974,6 +3968,17 @@ async function pollMediaFiles() {
     }
 }
 
+// Новая функция получения обложки через сервер
+async function getArtworkFromServer() {
+    try {
+        const response = await fetch('http://127.0.0.1:3456/artwork');
+        const blob = await response.blob();
+        return URL.createObjectURL(blob);
+    } catch(err) {
+        console.log('Server artwork error:', err);
+        return null;
+    }
+}
 // Запускаем проверку каждую секунду
 setInterval(pollMediaFiles, 1000);
 

@@ -36,6 +36,7 @@ const api = {
     getWindowsMediaInfo: () => ipcRenderer.invoke('get-windows-media-info'),
     getMediaFromFiles: () => ipcRenderer.invoke('get-media-from-files'),
     updateArtworkForTray: (imageData) => ipcRenderer.send('update-artwork-for-tray', imageData),
+    getArtworkFromServer: () => ipcRenderer.invoke('get-artwork-from-server'),
 };
 
 // Экспортируем API (только один раз!)
