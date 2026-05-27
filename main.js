@@ -71,12 +71,20 @@ const saveConfig = () => {
     }
 };
 
+let currentTrayRequest = null; // для отмены предыдущего запроса
+
 function updateTrayWithArtwork(imageData) {
     if (!tray) return;
     
     const { nativeImage } = require('electron');
     const iconPath = path.join(__dirname, 'icon.png');
     const defaultIcon = fs.existsSync(iconPath) ? nativeImage.createFromPath(iconPath) : null;
+    
+    // Отменяем предыдущий запрос, если он был
+    if (currentTrayRequest) {
+        currentTrayRequest.destroy();
+        currentTrayRequest = null;
+    }
     
     // Если нет данных - ставим стандартную иконку
     if (!imageData || imageData === 'null') {
@@ -87,18 +95,20 @@ function updateTrayWithArtwork(imageData) {
     try {
         let image;
         
-        // Если это base64 (начинается с data:image)
+        // Если это base64
         if (imageData.startsWith('data:image')) {
-            // Извлекаем base64 данные
             const base64Data = imageData.split(',')[1];
             const buffer = Buffer.from(base64Data, 'base64');
             image = nativeImage.createFromBuffer(buffer);
-        } 
-        // Если это http URL
-        else if (imageData.startsWith('http')) {
-            // Синхронно скачать не получится, используем асинхронный подход
+            const resized = image.resize({ width: 16, height: 16 });
+            tray.setImage(resized);
+            return;
+        }
+        
+        // Если это HTTP URL
+        if (imageData.startsWith('http')) {
             const protocol = imageData.startsWith('https') ? https : http;
-            protocol.get(imageData, (response) => {
+            const request = protocol.get(imageData, (response) => {
                 let chunks = [];
                 response.on('data', (chunk) => chunks.push(chunk));
                 response.on('end', () => {
@@ -106,21 +116,36 @@ function updateTrayWithArtwork(imageData) {
                         const buffer = Buffer.concat(chunks);
                         const img = nativeImage.createFromBuffer(buffer);
                         const resized = img.resize({ width: 16, height: 16 });
-                        tray.setImage(resized);
-                    } catch (err) {}
+                        // Устанавливаем иконку только если этот запрос актуален
+                        if (currentTrayRequest === request) {
+                            tray.setImage(resized);
+                            currentTrayRequest = null;
+                        }
+                    } catch (err) {
+                        console.log('Ошибка обработки картинки:', err);
+                        if (defaultIcon) tray.setImage(defaultIcon);
+                        currentTrayRequest = null;
+                    }
                 });
-            }).on('error', () => {
-                if (defaultIcon) tray.setImage(defaultIcon);
+                response.on('error', () => {
+                    if (currentTrayRequest === request) {
+                        if (defaultIcon) tray.setImage(defaultIcon);
+                        currentTrayRequest = null;
+                    }
+                });
             });
-            return;
-        }
-        else {
-            if (defaultIcon) tray.setImage(defaultIcon);
+            request.on('error', () => {
+                if (currentTrayRequest === request) {
+                    if (defaultIcon) tray.setImage(defaultIcon);
+                    currentTrayRequest = null;
+                }
+            });
+            currentTrayRequest = request;
             return;
         }
         
-        const resized = image.resize({ width: 16, height: 16 });
-        tray.setImage(resized);
+        // Неизвестный формат
+        if (defaultIcon) tray.setImage(defaultIcon);
         
     } catch (err) {
         console.log('Ошибка установки иконки трея:', err);

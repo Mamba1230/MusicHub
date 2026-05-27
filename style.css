@@ -2910,3 +2910,22 @@ body.light-theme {
 .gradient-bg {
     transition: background 0.8s ease-in-out;
 }
+
+/* Контейнер радио поверх webview */
+.content {
+    position: relative;
+}
+
+#radioContainer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    overflow-y: auto;
+    background: var(--bg-primary);
+    z-index: 20;
+    display: none;
+    padding: 20px;
+    box-sizing: border-box;
+}

@@ -5,7 +5,7 @@
     <script src="https://cdn.jsdelivr.net/npm/omggif@1.0.10/omggif.js"></script>
     <meta charset="UTF-8">
     <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
 </head>
 <body class="dark-theme">
 
@@ -38,7 +38,7 @@
         <img id="splashGif" style="max-width: 200px; max-height: 200px; display: none; border-radius: 20px;">
     </div>
     <div class="splash-title" style="font-size: 28px; font-weight: 600; margin-bottom: 10px;">MusicHub</div>
-    <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v2.7.5</div>
+    <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v2.8.0</div>
     <div class="splash-tip" id="splashTip" style="font-size: 14px; color: var(--text-secondary); max-width: 400px; text-align: center; padding: 0 20px; margin-bottom: 20px;"></div>
     <div class="splash-progress" style="width: 300px; height: 3px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
         <div class="splash-progress-bar" style="width: 0%; height: 100%; background: var(--accent-color); transition: width 0.1s linear;"></div>
@@ -201,33 +201,17 @@
                 <div class="setting-item full-width">
                     <label>🎵 Режим визуализации:</label>
         <select id="viz-mode" onchange="changeVizMode(this.value)">
-            <option value="bars">📊 Полоски</option>
-            <option value="wave">🌊 Волна</option>
-            <option value="circle">⭕ Круг</option>
-            <option value="dots">🔴 Точки</option>
-            <option value="fire">🔥 Огонь</option>
-            <option value="particles">✨ Частицы</option>
-            <option value="spectrum">🌈 Спектр</option>
-            <option value="radial">🎯 Радиальный</option>
-            <option value="bubble">💭 Пузырьки</option>
-            <option value="tunnel3d">🌀 3D Туннель</option>
-            <option value="cube3d">🧊 3D Куб</option>
-            <option value="galaxy">🌌 Галактика</option>
-            <option value="aurora">🎆 Северное сияние</option>
-            <option value="meteor">☄️ Метеоритный дождь</option>
-            <option value="lava">🌋 Лава</option>
-            <option value="neon">💜 Неоновая сетка</option>
-            <option value="ripple">💧 Волны на воде</option>
-            <option value="vortex">🌀 Вихрь</option>
-            <option value="flower">🌸 Цветок</option>
-            <option value="fractal">🔮 Фрактал</option>
-            <option value="pulse">💗 Пульсирующее сердце</option>
-            <option value="equalizer">🎛️ Эквалайзер</option>
-            <option value="starburst">⭐ Звездный взрыв</option>
-            <option value="laser">🔫 Лазерное шоу</option>
-            <option value="glitch">📺 Глитч-эффект</option>
-            <option value="plasma">⚡ Плазма</option>
-            <option value="gif">🎞️ GIF анимация</option>
+<option value="bars">📊 Полоски</option>
+<option value="wave">🌊 Волна</option>
+<option value="circle">⭕ Круг</option>
+<option value="dots">🔴 Точки</option>
+<option value="particles">✨ Частицы</option>
+<option value="radial">🎯 Радиальный</option>
+<option value="galaxy">🌌 Галактика</option>
+<option value="aurora">🎆 Северное сияние</option>
+<option value="vortex">🌀 Вихрь</option>
+<option value="starburst">⭐ Звездный взрыв</option>
+<option value="gif">🎞️ GIF анимация</option>
         </select>
                 </div>
                 <div class="setting-item full-width">
@@ -373,10 +357,15 @@
         </div>
     </div>
 
-    <div class="settings-footer">
-        <div class="version-pill">MusicHub v2.7.5</div>
-        <div class="copyright">© 2026 MusicHub Labs | Made with Mamba1230</div>
+<div class="settings-footer">
+    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+        <div class="version-pill">MusicHub v2.8.0</div>
+        <a href="#" id="githubFooterLink" style="color: var(--accent-color); text-decoration: none; font-size: 40px;">
+            <i class="fa fa-github"></i>
+        </a>
     </div>
+    <div class="copyright" style="text-align: left;">© 2026 MusicHub Labs | Made with Mamba1230</div>
+</div>
 </div>
     
 

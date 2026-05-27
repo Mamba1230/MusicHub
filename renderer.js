@@ -787,18 +787,18 @@ function initSidebarResizer() {
         }
 
          
-        function drawVisualization(ctx, width, height, accentColor, dataArray, isFullscreenMode = false) {
+function drawVisualization(ctx, width, height, accentColor, dataArray, isFullscreenMode = false) {
     const sensitivity = vizSensitivity * (isFullscreenMode ? 1.5 : 1);
     const time = Date.now() * 0.005;
     const centerX = width / 2;
     const centerY = height / 2;
     const maxRadius = Math.min(width, height) / 2 - 20;
-if (currentVizMode !== 'gif') {
-    const gifOverlay = document.getElementById('gifOverlay');
-    if (gifOverlay) gifOverlay.style.display = 'none';
-}
-    
-     
+
+    if (currentVizMode !== 'gif') {
+        const gifOverlay = document.getElementById('gifOverlay');
+        if (gifOverlay) gifOverlay.style.display = 'none';
+    }
+
     let avgVolume = 0.5;
     if (dataArray) {
         let sum = 0;
@@ -808,82 +808,85 @@ if (currentVizMode !== 'gif') {
     } else {
         avgVolume = (Math.sin(time) * 0.5 + 0.5) * sensitivity;
     }
-    
+
+    // Функция для получения hue из акцентного цвета (приблизительно)
+    function getHueFromAccent() {
+        let r, g, b;
+        if (accentColor.startsWith('#')) {
+            r = parseInt(accentColor.slice(1,3), 16);
+            g = parseInt(accentColor.slice(3,5), 16);
+            b = parseInt(accentColor.slice(5,7), 16);
+        } else if (accentColor.startsWith('rgb')) {
+            const match = accentColor.match(/\d+/g);
+            r = parseInt(match[0]); g = parseInt(match[1]); b = parseInt(match[2]);
+        } else {
+            return 120;
+        }
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        let hue = 0;
+        if (max === min) hue = 0;
+        else if (max === r) hue = 60 * ((g - b) / (max - min));
+        else if (max === g) hue = 60 * (2 + (b - r) / (max - min));
+        else hue = 60 * (4 + (r - g) / (max - min));
+        if (hue < 0) hue += 360;
+        return hue;
+    }
+    const baseHue = getHueFromAccent();
+
     switch(currentVizMode) {
-        
-         
-case 'gif':
-    const gifOverlay = document.getElementById('gifOverlay');
-    if (!currentGifUrl || !gifOverlay.src || currentGifUrl === 'undefined') {
-        ctx.fillStyle = accentColor;
-        ctx.font = '12px monospace';
-        ctx.fillText('Выберите GIF в настройках', 10, 30);
-        if (gifOverlay) gifOverlay.style.display = 'none';
-        break;
-    }
-    
-     
-    gifOverlay.style.display = 'block';
-    
-     
-    let gifIntensity = 0.5;
-    if (dataArray) {
-        let sum = 0;
-        for (let i = 0; i < Math.min(dataArray.length, 32); i++) sum += dataArray[i];
-        gifIntensity = Math.min(1, Math.max(0.05, (sum / 32 / 255) * sensitivity));
-    } else {
-        gifIntensity = (Math.sin(time) * 0.5 + 0.5) * sensitivity;
-    }
-    
-     
-    let scale, rotation, glow, opacity;
-    
-if (gifIntensity < 0.05) {
-    scale = 0.02;
-    opacity = 0.02;
-    rotation = 0;
-    glow = 0;
-} else {
-    let t = (gifIntensity - 0.05) / 0.95;
-    scale = 0.02 + Math.pow(t, 0.6) * 1.18;
-    rotation = (gifIntensity - 0.5) * 2.5;    
-    glow = gifIntensity * 30;
-    opacity = 0.05 + Math.pow(t, 0.7) * 0.9;
-}
-    
-    gifOverlay.style.transform = `scale(${scale}) rotate(${rotation}rad)`;
-    gifOverlay.style.filter = `drop-shadow(0 0 ${glow}px ${accentColor})`;
-    gifOverlay.style.opacity = opacity;
-    
-     
-    ctx.clearRect(0, 0, width, height);
-    
+        case 'gif':
+            const gifOverlay = document.getElementById('gifOverlay');
+            if (!currentGifUrl || !gifOverlay.src || currentGifUrl === 'undefined') {
+                ctx.fillStyle = accentColor;
+                ctx.font = '12px monospace';
+                ctx.fillText('Выберите GIF в настройках', 10, 30);
+                if (gifOverlay) gifOverlay.style.display = 'none';
+                break;
+            }
+            gifOverlay.style.display = 'block';
+            let gifIntensity = 0.5;
+            if (dataArray) {
+                let sum = 0;
+                for (let i = 0; i < Math.min(dataArray.length, 32); i++) sum += dataArray[i];
+                gifIntensity = Math.min(1, Math.max(0.05, (sum / 32 / 255) * sensitivity));
+            } else {
+                gifIntensity = (Math.sin(time) * 0.5 + 0.5) * sensitivity;
+            }
+            let scale, rotation, opacity;
+            if (gifIntensity < 0.05) { scale = 0.02; opacity = 0.02; rotation = 0; }
+            else {
+                let t = (gifIntensity - 0.05) / 0.95;
+                scale = 0.02 + Math.pow(t, 0.6) * 1.18;
+                rotation = (gifIntensity - 0.5) * 2.5;
+                opacity = 0.05 + Math.pow(t, 0.7) * 0.9;
+            }
+            gifOverlay.style.transform = `scale(${scale}) rotate(${rotation}rad)`;
+            gifOverlay.style.filter = `drop-shadow(0 0 ${gifIntensity * 30}px ${accentColor})`;
+            gifOverlay.style.opacity = opacity;
+            ctx.clearRect(0, 0, width, height);
+            break;
 
-    break;
-
-        case 'galaxy':  
+        case 'galaxy':
             const galaxyStars = isFullscreenMode ? 200 : 100;
             for (let i = 0; i < galaxyStars; i++) {
                 let intensity;
-                if (dataArray) {
-                    intensity = (dataArray[i % dataArray.length] / 255) * sensitivity;
-                } else {
-                    intensity = (Math.sin(time * 2 + i) * 0.5 + 0.5) * sensitivity;
-                }
+                if (dataArray) intensity = (dataArray[i % dataArray.length] / 255) * sensitivity;
+                else intensity = (Math.sin(time * 2 + i) * 0.5 + 0.5) * sensitivity;
                 const angle = i * 137.5 * Math.PI / 180;
                 const radius = (maxRadius * 0.3) + intensity * maxRadius * 0.7;
                 const x = centerX + Math.cos(angle + time) * radius;
                 const y = centerY + Math.sin(angle + time) * radius;
                 const size = 1 + intensity * 3;
                 ctx.beginPath();
-                ctx.fillStyle = `hsl(${200 + intensity * 160}, 100%, ${50 + intensity * 30}%)`;
+                const sat = 70 + intensity * 30;
+                const light = 50 + intensity * 30;
+                ctx.fillStyle = `hsl(${baseHue}, ${sat}%, ${light}%)`;
                 ctx.arc(x, y, size, 0, Math.PI * 2);
                 ctx.fill();
             }
             break;
-            
-        case 'aurora':  
-            const auroraHeight = height;
+
+        case 'aurora':
             for (let i = 0; i < width; i += 3) {
                 let intensity;
                 if (dataArray) {
@@ -892,283 +895,84 @@ if (gifIntensity < 0.05) {
                 } else {
                     intensity = (Math.sin(time + i * 0.03) * 0.5 + 0.5) * sensitivity;
                 }
-                const waveY = centerY - (intensity * auroraHeight * 0.4) + Math.sin(i * 0.03 + time * 2) * 20;
+                const waveY = centerY - (intensity * height * 0.4) + Math.sin(i * 0.03 + time * 2) * 20;
                 ctx.beginPath();
                 const gradient = ctx.createLinearGradient(0, waveY - 20, 0, waveY + 20);
-                gradient.addColorStop(0, `rgba(0, 255, 100, ${intensity * 0.8})`);
-                gradient.addColorStop(1, `rgba(0, 100, 255, ${intensity * 0.8})`);
+                gradient.addColorStop(0, `hsl(${baseHue}, 80%, ${50 + intensity * 30}%)`);
+                gradient.addColorStop(1, `hsl(${baseHue}, 60%, 30%)`);
                 ctx.fillStyle = gradient;
                 ctx.fillRect(i, waveY - 15, 2, 30);
             }
             break;
-            
-        case 'meteor':  
-            const meteors = isFullscreenMode ? 30 : 15;
-            for (let i = 0; i < meteors; i++) {
-                let intensity;
-                if (dataArray) {
-                    intensity = (dataArray[i * 4 % dataArray.length] / 255) * sensitivity;
-                } else {
-                    intensity = (Math.sin(time * 3 + i) * 0.5 + 0.5) * sensitivity;
-                }
-                const posX = (i * 37) % width;
-                const posY = (time * 200 * intensity + i * 50) % height;
-                const trailLength = 10 + intensity * 20;
-                for (let t = 0; t < trailLength; t++) {
-                    ctx.beginPath();
-                    const alpha = (1 - t / trailLength) * intensity;
-                    ctx.fillStyle = `rgba(255, ${100 + intensity * 155}, 0, ${alpha})`;
-                    ctx.arc(posX - t * 3, posY - t * 2, 2 + intensity * 3, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-            }
-            break;
-            
-        case 'lava':  
-            for (let y = 0; y < height; y += 4) {
-                for (let x = 0; x < width; x += 4) {
-                    let intensity;
-                    if (dataArray) {
-                        intensity = (dataArray[Math.floor((x / width) * dataArray.length)] / 255) * sensitivity;
-                    } else {
-                        intensity = (Math.sin(x * 0.05 + time) * Math.cos(y * 0.05 + time * 0.7)) * 0.5 + 0.5;
-                    }
-                    const r = 255;
-                    const g = 50 + intensity * 205;
-                    const b = 0;
-                    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${0.7 + intensity * 0.3})`;
-                    ctx.fillRect(x, y, 4, 4);
-                }
-            }
-            break;
-            
-        case 'neon':  
-            const gridSize = isFullscreenMode ? 30 : 20;
-            ctx.strokeStyle = accentColor;
-            ctx.lineWidth = 1.5;
-            ctx.shadowBlur = 8;
-            for (let i = 0; i <= gridSize; i++) {
-                let intensity;
-                if (dataArray) {
-                    intensity = (dataArray[i * 2 % dataArray.length] / 255) * sensitivity;
-                } else {
-                    intensity = (Math.sin(time + i) * 0.5 + 0.5) * sensitivity;
-                }
-                const x = (i / gridSize) * width;
-                ctx.beginPath();
-                ctx.moveTo(x, 0);
-                ctx.lineTo(x + Math.sin(time * 2) * intensity * 10, height);
-                ctx.stroke();
-                
-                const y = (i / gridSize) * height;
-                ctx.beginPath();
-                ctx.moveTo(0, y);
-                ctx.lineTo(width, y + Math.cos(time * 1.5 + i) * intensity * 10);
-                ctx.stroke();
-            }
-            break;
-            
-        case 'ripple':  
-            const rippleResolution = 8;
-            for (let i = 0; i < width; i += rippleResolution) {
-                for (let j = 0; j < height; j += rippleResolution) {
-                    let intensity;
-                    if (dataArray) {
-                        intensity = (dataArray[Math.floor((i / width) * dataArray.length)] / 255) * sensitivity;
-                    } else {
-                        const dx = (i - centerX) / width;
-                        const dy = (j - centerY) / height;
-                        const dist = Math.sqrt(dx*dx + dy*dy);
-                        intensity = Math.sin(dist * 20 - time * 5) * 0.5 + 0.5;
-                    }
-                    const offsetX = Math.sin(time * 3 + j * 0.05) * intensity * 5;
-                    const offsetY = Math.cos(time * 2.5 + i * 0.05) * intensity * 5;
-                    ctx.fillStyle = `rgba(0, 150, 255, ${intensity * 0.6})`;
-                    ctx.fillRect(i + offsetX, j + offsetY, rippleResolution - 1, rippleResolution - 1);
-                }
-            }
-            break;
-            
-        case 'vortex':  
-            const vortexPoints = isFullscreenMode ? 360 : 180;
-            for (let i = 0; i < vortexPoints; i++) {
-                let intensity;
-                if (dataArray) {
-                    intensity = (dataArray[i % dataArray.length] / 255) * sensitivity;
-                } else {
-                    intensity = (Math.sin(time * 2 + i * 0.05) * 0.5 + 0.5) * sensitivity;
-                }
-                const angle = (i / vortexPoints) * Math.PI * 2 + time * 2;
-                const radius = maxRadius * (0.2 + intensity * 0.8);
-                const x = centerX + Math.cos(angle) * radius;
-                const y = centerY + Math.sin(angle) * radius;
-                ctx.beginPath();
-                ctx.fillStyle = `hsl(${angle * 180 / Math.PI}, 100%, 60%)`;
-                ctx.arc(x, y, 2 + intensity * 5, 0, Math.PI * 2);
-                ctx.fill();
-            }
-            break;
-            
-        case 'flower':  
-            const petals = isFullscreenMode ? 24 : 16;
-            for (let i = 0; i < petals; i++) {
-                let intensity;
-                if (dataArray) {
-                    intensity = (dataArray[i * 2 % dataArray.length] / 255) * sensitivity;
-                } else {
-                    intensity = (Math.sin(time + i) * 0.5 + 0.5) * sensitivity;
-                }
-                const angle = (i / petals) * Math.PI * 2;
-                const radius = maxRadius * (0.4 + intensity * 0.6);
-                const petalX = centerX + Math.cos(angle) * radius;
-                const petalY = centerY + Math.sin(angle) * radius;
-                
-                ctx.beginPath();
-                ctx.ellipse(petalX, petalY, radius * 0.3, radius * 0.5, angle, 0, Math.PI * 2);
-                ctx.fillStyle = `hsl(${300 + intensity * 60}, 100%, 60%)`;
-                ctx.fill();
-            }
-            break;
-            
-        case 'fractal':  
-            const iterations = 6;
-            function drawFractal(x, y, size, depth, intensity) {
-                if (depth > iterations) return;
-                ctx.beginPath();
-                ctx.rect(x - size/2, y - size/2, size, size);
-                ctx.fillStyle = `hsl(${depth * 60 + time * 50}, 80%, ${50 + intensity * 30}%)`;
-                ctx.fill();
-                const newSize = size * 0.6;
-                drawFractal(x - size/2, y - size/2, newSize, depth + 1, intensity * 0.7);
-                drawFractal(x + size/2, y - size/2, newSize, depth + 1, intensity * 0.7);
-                drawFractal(x - size/2, y + size/2, newSize, depth + 1, intensity * 0.7);
-                drawFractal(x + size/2, y + size/2, newSize, depth + 1, intensity * 0.7);
-            }
-            drawFractal(centerX, centerY, maxRadius * 0.6, 0, avgVolume);
-            break;
-            
-        case 'pulse':  
-            ctx.beginPath();
-            const heartSize = 30 + avgVolume * 50;
-            const x1 = centerX - heartSize;
-            const y1 = centerY - heartSize;
-            ctx.moveTo(centerX, centerY + heartSize);
-            ctx.bezierCurveTo(centerX - heartSize, centerY - heartSize, 
-                             centerX - heartSize, centerY + heartSize/2, 
-                             centerX, centerY);
-            ctx.bezierCurveTo(centerX + heartSize, centerY + heartSize/2, 
-                             centerX + heartSize, centerY - heartSize, 
-                             centerX, centerY + heartSize);
-            ctx.fillStyle = `rgba(255, 50, 100, ${0.5 + avgVolume * 0.5})`;
-            ctx.fill();
-            ctx.shadowBlur = 20 + avgVolume * 30;
-            break;
-            
-        case 'equalizer':  
-            const eqBars = isFullscreenMode ? 64 : 32;
-            const eqWidth = width / eqBars;
-            for (let i = 0; i < eqBars; i++) {
-                let intensity;
-                if (dataArray) {
-                    const dataIndex = Math.floor((i / eqBars) * dataArray.length);
-                    intensity = (dataArray[dataIndex] / 255) * sensitivity;
-                } else {
-                    intensity = (Math.sin(time + i * 0.2) * 0.5 + 0.5) * sensitivity;
-                }
-                const barHeight = Math.min(height - 20, Math.max(5, intensity * height * 0.8));
-                const x = i * eqWidth;
-                const y = height - barHeight;
-                ctx.fillStyle = `hsl(${i * 5}, 100%, 60%)`;
-                ctx.fillRect(x, y, eqWidth - 1, barHeight);
-            }
-            break;
-            
-        case 'starburst':  
-            const rays = isFullscreenMode ? 48 : 32;
-            for (let i = 0; i < rays; i++) {
-                let intensity;
-                if (dataArray) {
-                    intensity = (dataArray[i % dataArray.length] / 255) * sensitivity;
-                } else {
-                    intensity = (Math.sin(time * 3 + i) * 0.5 + 0.5) * sensitivity;
-                }
-                const angle = (i / rays) * Math.PI * 2;
-                const rayLength = maxRadius * (0.3 + intensity * 0.7);
-                const x2 = centerX + Math.cos(angle) * rayLength;
-                const y2 = centerY + Math.sin(angle) * rayLength;
-                ctx.beginPath();
-                ctx.moveTo(centerX, centerY);
-                ctx.lineTo(x2, y2);
-                ctx.strokeStyle = `hsl(${angle * 180 / Math.PI}, 100%, 60%)`;
-                ctx.lineWidth = 2 + intensity * 8;
-                ctx.stroke();
-            }
-            break;
-            
-        case 'laser':  
-            const lasers = isFullscreenMode ? 12 : 8;
-            for (let i = 0; i < lasers; i++) {
-                let intensity;
-                if (dataArray) {
-                    intensity = (dataArray[i * 4 % dataArray.length] / 255) * sensitivity;
-                } else {
-                    intensity = (Math.sin(time * 4 + i) * 0.5 + 0.5) * sensitivity;
-                }
-                const angle = (i / lasers) * Math.PI * 2 + time;
-                const x2 = centerX + Math.cos(angle) * width;
-                const y2 = centerY + Math.sin(angle) * width;
-                ctx.beginPath();
-                ctx.moveTo(centerX, centerY);
-                ctx.lineTo(x2, y2);
-                ctx.strokeStyle = `rgba(0, 255, 0, ${intensity * 0.8})`;
-                ctx.lineWidth = 2 + intensity * 10;
-                ctx.stroke();
-            }
-            break;
-            
-        case 'glitch':  
-            const glitchBlocks = isFullscreenMode ? 30 : 15;
-            for (let i = 0; i < glitchBlocks; i++) {
-                let intensity;
-                if (dataArray) {
-                    intensity = (dataArray[i % dataArray.length] / 255) * sensitivity;
-                } else {
-                    intensity = Math.random() * sensitivity;
-                }
-                const blockX = Math.random() * width;
-                const blockY = Math.random() * height;
-                const blockW = 30 + intensity * 50;
-                const blockH = 10 + intensity * 30;
-                const r = Math.random() * 255;
-                const g = Math.random() * 255;
-                const b = Math.random() * 255;
-                ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${intensity * 0.6})`;
-                ctx.fillRect(blockX, blockY, blockW, blockH);
-            }
-            break;
-            
-        case 'plasma':  
-            for (let x = 0; x < width; x += 4) {
-                for (let y = 0; y < height; y += 4) {
-                    let intensity;
-                    if (dataArray) {
-                        const dataIndex = Math.floor(((x + y) / (width + height)) * dataArray.length);
-                        intensity = (dataArray[dataIndex] / 255) * sensitivity;
-                    } else {
-                        const value1 = Math.sin(x * 0.03 + time);
-                        const value2 = Math.cos(y * 0.03 + time * 0.7);
-                        const value3 = Math.sin((x * 0.02 + y * 0.02) * 2 + time);
-                        intensity = (value1 + value2 + value3) / 3 * 0.5 + 0.5;
-                    }
-                    const hue = (x * 0.5 + y * 0.3 + time * 50) % 360;
-                    ctx.fillStyle = `hsl(${hue}, 100%, ${50 + intensity * 30}%)`;
-                    ctx.fillRect(x, y, 4, 4);
-                }
-            }
-            break;
-            
-         
-            
+
+case 'vortex':
+    const vortexPoints = isFullscreenMode ? 360 : 180;
+    for (let i = 0; i < vortexPoints; i++) {
+        let intensity;
+        if (dataArray) intensity = (dataArray[i % dataArray.length] / 255) * sensitivity;
+        else intensity = (Math.sin(time * 2 + i * 0.05) * 0.5 + 0.5) * sensitivity;
+        const angle = (i / vortexPoints) * Math.PI * 2 + time * 2;
+        const radius = maxRadius * (0.2 + intensity * 0.8);
+        const x = centerX + Math.cos(angle) * radius;
+        const y = centerY + Math.sin(angle) * radius;
+        
+        // Смешиваем акцентный цвет с чёрным в зависимости от радиуса
+        const t = radius / maxRadius; // от 0 до 1
+        let r, g, b;
+        if (accentColor.startsWith('#')) {
+            r = parseInt(accentColor.slice(1,3), 16);
+            g = parseInt(accentColor.slice(3,5), 16);
+            b = parseInt(accentColor.slice(5,7), 16);
+        } else {
+            r = 29; g = 185; b = 84;
+        }
+        const gradR = Math.floor(r * (1 - t) + 0 * t);
+        const gradG = Math.floor(g * (1 - t) + 0 * t);
+        const gradB = Math.floor(b * (1 - t) + 0 * t);
+        ctx.beginPath();
+        ctx.fillStyle = `rgb(${gradR}, ${gradG}, ${gradB})`;
+        ctx.arc(x, y, 2 + intensity * 5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    break;
+
+case 'starburst':
+    const rays = isFullscreenMode ? 48 : 32;
+    for (let i = 0; i < rays; i++) {
+        let intensity;
+        if (dataArray) intensity = (dataArray[i % dataArray.length] / 255) * sensitivity;
+        else intensity = (Math.sin(time * 3 + i) * 0.5 + 0.5) * sensitivity;
+        const angle = (i / rays) * Math.PI * 2;
+        const rayLength = maxRadius * (0.3 + intensity * 0.7);
+        const x2 = centerX + Math.cos(angle) * rayLength;
+        const y2 = centerY + Math.sin(angle) * rayLength;
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY);
+        ctx.lineTo(x2, y2);
+        
+        // Создаём тёмный оттенок акцентного цвета
+        let r, g, b;
+        if (accentColor.startsWith('#')) {
+            r = parseInt(accentColor.slice(1,3), 16);
+            g = parseInt(accentColor.slice(3,5), 16);
+            b = parseInt(accentColor.slice(5,7), 16);
+        } else if (accentColor.startsWith('rgb')) {
+            const match = accentColor.match(/\d+/g);
+            r = parseInt(match[0]); g = parseInt(match[1]); b = parseInt(match[2]);
+        } else {
+            r = 29; g = 185; b = 84;
+        }
+        const darkAccent = `rgba(${Math.floor(r * 0.3)}, ${Math.floor(g * 0.3)}, ${Math.floor(b * 0.3)}, 0.9)`;
+        
+        const grad = ctx.createLinearGradient(centerX, centerY, x2, y2);
+        grad.addColorStop(0, accentColor);
+        grad.addColorStop(1, darkAccent);
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 2 + intensity * 8;
+        ctx.stroke();
+    }
+    break;
+
         case 'bars':
             const barCount = isFullscreenMode ? 48 : 16;
             const barWidth = width / barCount;
@@ -1188,28 +992,7 @@ if (gifIntensity < 0.05) {
                 ctx.fillRect(x, y, barWidth - 1, barHeight);
             }
             break;
-            
-        case 'fire':
-            const fireCount = isFullscreenMode ? 32 : 16;
-            const fireWidth = width / fireCount;
-            for (let i = 0; i < fireCount; i++) {
-                let intensity;
-                if (dataArray) {
-                    const dataIndex = Math.floor((i / fireCount) * dataArray.length);
-                    intensity = (dataArray[dataIndex] / 255) * sensitivity;
-                } else {
-                    intensity = (Math.sin(time + i * 0.3) * 0.5 + 0.5) * sensitivity;
-                }
-                const barHeight = Math.min(height - 10, Math.max(2, intensity * height * 0.9));
-                const x = i * fireWidth;
-                const y = height - barHeight;
-                const r = 255;
-                const g = Math.floor(100 + intensity * 155);
-                ctx.fillStyle = `rgb(${r}, ${g}, 0)`;
-                ctx.fillRect(x, y, fireWidth - 1, barHeight);
-            }
-            break;
-            
+
         case 'wave':
             ctx.beginPath();
             ctx.strokeStyle = accentColor;
@@ -1230,18 +1013,15 @@ if (gifIntensity < 0.05) {
             }
             ctx.stroke();
             break;
-            
+
         case 'circle':
             ctx.beginPath();
             ctx.strokeStyle = accentColor;
             ctx.lineWidth = isFullscreenMode ? 4 : 2;
             for (let i = 0; i < 32; i++) {
                 let value;
-                if (dataArray) {
-                    value = dataArray[i * 2] / 255;
-                } else {
-                    value = (Math.sin(time + i * 0.2) + 1) / 2;
-                }
+                if (dataArray) value = dataArray[i * 2] / 255;
+                else value = (Math.sin(time + i * 0.2) + 1) / 2;
                 const angle = (i / 32) * Math.PI * 2;
                 const radius = maxRadius * (0.3 + value * 0.7 * sensitivity);
                 const x = centerX + Math.cos(angle) * radius;
@@ -1252,7 +1032,22 @@ if (gifIntensity < 0.05) {
             ctx.closePath();
             ctx.stroke();
             break;
-            
+
+        case 'dots':
+            const dotCount = isFullscreenMode ? 16 : 8;
+            for (let i = 0; i < dotCount; i++) {
+                let value;
+                if (dataArray) value = dataArray[i * 8] / 255;
+                else value = (Math.sin(time + i) * 0.5 + 0.5);
+                const x = isFullscreenMode ? 30 + (i * (width - 60) / dotCount) : 20 + (i * 15);
+                const y = height / 2 + (dataArray ? 0 : Math.sin(time * 2 + i) * 10);
+                ctx.beginPath();
+                ctx.fillStyle = accentColor;
+                ctx.arc(x, y, (isFullscreenMode ? 6 : 3) + value * (isFullscreenMode ? 15 : 8), 0, Math.PI * 2);
+                ctx.fill();
+            }
+            break;
+
         case 'particles':
             const particleCount = isFullscreenMode ? 50 : 25;
             for (let i = 0; i < particleCount; i++) {
@@ -1275,27 +1070,7 @@ if (gifIntensity < 0.05) {
                 }
             }
             break;
-            
-        case 'spectrum':
-            const specCount = isFullscreenMode ? 48 : 24;
-            const specWidth = width / specCount;
-            for (let i = 0; i < specCount; i++) {
-                let value;
-                if (dataArray) {
-                    const dataIndex = Math.floor((i / specCount) * dataArray.length);
-                    value = (dataArray[dataIndex] / 255) * height * sensitivity;
-                } else {
-                    value = (Math.sin(time + i * 0.2) * 0.5 + 0.5) * height * sensitivity;
-                }
-                const barHeight = Math.min(height - 10, Math.max(2, value));
-                const x = i * specWidth;
-                const y = height - barHeight;
-                const hue = (i / specCount) * 360;
-                ctx.fillStyle = `hsl(${hue}, 100%, 60%)`;
-                ctx.fillRect(x, y, specWidth - 1, barHeight);
-            }
-            break;
-            
+
         case 'radial':
             let avg = avgVolume;
             const pulseRadius = maxRadius * (0.3 + avg * 0.7);
@@ -1309,11 +1084,8 @@ if (gifIntensity < 0.05) {
             ctx.stroke();
             for (let i = 0; i < 12; i++) {
                 let intensity;
-                if (dataArray) {
-                    intensity = (dataArray[i * 4] / 255) * sensitivity;
-                } else {
-                    intensity = (Math.sin(time * 2 + i) * 0.5 + 0.5) * sensitivity;
-                }
+                if (dataArray) intensity = (dataArray[i * 4] / 255) * sensitivity;
+                else intensity = (Math.sin(time * 2 + i) * 0.5 + 0.5) * sensitivity;
                 const angle = (i / 12) * Math.PI * 2;
                 const spokeLength = intensity * maxRadius * 0.5;
                 const x1 = centerX + Math.cos(angle) * pulseRadius * 0.8;
@@ -1326,118 +1098,15 @@ if (gifIntensity < 0.05) {
                 ctx.stroke();
             }
             break;
-            
-        case 'bubble':
-            const bubbleCount = isFullscreenMode ? 40 : 20;
-            for (let i = 0; i < bubbleCount; i++) {
-                let intensity;
-                if (dataArray) {
-                    intensity = (dataArray[i % dataArray.length] / 255) * sensitivity;
-                } else {
-                    intensity = (Math.sin(time * 2 + i) * 0.5 + 0.5) * sensitivity;
-                }
-                const angle = (i / bubbleCount) * Math.PI * 2;
-                const radius = maxRadius * (0.2 + intensity * 0.8);
-                const x = centerX + Math.cos(angle + time) * radius;
-                const y = centerY + Math.sin(angle + time) * radius;
-                ctx.beginPath();
-                ctx.fillStyle = `rgba(100, 200, 255, ${0.3 + intensity * 0.5})`;
-                ctx.arc(x, y, 3 + intensity * 8, 0, Math.PI * 2);
-                ctx.fill();
-            }
-            break;
-            
-        case 'tunnel3d':
-            const rings = isFullscreenMode ? 40 : 25;
-            for (let r = 0; r < rings; r++) {
-                const progress = r / rings;
-                const radius = maxRadius * (0.1 + progress * 0.9);
-                let intensity;
-                if (dataArray) {
-                    intensity = (dataArray[r % dataArray.length] / 255) * sensitivity;
-                } else {
-                    intensity = (Math.sin(time * 3 + r * 0.3) * 0.5 + 0.5) * sensitivity;
-                }
-                ctx.beginPath();
-                for (let a = 0; a <= Math.PI * 2; a += 0.05) {
-                    const wave = Math.sin(a * 6 + time * 2 + r * 0.5) * (0.2 + intensity * 0.3) * radius;
-                    const x = centerX + Math.cos(a) * (radius + wave);
-                    const y = centerY + Math.sin(a) * (radius + wave);
-                    if (a === 0) ctx.moveTo(x, y);
-                    else ctx.lineTo(x, y);
-                }
-                ctx.closePath();
-                const hue = (time * 50 + r * 10) % 360;
-                ctx.strokeStyle = `hsl(${hue}, 80%, 60%)`;
-                ctx.lineWidth = 1 + intensity * 3;
-                ctx.stroke();
-            }
-            break;
-            
-        case 'cube3d':
-            const cubeSize = 20 + avgVolume * 40;
-            const rotX = time;
-            const rotY = time * 0.7;
-            const rotZ = time * 0.5;
-            const vertices = [
-                [-1, -1, -1], [ 1, -1, -1], [ 1, -1,  1], [-1, -1,  1],
-                [-1,  1, -1], [ 1,  1, -1], [ 1,  1,  1], [-1,  1,  1]
-            ];
-            const edges = [
-                [0,1], [1,2], [2,3], [3,0], [4,5], [5,6], [6,7], [7,4], [0,4], [1,5], [2,6], [3,7]
-            ];
-            function rotate3D(x, y, z, rx, ry, rz) {
-                let y1 = y * Math.cos(rx) - z * Math.sin(rx);
-                let z1 = y * Math.sin(rx) + z * Math.cos(rx);
-                let x2 = x * Math.cos(ry) + z1 * Math.sin(ry);
-                let z2 = -x * Math.sin(ry) + z1 * Math.cos(ry);
-                let x3 = x2 * Math.cos(rz) - y1 * Math.sin(rz);
-                let y3 = x2 * Math.sin(rz) + y1 * Math.cos(rz);
-                return [x3, y3, z2];
-            }
-            edges.forEach(edge => {
-                const v1 = vertices[edge[0]];
-                const v2 = vertices[edge[1]];
-                let p1 = rotate3D(v1[0] * cubeSize, v1[1] * cubeSize, v1[2] * cubeSize, rotX, rotY, rotZ);
-                let p2 = rotate3D(v2[0] * cubeSize, v2[1] * cubeSize, v2[2] * cubeSize, rotX, rotY, rotZ);
-                const x1 = centerX + p1[0];
-                const y1 = centerY + p1[1];
-                const x2 = centerX + p2[0];
-                const y2 = centerY + p2[1];
-                ctx.beginPath();
-                ctx.moveTo(x1, y1);
-                ctx.lineTo(x2, y2);
-                const hue = (time * 100) % 360;
-                ctx.strokeStyle = `hsl(${hue}, 100%, 60%)`;
-                ctx.lineWidth = 2 + avgVolume * 4;
-                ctx.stroke();
-            });
-            vertices.forEach(v => {
-                let p = rotate3D(v[0] * (cubeSize + avgVolume * 5), v[1] * (cubeSize + avgVolume * 5), v[2] * (cubeSize + avgVolume * 5), rotX, rotY, rotZ);
-                const x = centerX + p[0];
-                const y = centerY + p[1];
-                ctx.beginPath();
-                ctx.fillStyle = `hsl(${time * 100 % 360}, 100%, 60%)`;
-                ctx.arc(x, y, 3 + avgVolume * 5, 0, Math.PI * 2);
-                ctx.fill();
-            });
-            break;
-            
-        default:  
-            const dotCount = isFullscreenMode ? 16 : 8;
-            for (let i = 0; i < dotCount; i++) {
-                let value;
-                if (dataArray) {
-                    value = dataArray[i * 8] / 255;
-                } else {
-                    value = (Math.sin(time + i) * 0.5 + 0.5);
-                }
-                const x = isFullscreenMode ? 30 + (i * (width - 60) / dotCount) : 20 + (i * 15);
-                const y = height / 2 + (dataArray ? 0 : Math.sin(time * 2 + i) * 10);
-                ctx.beginPath();
+
+        default:
+            // fallback на bars
+            const fallbackBars = isFullscreenMode ? 32 : 12;
+            const fw = width / fallbackBars;
+            for (let i = 0; i < fallbackBars; i++) {
+                let val = dataArray ? (dataArray[i*2] / 255) * height * sensitivity : (Math.sin(time + i) * 0.5 + 0.5) * height * sensitivity;
                 ctx.fillStyle = accentColor;
-                ctx.arc(x, y, (isFullscreenMode ? 6 : 3) + value * (isFullscreenMode ? 15 : 8), 0, Math.PI * 2);
-                ctx.fill();
+                ctx.fillRect(i * fw, height - val, fw - 1, val);
             }
     }
     ctx.shadowBlur = 0;
@@ -1510,7 +1179,7 @@ if (gifIntensity < 0.05) {
             modeBtn.textContent = '🎨';
             modeBtn.className = 'viz-mode-btn';
             modeBtn.onclick = () => {
-                const modes = ['bars', 'galaxy', 'aurora', 'plasma', 'wave', 'circle', 'fire', 'spectrum'];
+                const modes = ['bars', 'wave', 'circle', 'dots', 'particles', 'radial', 'galaxy', 'aurora', 'vortex', 'starburst', 'gif'];
                 const currentIndex = modes.indexOf(currentVizMode);
                 const nextMode = modes[(currentIndex + 1) % modes.length];
                 changeVizMode(nextMode);
@@ -1867,20 +1536,17 @@ function changeAccentColor(color, animate = true) {
             localStorage.setItem('hubZoom', value);
         }
 
-        function changeVizMode(mode) {
-    const fullModes = ['galaxy', 'aurora', 'meteor', 'lava', 'neon', 'ripple', 'vortex', 'flower', 'fractal', 'pulse', 'equalizer', 'starburst', 'laser', 'glitch', 'plasma', 'tunnel3d', 'cube3d', 'gif'];
-    
-    if (fullModes.includes(mode) && !hasFeature('full_viz')) {
+function changeVizMode(mode) {
+    const premiumModes = ['galaxy', 'aurora', 'vortex', 'starburst']; // премиум-режимы
+    if (premiumModes.includes(mode) && !hasFeature('full_viz')) {
         showToast('⭐ Этот режим визуализации доступен в Premium версии', 'info');
-         
-        if (fullModes.includes(currentVizMode)) {
+        if (premiumModes.includes(currentVizMode)) {
             currentVizMode = 'bars';
             document.getElementById('viz-mode').value = 'bars';
             localStorage.setItem('vizMode', 'bars');
         }
         return;
     }
-    
     currentVizMode = mode;
     localStorage.setItem('vizMode', mode);
 }
@@ -2298,6 +1964,37 @@ document.addEventListener('DOMContentLoaded', async () => {
         logoutBtn.style.display = 'none';
         settingsPanel.appendChild(logoutBtn);
     }
+    const urlBar = document.querySelector('.url-bar');
+if (urlBar) {
+    urlBar.style.cursor = 'pointer';
+    urlBar.addEventListener('click', () => {
+        if (window.currentUrl) {
+            navigator.clipboard.writeText(window.currentUrl).then(() => {
+                showToast('🔗 Ссылка скопирована в буфер обмена', 'success');
+            }).catch(() => {
+                showToast('❌ Не удалось скопировать', 'error');
+            });
+        } else {
+            // Если currentUrl нет, берём текст из отображаемого элемента
+            const urlText = document.getElementById('urlText')?.innerText;
+            if (urlText) {
+                navigator.clipboard.writeText(urlText);
+                showToast('🔗 Ссылка скопирована', 'success');
+            }
+        }
+    });
+}
+});
+
+
+document.getElementById('githubFooterLink')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    const url = 'https://github.com/Mamba1230/MusicHub';
+    if (window.electronAPI?.openExternal) {
+        window.electronAPI.openExternal(url);
+    } else {
+        window.open(url, '_blank');
+    }
 });
 
 function playNotificationSound() {
@@ -2672,7 +2369,7 @@ function animateGradient(colors, duration = 1000) {
 
          
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 MusicHub v2.7.5');
+    console.log('🚀 MusicHub v2.8.0');
     particleBackground = new ParticleBackground();
     loadSettings();
     loadCustomSites();  
@@ -2692,6 +2389,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         chatBtn.addEventListener('click', toggleChat);
     }
     
+    const vizSelect = document.getElementById('viz-mode');
+    if (vizSelect) {
+        const allowedModes = ['bars', 'wave', 'circle', 'dots', 'particles', 'radial', 'galaxy', 'aurora', 'vortex', 'starburst', 'gif'];
+        for (let opt of vizSelect.options) {
+            if (!allowedModes.includes(opt.value)) opt.style.display = 'none';
+        }
+        if (!allowedModes.includes(currentVizMode)) {
+            currentVizMode = 'bars';
+            vizSelect.value = 'bars';
+            localStorage.setItem('vizMode', 'bars');
+        }
+    }
+
 
 const currentMinimized = await window.electronAPI.getStartMinimized();
 document.getElementById('startMinimized').checked = currentMinimized;
