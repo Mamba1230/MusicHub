@@ -17,7 +17,12 @@
         let fullscreenAnimationFrame = null;
         
         let particleBackground = null;
-        
+
+        let globalUpdateStatsUI = null;
+        globalUpdateStatsUI = updateStatsUI;
+
+        let globalSaveTrackToHistory = null;
+
         const services = [
             { id: 'yandex', name: 'Яндекс Музыка', url: 'https://music.yandex.ru', icon: 'Y' },
             { id: 'youtube', name: 'YouTube Music', url: 'https://music.youtube.com', icon: 'YT' },
@@ -29,6 +34,11 @@
         let activeServices = ['yandex', 'youtube'];
 
         let premiumStatus = null;
+
+        let globalHideHomePage = null;
+
+        let globalIsOnHomePage = false;
+
 let aiRequestCount = 0;
 const PREMIUM_WORKER = 'https://premium-api.170610maksim.workers.dev';
 
@@ -58,6 +68,97 @@ window.debugBindings = function() {
 setTimeout(() => {
     window.debugBindings();
 }, 2000);
+
+// ========== ФУНКЦИИ СТАТИСТИКИ (ГЛОБАЛЬНЫЕ) ==========
+
+function formatTime(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    if (hours > 0) return `${hours} ч ${minutes} мин`;
+    return `${minutes} мин`;
+}
+
+function getTopArtistsByTime(limit = 5) {
+    const artistStats = JSON.parse(localStorage.getItem('artistListenTimeSeconds') || '{}');
+    return Object.entries(artistStats)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, limit)
+        .map(([name, seconds]) => ({ 
+            name, 
+            seconds,
+            minutes: Math.floor(seconds / 60),
+            formatted: formatTime(seconds)
+        }));
+}
+
+function getDetailedStatsForLastDays(days = 7) {
+    const dailyTime = JSON.parse(localStorage.getItem('dailyListenTimeSeconds') || '{}');
+    const result = [];
+    for (let i = days - 1; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
+        const dayName = date.toLocaleDateString('ru', { weekday: 'short' });
+        const seconds = dailyTime[dateStr] || 0;
+        result.push({
+            date: dateStr,
+            dayName: dayName,
+            seconds: seconds,
+            formatted: formatTime(seconds)
+        });
+    }
+    return result;
+}
+
+function getTotalListenTime() {
+    const seconds = parseInt(localStorage.getItem('totalListenTimeSeconds') || '0');
+    return {
+        seconds: seconds,
+        minutes: Math.floor(seconds / 60),
+        hours: Math.floor(seconds / 3600),
+        formatted: formatTime(seconds)
+    };
+}
+
+// Добавление времени исполнителю (только если >= 30 секунд)
+function addListenTimeToArtist(artist, seconds) {
+    if (!artist || artist === 'Неизвестен') return;
+    if (seconds < 30) {
+        console.log(`⏭️ Пропущено ${seconds} сек (меньше 30) для ${artist}`);
+        return;
+    }
+    
+    let artistStats = JSON.parse(localStorage.getItem('artistListenTimeSeconds') || '{}');
+    artistStats[artist] = (artistStats[artist] || 0) + seconds;
+    
+    const sorted = Object.entries(artistStats).sort((a, b) => b[1] - a[1]);
+    if (sorted.length > 50) {
+        const toKeep = Object.fromEntries(sorted.slice(0, 50));
+        localStorage.setItem('artistListenTimeSeconds', JSON.stringify(toKeep));
+    } else {
+        localStorage.setItem('artistListenTimeSeconds', JSON.stringify(artistStats));
+    }
+    
+    // Обновляем дневную статистику
+    updateDailyStats(seconds);
+    
+    console.log(`📊 +${seconds} сек (${Math.floor(seconds/60)} мин) для ${artist}`);
+}
+
+function addTotalListenTime(seconds) {
+    if (seconds < 30) return;
+    const total = parseInt(localStorage.getItem('totalListenTimeSeconds') || '0');
+    localStorage.setItem('totalListenTimeSeconds', total + seconds);
+}
+
+function updateDailyStats(seconds) {
+    const today = new Date().toISOString().split('T')[0];
+    const dailyTime = JSON.parse(localStorage.getItem('dailyListenTimeSeconds') || '{}');
+    dailyTime[today] = (dailyTime[today] || 0) + seconds;
+    localStorage.setItem('dailyListenTimeSeconds', JSON.stringify(dailyTime));
+}
+
+
 
 async function getDeviceId() {
     let deviceId = localStorage.getItem('device_id');
@@ -1433,6 +1534,10 @@ function renderServices() {
             createCustomWebview(id, site.url);
         }
     }
+        if (globalHideHomePage) globalHideHomePage();
+    
+
+
     
     document.querySelectorAll('webview').forEach(v => {
         if (v.classList.contains('active') && v.id !== id) {
@@ -1489,16 +1594,16 @@ function renderServices() {
             setTimeout(() => ripple.remove(), 600);
         }
 
-        function freezeWebview(webview) {
-            if (!webview) return;
-            webview.setAudioMuted(true);
-            webview.executeJavaScript(`document.querySelectorAll('audio, video').forEach(m => m.pause());`).catch(() => {});
-        }
+function freezeWebview(webview) {
+    if (!webview) return;
+    webview.setAudioMuted(true);
+    webview.executeJavaScript(`document.querySelectorAll('audio, video').forEach(m => m.pause());`).catch(() => {});
+}
 
-        function unfreezeWebview(webview) {
-            if (!webview) return;
-            webview.setAudioMuted(false);
-        }
+function unfreezeWebview(webview) {
+    if (!webview) return;
+    webview.setAudioMuted(false);
+}
 
          
 let isAnimating = false;
@@ -1866,6 +1971,340 @@ if (premiumActivateBtn) {
 
 
 
+// ========== УМНАЯ СТАТИСТИКА ==========
+let currentTrackStartTime = null;
+let currentTrackInfo = null;
+let isSoundPlaying = false;
+let accumulatedTime = 0;
+let soundCheckInterval = null;
+let totalListenTime = 0;
+let lastSoundCheckTime = null;
+
+// Проверка, играет ли звук
+async function isSoundActuallyPlaying() {
+    if (!analyser || useFakeVisualizer) return false;
+    
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(dataArray);
+    
+    let sum = 0;
+    for (let i = 0; i < Math.min(dataArray.length, 32); i++) {
+        sum += dataArray[i];
+    }
+    const avg = sum / 32;
+    return avg > 8; // порог наличия звука
+}
+
+function saveAccumulatedTime() {
+    if (accumulatedTime >= 30 && currentTrackInfo) {
+        addListenTimeToArtist(currentTrackInfo.artist, accumulatedTime);
+        addTotalListenTime(accumulatedTime);
+        console.log(`✅ Засчитано ${accumulatedTime} сек (${Math.floor(accumulatedTime/60)} мин) для ${currentTrackInfo.artist}`);
+    } else if (accumulatedTime > 0 && currentTrackInfo) {
+        console.log(`⏭️ Не засчитано ${accumulatedTime} сек (меньше 30) для ${currentTrackInfo.artist}`);
+    }
+    accumulatedTime = 0;
+}
+
+// Обновление статистики при смене трека
+async function onTrackChanged(title, artist, service) {
+    // Сохраняем накопленное время предыдущего трека
+    saveAccumulatedTime();
+    
+    // Начинаем новый трек
+    currentTrackInfo = { title, artist, service };
+    currentTrackStartTime = Date.now();
+    isSoundPlaying = false;
+    accumulatedTime = 0;
+    
+    // Проверяем звук через 2 секунды
+    setTimeout(async () => {
+        if (currentTrackInfo?.title === title) {
+            isSoundPlaying = await isSoundActuallyPlaying();
+            if (isSoundPlaying) {
+                console.log(`🎵 Реально играет: ${artist} - ${title}`);
+                currentTrackStartTime = Date.now();
+            } else {
+                console.log(`⚠️ Трек не играет (тихо): ${artist} - ${title}`);
+            }
+        }
+    }, 2000);
+}
+
+function checkArtistMilestone(artist) {
+    const artistStats = JSON.parse(localStorage.getItem('artistListenTime') || '{}');
+    const time = artistStats[artist] || 0;
+    const hours = Math.floor(time / 3600);
+    
+    if (hours === 1 || hours === 5 || hours === 10 || hours === 25 || hours === 50 || hours === 100) {
+        showToast(`🏆 Достижение! Ты прослушал ${artist} ${hours} ${getHoursWord(hours)}!`, 'success', true);
+        if (typeof addChatMessage === 'function') {
+            addChatMessage(`🏆 Достижение! Ты прослушал ${artist} ${hours} ${getHoursWord(hours)}!`, false, 'system');
+        }
+    }
+}
+
+function getHoursWord(hours) {
+    if (hours % 10 === 1 && hours % 100 !== 11) return 'час';
+    if ([2,3,4].includes(hours % 10) && ![12,13,14].includes(hours % 100)) return 'часа';
+    return 'часов';
+}
+
+
+
+
+
+
+
+
+
+// Модифицируем addListenTimeToArtist, чтобы обновляла дневную статистику
+const originalAddListenTime = addListenTimeToArtist;
+addListenTimeToArtist = function(artist, seconds) {
+    originalAddListenTime(artist, seconds);
+    updateDailyStats(seconds);
+};
+
+// Мониторинг паузы/продолжения трека
+function startSoundMonitoring() {
+    if (soundCheckInterval) clearInterval(soundCheckInterval);
+    
+    soundCheckInterval = setInterval(async () => {
+        if (!currentTrackInfo) return;
+        
+        const nowPlaying = await isSoundActuallyPlaying();
+        const now = Date.now();
+        
+        // Звук был, а теперь пропал - пауза (сохраняем накопленное время)
+        if (isSoundPlaying && !nowPlaying) {
+            const elapsed = Math.floor((now - currentTrackStartTime) / 1000);
+            if (elapsed > 0) {
+                accumulatedTime += elapsed;
+                console.log(`⏸️ Пауза. Накоплено ${accumulatedTime} сек (добавлено ${elapsed} сек)`);
+            }
+            currentTrackStartTime = null;
+        }
+        
+        // Звука не было, а теперь появился - продолжение того же трека
+        if (!isSoundPlaying && nowPlaying && currentTrackStartTime === null && currentTrackInfo) {
+            console.log(`▶️ Продолжение: ${currentTrackInfo.artist} - ${currentTrackInfo.title}`);
+            currentTrackStartTime = now;
+        }
+        
+        // Звук есть и таймер идёт - просто обновляем (ничего не делаем)
+        
+        isSoundPlaying = nowPlaying;
+    }, 1000);
+}
+
+// Инициализация статистики при загрузке
+function initSmartStats() {
+    startSoundMonitoring();
+    loadTrackHistory();
+}
+
+// Обновлённая функция saveTrackToHistory (используем умную)
+function saveTrackToHistory(title, artist, service) {
+    // Сохраняем для истории
+    const now = new Date();
+    trackHistory.unshift({
+        title: title,
+        artist: artist,
+        timestamp: now.toISOString(),
+        service: service
+    });
+    if (trackHistory.length > 200) trackHistory.pop();
+    localStorage.setItem('trackHistory', JSON.stringify(trackHistory));
+    
+    // Вызываем обработчик смены трека
+    onTrackChanged(title, artist, service);
+}
+
+// При закрытии приложения сохраняем всё
+window.addEventListener('beforeunload', () => {
+    if (currentTrackInfo && currentTrackStartTime && isSoundPlaying) {
+        const elapsed = Math.floor((Date.now() - currentTrackStartTime) / 1000);
+        if (elapsed > 0) {
+            accumulatedTime += elapsed;
+        }
+    }
+    saveAccumulatedTime();
+    console.log('💾 Статистика сохранена при закрытии');
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ========== СТАТИСТИКА И ИСТОРИЯ ==========
+let trackHistory = []; // Массив { title, artist, timestamp, service }
+let dailyStats = {}; // { "2024-01-01": 15, "2024-01-02": 23 }
+
+// Загрузка истории из localStorage
+function loadTrackHistory() {
+    const saved = localStorage.getItem('trackHistory');
+    if (saved) trackHistory = JSON.parse(saved);
+    const savedStats = localStorage.getItem('dailyStats');
+    if (savedStats) dailyStats = JSON.parse(savedStats);
+}
+
+
+// Получить топ исполнителей
+function getTopArtists(limit = 5) {
+    const artistCount = {};
+    trackHistory.forEach(track => {
+        if (track.artist && track.artist !== 'Неизвестен') {
+            artistCount[track.artist] = (artistCount[track.artist] || 0) + 1;
+        }
+    });
+    return Object.entries(artistCount)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, limit)
+        .map(([name, count]) => ({ name, count }));
+}
+
+// Получить статистику за последние N дней
+function getStatsForLastDays(days = 7) {
+    const result = [];
+    for (let i = days - 1; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
+        const dayName = date.toLocaleDateString('ru', { weekday: 'short' });
+        result.push({
+            date: dateStr,
+            dayName: dayName,
+            count: dailyStats[dateStr] || 0
+        });
+    }
+    return result;
+}
+
+// Получить AI-комментарий к статистике
+async function getAICommentary() {
+    const weekStats = getDetailedStatsForLastDays(7);
+    const totalMinutes = weekStats.reduce((sum, d) => sum + Math.floor(d.seconds / 60), 0);
+    const avgMinutes = Math.round(totalMinutes / 7);
+    const topArtists = getTopArtistsByTime(3);
+    
+    const todayMinutes = Math.floor(weekStats[weekStats.length - 1]?.seconds / 60) || 0;
+    const yesterdayMinutes = Math.floor(weekStats[weekStats.length - 2]?.seconds / 60) || 0;
+    const trend = todayMinutes > yesterdayMinutes ? '📈 сегодня слушаешь больше!' : todayMinutes < yesterdayMinutes ? '📉 сегодня немного меньше' : '📊 держишь ритм';
+    
+    const prompt = `Ты — креативный музыкальный эксперт. Напиши короткий комментарий (2 предложения) о статистике:
+🎧 За неделю: ${totalMinutes} минут музыки (${avgMinutes} мин/день)
+🏆 Любимые исполнители: ${topArtists.map(a => `${a.name} (${a.minutes} мин)`).join(', ') || 'пока не определились'}
+${trend}
+
+Будь остроумным, используй эмодзи. Пиши как человек.`;
+    
+    
+    try {
+        const limit = await checkAILimit();
+        const isPremium = premiumStatus?.isPremium || false;
+        
+        if (!isPremium && limit.count >= 10) {
+            return getFallbackCommentary(total, topArtists, trend);
+        }
+        
+        const keyResponse = await fetch(`${WORKER_URL}/key`, { headers: { 'X-App-Key': APP_KEY } });
+        const keyData = await keyResponse.json();
+        if (!keyData.success) throw new Error(keyData.error);
+        const authKey = keyData.authKey;
+        
+        const tokenResponse = await fetch('https://ngw.devices.sberbank.ru:9443/api/v2/oauth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'RqUID': crypto.randomUUID(), 'Authorization': `Basic ${authKey}` },
+            body: 'scope=GIGACHAT_API_PERS',
+        });
+        const tokenData = await tokenResponse.json();
+        const token = tokenData.access_token;
+        
+        const aiResponse = await fetch('https://gigachat.devices.sberbank.ru/api/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: 'GigaChat', messages: [{ role: 'user', content: prompt }], temperature: 0.9, max_tokens: 150 })
+        });
+        const data = await aiResponse.json();
+        await incrementAICount();
+        return data.choices?.[0]?.message?.content || getFallbackCommentary(total, topArtists, trend);
+    } catch(err) {
+        console.log('AI ошибка:', err);
+        return getFallbackCommentary(total, topArtists, trend);
+    }
+}
+
+function getFallbackCommentary(total, topArtists, trend) {
+    const funnyMessages = [
+        `🎵 ${total} треков за неделю! ${topArtists[0]?.name ? `Ты и ${topArtists[0].name} — не разлей вода!` : 'Музыкальное сердце бьётся в ритме!'} ${trend}`,
+        `🔥 ${total} треков — это мощно! ${topArtists[0]?.name ? `${topArtists[0].name} уже в твоём сердечке 🫶` : 'Открываешь что-то новое?'}`,
+        `🎧 Вау! ${total} треков за 7 дней. ${topArtists[0]?.name ? `${topArtists[0].name} — твой музыкальный наркотик? 😄` : 'Новый музыкальный рекорд!'}`,
+        `💿 ${total} треков! ${trend} ${topArtists[1]?.name ? `И ${topArtists[1].name} тоже в твоём плейлисте 🎸` : ''}`,
+        `🎸 Крутой вкус! ${topArtists[0]?.name ? `${topArtists[0].name} явно твой фаворит (${topArtists[0].count} раз!)` : `${total} треков за неделю — ты музыкальный маньяк!`}`
+    ];
+    return funnyMessages[Math.floor(Math.random() * funnyMessages.length)];
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1964,26 +2403,65 @@ document.addEventListener('DOMContentLoaded', async () => {
         logoutBtn.style.display = 'none';
         settingsPanel.appendChild(logoutBtn);
     }
-    const urlBar = document.querySelector('.url-bar');
+
+// Логотип M - ждём загрузки DOM
+document.addEventListener('DOMContentLoaded', () => {
+    const homeLogo = document.getElementById('homeLogo');
+    if (homeLogo) {
+        console.log('✅ Логотип M найден, добавляем обработчик');
+        homeLogo.addEventListener('click', () => {
+            console.log('🖱️ Клик по логотипу M, globalIsOnHomePage  =', globalIsOnHomePage );
+            if (globalIsOnHomePage) {
+                hideHomePage();
+            } else {
+                showHomePage();
+            }
+        });
+    } else {
+        console.error('❌ Логотип M не найден в DOM!');
+    }
+    
+    // Также проверяем наличие homePage
+    const homePage = document.getElementById('homePage');
+    if (homePage) {
+        console.log('✅ homePage найдена в DOM');
+    } else {
+        console.error('❌ homePage не найдена в DOM!');
+    }
+});
+
+
+const urlBar = document.querySelector('.url-bar');
 if (urlBar) {
     urlBar.style.cursor = 'pointer';
     urlBar.addEventListener('click', () => {
-        if (window.currentUrl) {
-            navigator.clipboard.writeText(window.currentUrl).then(() => {
+        let urlToCopy = window.currentUrl;
+        
+        // Если на домашней странице, копируем специальную ссылку
+        if (globalIsOnHomePage) {
+            urlToCopy = 'musichub://home';
+        } else if (!urlToCopy) {
+            const urlText = document.getElementById('urlText')?.innerText;
+            if (urlText) urlToCopy = urlText;
+        }
+        
+        if (urlToCopy) {
+            navigator.clipboard.writeText(urlToCopy).then(() => {
                 showToast('🔗 Ссылка скопирована в буфер обмена', 'success');
             }).catch(() => {
                 showToast('❌ Не удалось скопировать', 'error');
             });
-        } else {
-            // Если currentUrl нет, берём текст из отображаемого элемента
-            const urlText = document.getElementById('urlText')?.innerText;
-            if (urlText) {
-                navigator.clipboard.writeText(urlText);
-                showToast('🔗 Ссылка скопирована', 'success');
-            }
         }
     });
 }
+});
+
+window.electronAPI.onOpenHomePage(() => {
+    if (typeof showHomePage === 'function') {
+        showHomePage();
+    } else if (typeof globalShowHomePage === 'function') {
+        globalShowHomePage();
+    }
 });
 
 
@@ -2369,12 +2847,15 @@ function animateGradient(colors, duration = 1000) {
 
          
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 MusicHub v2.8.0');
+    console.log('🚀 MusicHub v2.8.5');
     particleBackground = new ParticleBackground();
     loadSettings();
     loadCustomSites();  
     loadCustomSound();  
     renderServicesList();
+    initSmartStats();
+    loadTrackHistory();
+    updateStatsUI();
     renderServices();
     await loadAudioDevices();
     initSidebarResizer();
@@ -2458,20 +2939,25 @@ window.electronAPI.setStartMinimized(startMinimized);
  document.getElementById('settingsBtn')?.addEventListener('click', toggleSettings);
 
          
-        window.electronAPI.onGlobalSwitch(() => {
-            if (activeServices.length === 0) return;
-            const currentId = document.querySelector('webview.active')?.id || activeServices[0];
-            const currentIndex = activeServices.indexOf(currentId);
-            const nextIndex = (currentIndex + 1) % activeServices.length;
-            const btn = document.getElementById(`btn-${activeServices[nextIndex]}`);
-            if (btn) sw(activeServices[nextIndex], btn);
-        });
+window.electronAPI.onGlobalSwitch(() => {
+    if (activeServices.length === 0) return;
+    const currentId = document.querySelector('webview.active')?.id || activeServices[0];
+    const currentIndex = activeServices.indexOf(currentId);
+    const nextIndex = (currentIndex + 1) % activeServices.length;
+    const btn = document.getElementById(`btn-${activeServices[nextIndex]}`);
+    if (btn) sw(activeServices[nextIndex], btn);
+});
 
-        window.addEventListener('beforeunload', () => {
-            stopAudioCapture();
-            if (animationFrame) cancelAnimationFrame(animationFrame);
-            if (fullscreenAnimationFrame) cancelAnimationFrame(fullscreenAnimationFrame);
-        });
+window.addEventListener('beforeunload', () => {
+    if (currentTrackInfo && currentTrackStartTime && isSoundPlaying) {
+        const listenTime = Math.floor((Date.now() - currentTrackStartTime) / 1000);
+        if (listenTime >= 3) {
+            addListenTimeToArtist(currentTrackInfo.artist, listenTime);
+            addTotalListenTime(listenTime);
+            console.log(`💾 Сохранено ${listenTime} сек при закрытии`);
+        }
+    }
+});
 
 
 
@@ -2575,6 +3061,8 @@ function addServiceButton(id, icon, name, url) {
     btn.title = name;
     btn.onclick = () => {
          
+        if (typeof hideHomePage === 'function') hideHomePage();
+
         if (id.startsWith('custom_')) {
             const customSite = customSites[parseInt(id.split('_')[1])];
             if (customSite) {
@@ -3640,6 +4128,21 @@ document.getElementById('simpleGradientCheckbox')?.addEventListener('change', (e
 });
 
 
+function updateUrlBarForHomePage() {
+    const urlText = document.getElementById('urlText');
+    const urlFavicon = document.getElementById('urlFavicon');
+    
+    if (urlText) {
+        urlText.innerHTML = '<span class="url-domain">🏠 Home</span><span class="url-path"></span>';
+    }
+    if (urlFavicon) {
+        urlFavicon.style.display = 'none';
+    }
+    
+    // Устанавливаем специальный URL для копирования
+    window.currentUrl = 'musichub://home';
+}
+
 
 
 // ========== НОВАЯ СИСТЕМА ОБЛОЖЕК ЧЕРЕЗ ФАЙЛЫ ==========
@@ -3656,7 +4159,18 @@ async function pollMediaFiles() {
                 lastTrackKey = trackKey;
                 console.log('🎵 Трек:', mediaInfo.artist, '-', mediaInfo.title);
                 
-                // ✅ ПОЛУЧАЕМ ОБЛОЖКУ НАПРЯМУЮ ИЗ MAIN
+                // Сохраняем в историю
+
+                
+        const activeService = document.querySelector('webview.active')?.id || 'unknown';
+        saveTrackToHistory(mediaInfo.title, mediaInfo.artist || 'Неизвестен', activeService);
+                
+                // Обновляем UI домашней страницы если она открыта
+                if (typeof globalIsOnHomePage !== 'undefined' && globalIsOnHomePage && typeof updateStatsUI === 'function') {
+                    updateStatsUI();
+                }
+                
+                // Получаем обложку из MAIN
                 const artworkBase64 = await window.electronAPI.getArtworkFromServer();
                 
                 if (artworkBase64) {
@@ -3709,21 +4223,636 @@ function isSoundPlayingFromAnalyser() {
     return avg > 5; // порог можно настроить
 }
 
+// ========== ИНИЦИАЛИЗАЦИЯ ДОМАШНЕЙ СТРАНИЦЫ (В КОНЦЕ ФАЙЛА) ==========
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM загружен, инициализация домашней страницы');
 
 
+    globalIsOnHomePage = false;
+    globalUpdateStatsUI = updateStatsUI;
+    globalSaveTrackToHistory = saveTrackToHistory;
+    let lastActiveWebview = null;
+    let bgWebview = null;
+    let bgServiceActive = false;
+    let mixActive = false;
+    let currentPlayingService = null;
+    let yandexWebview = null;
+    let youtubeWebview = null;
+    let lastTrackTitle = '';
+    let trackChangeTimeout = null;
+    
+    // ========== ФУНКЦИИ ДОМАШНЕЙ СТРАНИЦЫ ==========
+    
+    function createHomePage() {
+        if (document.getElementById('homePage')) return;
+        
+        const content = document.getElementById('content');
+        if (!content) {
+            console.error('❌ Контейнер content не найден');
+            return;
+        }
+        
+        const homePage = document.createElement('div');
+        homePage.id = 'homePage';
+        homePage.style.cssText = 'display: none; width: 100%; height: 100%; overflow-y: auto; background: var(--bg-primary);';
+        homePage.innerHTML = `
+            <div style="max-width: 800px; margin: 0 auto; padding: 20px;">
+                <div class="home-card">
+                    <h3>🎵 Сейчас играет</h3>
+                    <div style="display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
+                        <img id="homeArtwork" src="" style="width: 100px; height: 100px; border-radius: 12px; object-fit: cover; background: var(--bg-secondary);">
+                        <div style="flex: 1;">
+                            <div id="homeTrackTitle" style="font-size: 18px; font-weight: 600; margin-bottom: 5px;">-</div>
+                            <div id="homeTrackArtist" style="color: var(--text-secondary); margin-bottom: 8px;">-</div>
+                            <div id="homeService" style="font-size: 12px; color: var(--accent-color);"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="home-card">
+                    <h3>🎵 Фоновый плеер</h3>
+                    <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                        <button id="bgYandexBtn" class="home-service-btn" style="background: var(--accent-color); color: white;">🎧 Яндекс Музыка</button>
+                        <button id="bgYoutubeBtn" class="home-service-btn" style="background: var(--accent-color); color: white;">🎧 YouTube Музыка</button>
+                        <button id="stopBgBtn" class="home-service-btn" style="background: #ff4444; color: white;">⏹️ Остановить</button>
+                    </div>
+                    <div id="bgStatus" style="margin-top: 12px; font-size: 12px; color: var(--text-secondary);"></div>
+                </div>
+            </div>
+<div class="home-card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h3 style="margin: 0;">📊 Твоя статистика</h3>
+        <button id="clearStatsBtn" style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 16px;" title="Очистить статистику">🗑️</button>
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+        <!-- Топ исполнители -->
+        <div>
+            <div style="font-size: 14px; font-weight: 600; margin-bottom: 10px;">🏆 Топ исполнители</div>
+            <div id="topArtistsContainer" style="font-size: 13px;">Загрузка...</div>
+        </div>
+        <!-- AI комментарий -->
+        <div>
+            <div style="font-size: 14px; font-weight: 600; margin-bottom: 10px;">🤖 AI комментарий</div>
+            <div id="aiStatus" style="font-size: 10px; opacity: 0.6;">✨ креативный режим</div>
+            <div id="aiCommentary" style="font-size: 13px; font-style: italic; padding: 8px; background: var(--bg-secondary); border-radius: 10px; min-height: 80px;">
+                💭 Загрузка...
+            </div>
+        </div>
+    </div>
+    <!-- График -->
+    <div style="margin-top: 16px;">
+        <div style="font-size: 14px; font-weight: 600; margin-bottom: 10px;">📈 Активность за неделю</div>
+        <div id="statsContainer"></div>
+    </div>
+</div>
+        `;
+        
+        content.appendChild(homePage);
+        console.log('✅ homePage создана динамически');
+    }
+    
+function showHomePage() {
+    console.log('🏠 showHomePage вызвана');
+    
+    if (!document.getElementById('homePage')) {
+        createHomePage();
+    }
+    
+    const homePage = document.getElementById('homePage');
+    const webviews = document.querySelectorAll('webview');
+    
+    if (!homePage) {
+        console.error('❌ homePage не найдена');
+        return;
+    }
+    
+    const activeWv = document.querySelector('webview.active');
+    if (activeWv) {
+        lastActiveWebview = activeWv.id;
+    }
+    
+    webviews.forEach(wv => {
+        freezeWebview(wv);
+        wv.style.opacity = '0';
+        wv.style.pointerEvents = 'none';
+    });
+    
+    homePage.style.display = 'block';
+    globalIsOnHomePage = true;
+    
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+        btn.classList.remove('active');
+        const effectLayer = btn.querySelector('.effect-layer');
+        if (effectLayer) effectLayer.className = 'effect-layer none';
+    });
+    
+    updateHomeContent();
+    
+    // ✅ Обновляем URL bar для домашней страницы
+    updateUrlBarForHomePage();
+    
+    if (typeof updateStatsUI === 'function') {
+        updateStatsUI();
+    }
+    
+    if (window.homeUpdateInterval) clearInterval(window.homeUpdateInterval);
+    window.homeUpdateInterval = setInterval(updateHomeContent, 5000);
+}
+    
+function hideHomePage() {
+    console.log('🏠 hideHomePage вызвана');
+    
+    const homePage = document.getElementById('homePage');
+    const webviews = document.querySelectorAll('webview');
+    
+    if (!homePage) return;
+    
+    homePage.style.display = 'none';
+    
+    webviews.forEach(wv => {
+        unfreezeWebview(wv);
+        wv.style.opacity = '1';
+        wv.style.pointerEvents = 'auto';
+    });
+    
+    if (lastActiveWebview) {
+        const activeBtn = document.getElementById(`btn-${lastActiveWebview}`);
+        if (activeBtn) {
+            activeBtn.classList.add('active');
+            const effectLayer = activeBtn.querySelector('.effect-layer');
+            if (effectLayer) effectLayer.className = `effect-layer ${currentBtnEffect}`;
+        }
+    }
+    
+    globalIsOnHomePage = false;
+    
+    // ✅ Восстанавливаем нормальный URL бар
+    updateUrlBar();
+    
+    if (window.homeUpdateInterval) {
+        clearInterval(window.homeUpdateInterval);
+        window.homeUpdateInterval = null;
+    }
+}
+
+// Делаем функцию глобальной
+globalHideHomePage = hideHomePage;
+    
+
+    
 
 
+    async function updateHomeContent() {
+        try {
+            const mediaInfo = await window.electronAPI.getMediaFromFiles();
+            if (mediaInfo && mediaInfo.title) {
+                const titleEl = document.getElementById('homeTrackTitle');
+                const artistEl = document.getElementById('homeTrackArtist');
+                const artworkEl = document.getElementById('homeArtwork');
+                
+                if (titleEl) titleEl.textContent = mediaInfo.title;
+                if (artistEl) artistEl.textContent = mediaInfo.artist || 'Неизвестен';
+                if (artworkEl && mediaInfo.artwork_base64) {
+                    artworkEl.src = `data:image/jpeg;base64,${mediaInfo.artwork_base64}`;
+                }
+            }
+        } catch(e) {
+            console.log('Ошибка получения трека:', e);
+        }
+        
+        // Остальной код updateHomeContent...
+        const homeServicesDiv = document.getElementById('homeServices');
+        if (homeServicesDiv && activeServices) {
+            homeServicesDiv.innerHTML = '';
+            activeServices.forEach(serviceId => {
+                let icon = '🌐', name = '';
+                if (serviceId.startsWith('custom_')) {
+                    const idx = parseInt(serviceId.split('_')[1]);
+                    name = customSites[idx]?.name || 'Сайт';
+                } else {
+                    const service = services.find(s => s.id === serviceId);
+                    if (service) {
+                        icon = service.icon;
+                        name = service.name;
+                    }
+                }
+                const btn = document.createElement('button');
+                btn.className = 'home-service-btn';
+                btn.innerHTML = `${icon} ${name}`;
+                btn.onclick = () => {
+                    stopBackgroundPlayer();
+                    const targetBtn = document.getElementById(`btn-${serviceId}`);
+                    if (targetBtn) {
+                        sw(serviceId, targetBtn);
+                        hideHomePage();
+                    }
+                };
+                homeServicesDiv.appendChild(btn);
+            });
+        }
+    }
+    
+    // Функции фонового плеера
+async function startBackgroundPlayer(service, url, clickSelector) {
+    const bgStatus = document.getElementById('bgStatus');
+    if (!bgStatus) return;
+    
+    if (bgWebview && !bgWebview.isDestroyed) {
+        bgWebview.remove();
+        bgWebview = null;
+    }
+    
+    bgStatus.innerHTML = '⏳ Запуск фонового плеера...';
+    bgStatus.style.color = 'orange';
+    
+    let loadAttempts = 0;
+    let isPlayingStarted = false;
+    
+    bgWebview = document.createElement('webview');
+    bgWebview.id = 'bgWebview';
+    bgWebview.style.cssText = 'position: absolute; top: -9999px; left: -9999px; width: 1px; height: 1px; visibility: hidden;';
+    bgWebview.partition = 'persist:music';
+    
+    document.getElementById('content').appendChild(bgWebview);
+    
+bgWebview.addEventListener('dom-ready', () => {
+    try {
+        bgWebview.setAudioMuted(false);
+        
+        // Специально для YouTube - пытаемся запустить видео
+        if (service === 'YouTube Музыка') {
+            bgWebview.executeJavaScript(`
+                // Ждём загрузки плеера
+                setTimeout(() => {
+                    const video = document.querySelector('video');
+                    if (video) {
+                        video.volume = 1;
+                        video.play().catch(e => console.log('Автоплей заблокирован'));
+                    }
+                    const playBtn = document.querySelector('ytmusic-player-bar #play-pause-button');
+                    if (playBtn && playBtn.getAttribute('play-button-state') === 'paused') {
+                        playBtn.click();
+                    }
+                }, 3000);
+            `);
+        }
+        
+    } catch(e) {}
+});
+    
+    // Функция для поиска кнопки Play на Яндекс Музыке
+    const findYandexPlayButton = async () => {
+        const jsCode = `
+            (function() {
+                // Все возможные варианты кнопки Play на Яндекс Музыке
+                const possibleButtons = [
+                    '.player-controls__btn_play',
+                    '[data-testid="play-button"]',
+                    'button[aria-label="Воспроизвести"]',
+                    '.play-button',
+                    'div.player-controls__btn_play',
+                    'button[class*="play"]',
+                    '.track__play-button',
+                    '[class*="play_btn"]'
+                ];
+                
+                for (const selector of possibleButtons) {
+                    const btn = document.querySelector(selector);
+                    if (btn && btn.offsetParent !== null) {
+                        return selector;
+                    }
+                }
+                
+                // Поиск по тексту или aria-label
+                const allButtons = document.querySelectorAll('button');
+                for (const btn of allButtons) {
+                    const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+                    const title = (btn.getAttribute('title') || '').toLowerCase();
+                    if (label.includes('play') || label.includes('воспроиз') || title.includes('play')) {
+                        return 'button[aria-label*="play"], button[title*="play"]';
+                    }
+                }
+                
+                return null;
+            })();
+        `;
+        
+        try {
+            const selector = await bgWebview.executeJavaScript(jsCode);
+            if (selector) {
+                await bgWebview.executeJavaScript(`
+                    const btn = document.querySelector('${selector}');
+                    if (btn) btn.click();
+                `);
+                return true;
+            }
+        } catch(e) {
+            console.log('Ошибка поиска кнопки:', e);
+        }
+        return false;
+    };
+    
+    // Функция для YouTube
+const findYoutubePlayButton = async () => {
+    const jsCode = `
+        (function() {
+            // Все возможные селекторы для кнопки воспроизведения
+            const selectors = [
+                '#action-buttons ytmusic-play-button-renderer',
+                '#action-buttons > ytmusic-play-button-renderer',
+                'ytmusic-responsive-header-renderer #action-buttons ytmusic-play-button-renderer',
+                'ytmusic-play-button-renderer[aria-label*="воспроизвести" i]',
+                'ytmusic-play-button-renderer[aria-label*="Play" i]',
+                '#action-buttons ytmusic-play-button-renderer[state="default"]',
+                'ytmusic-responsive-header-renderer #action-buttons ytmusic-play-button-renderer[state="default"]'
+            ];
+            
+            let clicked = false;
+            
+            for (const selector of selectors) {
+                const btn = document.querySelector(selector);
+                if (btn) {
+                    // Серия событий для гарантии клика
+                    btn.focus();
+                    
+                    // Отправляем разные типы событий
+                    const events = ['click', 'mousedown', 'mouseup'];
+                    events.forEach(eventType => {
+                        btn.dispatchEvent(new MouseEvent(eventType, {
+                            view: window,
+                            bubbles: true,
+                            cancelable: true
+                        }));
+                    });
+                    
+                    // Обычный клик
+                    btn.click();
+                    
+                    console.log('✅ Клик по селектору:', selector);
+                    clicked = true;
+                    break;
+                }
+            }
+            
+            // Если не нашли по селекторам, ищем любую кнопку play
+            if (!clicked) {
+                const allPlayButtons = document.querySelectorAll('[class*="play-button"], [class*="PlayButton"], ytmusic-play-button-renderer');
+                for (const btn of allPlayButtons) {
+                    const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+                    if (label.includes('воспроизвести') || label.includes('play')) {
+                        btn.click();
+                        console.log('✅ Клик по найденной кнопке, label:', label);
+                        clicked = true;
+                        break;
+                    }
+                }
+            }
+            
+            return { clicked: clicked, url: window.location.href };
+        })();
+    `;
+    
+    try {
+        const result = await bgWebview.executeJavaScript(jsCode);
+        console.log('📊 Результат клика:', result);
+        
+        if (result && result.clicked) {
+            bgStatus.innerHTML = `🎵 ${service}: Воспроизведение запущено!`;
+            bgStatus.style.color = '#1DB954';
+            bgServiceActive = true;
+            return true;
+        }
+    } catch(e) {
+        console.log('Ошибка YouTube:', e);
+    }
+    return false;
+};
+    
+bgWebview.addEventListener('did-finish-load', async () => {
+    loadAttempts++;
+    
+    // Получаем текущий URL для отладки
+    const currentUrl = await bgWebview.executeJavaScript('window.location.href');
+    console.log(`✅ Фоновый ${service} загружен (попытка ${loadAttempts})`);
+    console.log(`📍 Текущий URL: ${currentUrl}`);
+    console.log(`✅ Фоновый ${service} загружен (попытка ${loadAttempts})`);
+    
+    if (isPlayingStarted) return;
+    
+    // Увеличиваем задержку до 5 секунд для полной загрузки плейлиста
+    setTimeout(async () => {
+        let success = false;
+        
+        if (service === 'Яндекс Музыка') {
+            success = await findYandexPlayButton();
+        } else if (service === 'YouTube Музыка') {
+            success = await findYoutubePlayButton();
+            // Если не нашли, пробуем ещё раз через 3 секунды
+            if (!success) {
+                setTimeout(async () => {
+                    const retry = await findYoutubePlayButton();
+                    if (retry) {
+                        isPlayingStarted = true;
+                        bgServiceActive = true;
+                        bgStatus.innerHTML = `🎵 ${service}: Воспроизведение запущено!`;
+                        bgStatus.style.color = '#1DB954';
+                    }
+                }, 3000);
+            }
+        }
+        
+        if (success) {
+            isPlayingStarted = true;
+            bgServiceActive = true;
+            bgStatus.innerHTML = `🎵 ${service}: Воспроизведение запущено!`;
+            bgStatus.style.color = '#1DB954';
+            console.log(`✅ ${service} успешно запущен`);
+        } else if (loadAttempts < 3) {
+            bgStatus.innerHTML = `🔄 ${service}: Повторная попытка...`;
+        } else {
+            bgStatus.innerHTML = `⚠️ ${service}: Не удалось запустить. Возможно, нужно войти в аккаунт.`;
+        }
+    }, 5000); // 5 секунд
+});
+    
+    bgWebview.addEventListener('did-fail-load', (e) => {
+        if (e.errorCode === -3) return;
+        console.log('❌ Ошибка:', e.errorCode);
+        if (!isPlayingStarted && loadAttempts < 3) {
+            setTimeout(() => {
+                if (bgWebview && !bgWebview.isDestroyed) {
+                    bgWebview.loadURL(url);
+                }
+            }, 2000);
+        }
+    });
+    
+    // Для Яндекс Музыки сразу грузим радио
+    if (service === 'Яндекс Музыка') {
+        bgWebview.src = 'https://music.yandex.ru/radio';
+    } else {
+        bgWebview.src = url;
+    }
+    
+    setTimeout(() => {
+        if (!isPlayingStarted) {
+            bgStatus.innerHTML = `⚠️ ${service}: Автозапуск не удался. Войдите в аккаунт в основном окне.`;
+        }
+    }, 20000);
+}
+    
+function stopBackgroundPlayer() {
+    // Если микс активен, останавливаем его
+    if (mixActive) {
+        mixActive = false;
+        stopMixMonitoring();
+        const mixBtn = document.getElementById('bgMixBtn');
+        if (mixBtn) {
+            mixBtn.style.background = '#9b59b6';
+            mixBtn.textContent = '🔄 Микс (Яндекс + YouTube)';
+        }
+    }
+    
+    if (bgWebview && !bgWebview.isDestroyed) {
+        try {
+            bgWebview.executeJavaScript(`
+                const audio = document.querySelector('audio');
+                const video = document.querySelector('video');
+                if (audio) audio.pause();
+                if (video) video.pause();
+            `);
+        } catch(e) {}
+        bgWebview.remove();
+        bgWebview = null;
+    }
+    bgServiceActive = false;
+    const bgStatus = document.getElementById('bgStatus');
+    if (bgStatus) {
+        bgStatus.innerHTML = '⏹️ Фоновый плеер остановлен';
+        bgStatus.style.color = 'var(--text-secondary)';
+    }
+}
+    
+    // Инициализация
+    createHomePage();
+    
+    // Логотип M
+    const homeLogo = document.getElementById('homeLogo');
+    if (homeLogo) {
+        homeLogo.addEventListener('click', () => {
+            if (globalIsOnHomePage ) {
+                hideHomePage();
+            } else {
+                showHomePage();
+            }
+        });
+    }
+    
+    // Кнопки фонового плеера
+setTimeout(() => {
+    const yandexBtn = document.getElementById('bgYandexBtn');
+    const youtubeBtn = document.getElementById('bgYoutubeBtn');
+    const stopBtn = document.getElementById('stopBgBtn');
+    const mixBtn = document.getElementById('bgMixBtn');
+
+    const youtubeRecUrl = 'https://music.youtube.com/watch?v=4n7sCQvOV5Q&list=RDTMAK5uy_n_5IN6hzAOwdCnM8D8rzrs3vDl12UcZpA&autoplay=1';
+    
+    if (yandexBtn) {
+        yandexBtn.onclick = () => startBackgroundPlayer('Яндекс Музыка', 'https://music.yandex.ru', 'yandex-play');
+    }
+    if (youtubeBtn) {
+        youtubeBtn.onclick = () => {
+            const playlistUrl = 'https://music.youtube.com/playlist?list=RDTMAK5uy_n_5IN6hzAOwdCnM8D8rzrs3vDl12UcZpA&nocache=' + Date.now();
+            startBackgroundPlayer('YouTube Музыка', playlistUrl, 'ytmusic-play-button-renderer');
+        };
+    }
+    if (stopBtn) {
+        stopBtn.onclick = () => stopBackgroundPlayer();
+    }
+
+const clearStatsBtn = document.getElementById('clearStatsBtn');
+if (clearStatsBtn) {
+    clearStatsBtn.onclick = () => {
+        if (confirm('🗑️ Точно очистить всю статистику? Это действие необратимо.')) {
+            localStorage.removeItem('artistListenTime');
+            localStorage.removeItem('totalListenTime');
+            localStorage.removeItem('dailyListenTime');
+            localStorage.removeItem('trackHistory');
+            localStorage.removeItem('artistListenTimeSeconds'); // очищаем время
+            trackHistory = [];
+            currentTrackInfo = null;
+            currentTrackStartTime = null;
+            
+            // Сбрасываем счётчики AI
+            window.lastAICommentaryTime = null;
+            window.tracksSinceLastComment = 0;
+            
+            updateStatsUI();
+            showToast('📊 Статистика очищена!', 'success');
+        }
+    };
+}
+    
+   
 
 
+}, 500);
+});
 
 
-
-
-
-
-
-
-
+async function updateStatsUI() {
+    if (typeof getTopArtistsByTime !== 'function') {
+        console.log('⏳ Функции статистики ещё не загружены');
+        return;
+    }
+    
+    const topArtists = getTopArtistsByTime(3);
+    const total = getTotalListenTime();
+    
+    const topArtistsHtml = topArtists.length > 0 
+        ? `<div style="display: flex; flex-direction: column; gap: 6px;">
+            ${topArtists.map((a, i) => `
+                <div style="display: flex; align-items: center; gap: 8px; justify-content: space-between;">
+                    <span style="font-size: 16px;">${i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}</span>
+                    <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><strong>${escapeHtml(a.name)}</strong></span>
+                    <span style="color: var(--accent-color); font-size: 12px;">${a.formatted}</span>
+                </div>
+            `).join('')}
+            <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-color); text-align: center; font-size: 12px;">
+                🎵 Всего: ${total.formatted} (${total.minutes} мин)
+            </div>
+           </div>`
+        : `<div style="text-align: center; opacity: 0.6; padding: 10px;">🎵 Слушай музыку (от 30 секунд), чтобы появилась статистика!</div>`;
+    
+    document.getElementById('topArtistsContainer').innerHTML = topArtistsHtml;
+    
+    // График за 7 дней (в минутах)
+    const weekStats = getDetailedStatsForLastDays(7);
+    const maxMinutes = Math.max(...weekStats.map(s => Math.floor(s.seconds / 60)), 1);
+    
+    const statsHtml = `
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; height: 60px; gap: 6px;">
+            ${weekStats.map(day => {
+                const minutes = Math.floor(day.seconds / 60);
+                return `
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;">
+                    <div style="width: 100%; background: var(--accent-color); height: ${(minutes / maxMinutes) * 50}px; border-radius: 6px; transition: height 0.3s;"></div>
+                    <span style="font-size: 10px;">${day.dayName}</span>
+                    <span style="font-size: 9px; opacity: 0.7;">${minutes} мин</span>
+                </div>`;
+            }).join('')}
+        </div>
+    `;
+    
+    const statsContainer = document.getElementById('statsContainer');
+    if (statsContainer) statsContainer.innerHTML = statsHtml;
+    
+    // AI комментарий (обновляем при открытии homePage)
+    const commentaryContainer = document.getElementById('aiCommentary');
+    if (commentaryContainer && globalIsOnHomePage) {
+        const commentary = await getAICommentary();
+        commentaryContainer.innerHTML = `💭 ${commentary}`;
+    }
+}
 
 
 

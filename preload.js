@@ -37,7 +37,9 @@ const api = {
     getMediaFromFiles: () => ipcRenderer.invoke('get-media-from-files'),
     updateArtworkForTray: (imageData) => ipcRenderer.send('update-artwork-for-tray', imageData),
     getArtworkFromServer: () => ipcRenderer.invoke('get-artwork-from-server'),
+    onOpenHomePage: (callback) => ipcRenderer.on('open-home-page', callback),
 };
+
 
 // Экспортируем API (только один раз!)
 contextBridge.exposeInMainWorld('electronAPI', api);

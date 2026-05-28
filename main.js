@@ -206,6 +206,22 @@ function getMediaFilesPath() {
     }
 }
 
+function registerProtocol() {
+    // Определяем путь к исполняемому файлу
+    let exePath;
+    if (app.isPackaged) {
+        // В собранном приложении
+        exePath = process.execPath;
+    } else {
+        // В разработке
+        exePath = process.execPath;
+    }
+    
+    // Регистрируем протокол musichub://
+    const succeeded = app.setAsDefaultProtocolClient('musichub', exePath);
+    console.log(`📌 Регистрация протокола musichub: ${succeeded ? 'успешно' : 'ошибка'}`);
+}
+
 function getMediaFromFiles() {
     const appData = process.env.APPDATA;
     const basePath = path.join(appData, 'musichub');
@@ -237,6 +253,13 @@ function getMediaFromFiles() {
             info.artwork_base64 = coverBuffer.toString('base64');
             console.log('✅ Cover loaded, size:', coverBuffer.length);
         }
+        if (process.defaultApp) {
+    if (process.argv.length >= 2) {
+        app.setAsDefaultProtocolClient('musichub', process.execPath, [path.resolve(process.argv[1])]);
+    }
+} else {
+    app.setAsDefaultProtocolClient('musichub');
+}
         
         return info;
     } catch (err) {
@@ -321,7 +344,7 @@ ipcMain.handle('get-windows-media-info', async () => {
 // Запускаем при старте
 app.whenReady().then(() => {
     startMediaWatcher();
-    // ... остальной код
+    registerProtocol();
 });
 
 
@@ -558,8 +581,45 @@ function createWindow() {
         callback({ cancel: false, requestHeaders: details.requestHeaders });
     });
 
+
+    session.fromPartition('persist:music');
+    app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+app.commandLine.appendSwitch('disable-features', 'AutoplayIgnoreWebAudio');
+
     win.loadFile('index.html');
+
+    win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    // Разрешаем автовоспроизведение
+    webPreferences.autoplayPolicy = 'no-user-gesture-required';
+    // Отключаем ограничения для звука
+    webPreferences.webSecurity = false;
+    webPreferences.allowRunningInsecureContent = true;
+});
     
+    win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    // Убираем ограничения для webview
+    delete webPreferences.preload;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.webSecurity = false;
+    webPreferences.allowRunningInsecureContent = true;
+});
+
+// Глобальный обработчик ошибок
+app.on('web-contents-created', (event, contents) => {
+    if (contents.getType() === 'webview') {
+        contents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+            // Игнорируем ERR_ABORTED (-3) - это обычно редиректы
+            if (errorCode === -3) {
+                console.log('ℹ️ Webview редирект, игнорируем');
+                return;
+            }
+            console.log('Webview error:', errorCode, errorDescription, validatedURL);
+            // Не перезагружаем автоматически, чтобы избежать циклов
+        });
+    }
+});
+
     win.once('ready-to-show', () => {
         if (startMinimizedFlag) win.hide();
         else win.show();
@@ -589,20 +649,48 @@ function createWindow() {
     }
 }
 
+
+let scrollPositions = new Map();
+
+ipcMain.on('save-scroll-position', (event, webviewId, scrollY) => {
+    scrollPositions.set(webviewId, scrollY);
+    console.log(`Saved scroll for ${webviewId}: ${scrollY}`);
+});
+
+ipcMain.handle('get-scroll-position', (event, webviewId) => {
+    return scrollPositions.get(webviewId) || 0;
+});
+
+
 // ========== ЗАПУСК ==========
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = true;
 
 const gotTheLock = app.requestSingleInstanceLock();
+
 if (!gotTheLock) {
     app.quit();
     return;
 }
 
-app.on('second-instance', () => {
-    if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
+app.on('second-instance', (event, commandLine, workingDirectory) => {
+    // Показываем окно при повторном запуске
+    if (win) {
+        if (win.isMinimized()) win.restore();
+        win.focus();
+        
+        // Проверяем, не запущено ли через musichub://
+        const url = commandLine.find(arg => arg.startsWith('musichub://'));
+        if (url) {
+            console.log('🔗 Получен протокол:', url);
+            if (url === 'musichub://home' && win.webContents && !win.webContents.isDestroyed()) {
+                win.webContents.send('open-home-page');
+            }
+        }
+    }
 });
 
 app.whenReady().then(() => {
+    app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
     globalShortcut.unregisterAll();
     app.commandLine.appendSwitch('ignore-certificate-errors');
 
