@@ -37,7 +37,9 @@ const api = {
     getMediaFromFiles: () => ipcRenderer.invoke('get-media-from-files'),
     updateArtworkForTray: (imageData) => ipcRenderer.send('update-artwork-for-tray', imageData),
     getArtworkFromServer: () => ipcRenderer.invoke('get-artwork-from-server'),
+    onOpenUrl: (callback) => ipcRenderer.on('open-url', callback),
     onOpenHomePage: (callback) => ipcRenderer.on('open-home-page', callback),
+    onOpenExternalUrl: (callback) => ipcRenderer.on('open-external-url', callback),
 };
 
 

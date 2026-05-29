@@ -1,6 +1,6 @@
 {
   "name": "musichub",
-  "version": "2.8.5",
+  "version": "2.9.0",
   "description": "MusicHub - десктопный музыкальный плеер-агрегатор",
   "author": "Mamba1230",
   "main": "main.js",

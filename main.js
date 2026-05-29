@@ -673,21 +673,18 @@ if (!gotTheLock) {
 }
 
 app.on('second-instance', (event, commandLine, workingDirectory) => {
-    // Показываем окно при повторном запуске
     if (win) {
         if (win.isMinimized()) win.restore();
         win.focus();
         
-        // Проверяем, не запущено ли через musichub://
-        const url = commandLine.find(arg => arg.startsWith('musichub://'));
-        if (url) {
-            console.log('🔗 Получен протокол:', url);
-            if (url === 'musichub://home' && win.webContents && !win.webContents.isDestroyed()) {
-                win.webContents.send('open-home-page');
-            }
+        const musichubUrl = commandLine.find(arg => arg.startsWith('musichub://'));
+        if (musichubUrl) {
+            console.log('🔗 MAIN отправляет:', musichubUrl);
+            win.webContents.send('open-external-url', musichubUrl);
         }
     }
 });
+
 
 app.whenReady().then(() => {
     app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');

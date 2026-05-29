@@ -21,7 +21,11 @@
         let globalUpdateStatsUI = null;
         globalUpdateStatsUI = updateStatsUI;
 
+        let lastActiveBeforeTemp = null;
+        let tempWebviewOpened = false;
+
         let globalSaveTrackToHistory = null;
+        let globalShowHomePage = null;
 
         const services = [
             { id: 'yandex', name: 'Яндекс Музыка', url: 'https://music.yandex.ru', icon: 'Y' },
@@ -1525,7 +1529,15 @@ function renderServices() {
 }
 
 
-        function sw(id, btn) {
+function sw(id, btn) {
+    if (globalIsOnHomePage && typeof hideHomePage === 'function') hideHomePage();
+    if (tempWebviewOpened) closeTempWebview();
+    if (globalHideHomePage) globalHideHomePage();
+    
+    // Закрываем временный webview если открыт
+    if (tempWebviewOpened) {
+        closeTempWebview();
+    }
      
     if (id.startsWith('custom_')) {
         const customIndex = parseInt(id.split('_')[1]);
@@ -1565,6 +1577,11 @@ function renderServices() {
     if (soundEnabled) setTimeout(() => playSwitchSound(), 50);
     createRipple(btn);
     showToast(`🎵 ${services.find(s => s.id === id)?.name || btn.title || 'Кастомный сайт'}`, 'success');
+   
+   
+    setTimeout(() => {
+        updateUrlBar();
+    }, 500);
 }
 
         function rs(id) {
@@ -2256,11 +2273,84 @@ function getFallbackCommentary(total, topArtists, trend) {
 }
 
 
+function closeTempWebview() {
+    if (currentTempWebview && !currentTempWebview.isDestroyed) {
+        currentTempWebview.remove();
+        currentTempWebview = null;
+    }
+    
+    const closeBtn = document.getElementById('tempCloseBtn');
+    if (closeBtn) closeBtn.remove();
+    
+    tempWebviewOpened = false;
+    
+    // Восстанавливаем URL бар
+    if (globalIsOnHomePage) {
+        updateUrlBarForHomePage();
+    } else {
+        updateUrlBar();
+    }
+    
+    // Возвращаем основные webview
+    const webviews = document.querySelectorAll('webview:not(#tempWebview)');
+    webviews.forEach(wv => {
+        wv.style.opacity = '1';
+        wv.style.pointerEvents = 'auto';
+    });
+}
 
 
+// Обработчик открытия home page извне
+if (window.electronAPI.onOpenHomePage) {
+    window.electronAPI.onOpenHomePage(() => {
+        console.log('🏠 Получена команда open-home-page');
+        if (globalShowHomePage) {
+            globalShowHomePage();
+        }
+    });
+}
 
-
-
+// Обработчик внешних URL (один, правильный)
+// Самый первый обработчик для musichub://
+if (window.electronAPI.onOpenExternalUrl) {
+    window.electronAPI.onOpenExternalUrl((event, url) => {
+        console.log('🔗 RENDERER получил:', url);
+        
+        // Игнорируем ТОЛЬКО совсем пустые ссылки
+        if (!url || url === 'musichub://' || url === 'musichub:///') {
+            console.log('🚫 Игнорируем пустую ссылку');
+            return;
+        }
+        
+        // Проверка на musichub://home (с / и без)
+        if (url === 'musichub://home' || url === 'musichub://home/') {
+            console.log('🏠 Открываем домашнюю страницу!');
+            if (globalShowHomePage) {
+                globalShowHomePage();
+            } else if (typeof showHomePage === 'function') {
+                showHomePage();
+            }
+            return;
+        }
+        
+        // Если это musichub:// что-то другое
+        if (url.startsWith('musichub://')) {
+            let targetUrl = url.replace('musichub://', '');
+            if (!targetUrl || targetUrl === 'home' || targetUrl === 'home/') {
+                if (globalShowHomePage) globalShowHomePage();
+                return;
+            }
+            if (!targetUrl.startsWith('http')) {
+                targetUrl = 'https://' + targetUrl;
+            }
+            openExternalUrl(targetUrl);
+            return;
+        }
+        
+        // Всё остальное
+        openExternalUrl(url);
+    });
+}
 
 
 
@@ -2434,10 +2524,21 @@ document.addEventListener('DOMContentLoaded', () => {
 const urlBar = document.querySelector('.url-bar');
 if (urlBar) {
     urlBar.style.cursor = 'pointer';
-    urlBar.addEventListener('click', () => {
+    
+    let shiftPressed = false;
+    
+    // Отслеживаем состояние Shift
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Shift') shiftPressed = true;
+    });
+    window.addEventListener('keyup', (e) => {
+        if (e.key === 'Shift') shiftPressed = false;
+    });
+    
+    urlBar.addEventListener('click', async () => {
         let urlToCopy = window.currentUrl;
         
-        // Если на домашней странице, копируем специальную ссылку
+        // Если на домашней странице
         if (globalIsOnHomePage) {
             urlToCopy = 'musichub://home';
         } else if (!urlToCopy) {
@@ -2445,15 +2546,20 @@ if (urlBar) {
             if (urlText) urlToCopy = urlText;
         }
         
-        if (urlToCopy) {
-            navigator.clipboard.writeText(urlToCopy).then(() => {
-                showToast('🔗 Ссылка скопирована в буфер обмена', 'success');
-            }).catch(() => {
-                showToast('❌ Не удалось скопировать', 'error');
-            });
+        // Если зажат Shift — копируем musichub:// ссылку
+        if (shiftPressed && urlToCopy) {
+            const musichubUrl = `musichub://${urlToCopy}`;
+            await navigator.clipboard.writeText(musichubUrl);
+            showToast('🔗 Musichub ссылка скопирована! Можно отправить другу', 'success');
+        } 
+        // Обычный клик — копируем обычную ссылку
+        else if (urlToCopy) {
+            await navigator.clipboard.writeText(urlToCopy);
+            showToast('🔗 Ссылка скопирована', 'success');
         }
     });
 }
+
 });
 
 window.electronAPI.onOpenHomePage(() => {
@@ -2768,13 +2874,281 @@ function animateGradient(colors, duration = 1000) {
     gradientAnimation = requestAnimationFrame(step);
 }
 
+// Обработчик открытия URL из внешней ссылки
+if (window.electronAPI.onOpenUrl) {
+    window.electronAPI.onOpenUrl((event, url) => {
+        console.log('🔗 Открываем URL из musichub://', url);
+        
+        // Определяем, какой сервис подходит под URL
+        let targetService = null;
+        
+        if (url.includes('music.yandex.ru')) targetService = 'yandex';
+        else if (url.includes('music.youtube.com') || url.includes('youtube.com')) targetService = 'youtube';
+        else if (url.includes('soundcloud.com')) targetService = 'soundcloud';
+        else if (url.includes('spotify.com')) targetService = 'spotify';
+        else if (url.includes('vk.com')) targetService = 'vk';
+        
+        if (targetService && activeServices.includes(targetService)) {
+            // Переключаемся на нужный сервис
+            const btn = document.getElementById(`btn-${targetService}`);
+            if (btn) {
+                sw(targetService, btn);
+                // Открываем URL
+                setTimeout(() => {
+                    const wv = document.querySelector('webview.active');
+                    if (wv) wv.loadURL(url);
+                }, 500);
+            }
+        } else if (targetService && !activeServices.includes(targetService)) {
+            showToast(`❌ Сервис ${targetService} не активен. Выберите его в настройках`, 'error');
+        } else {
+            // Если не определили сервис, просто открываем в текущем
+            const wv = document.querySelector('webview.active');
+            if (wv) wv.loadURL(url);
+        }
+    });
+}
+
+let tempWebviews = [];
+let currentTempWebview = null;
+
+// Открытие внешней ссылки (не из активных сервисов)
+function openExternalUrl(url) {
+    console.log('🌐 openExternalUrl вызвана с:', url);
+    
+    // Защита от пустых и некорректных ссылок
+    if (!url || url === 'https:///' || url === 'http:///' || url === '' || url === '/' || url === 'home' || url === 'home/') {
+        console.log('🚫 Игнорируем некорректную ссылку:', url);
+        return;
+    }
+    
+    // Если это musichub:// ссылка (осталась) — игнорируем
+    if (url.startsWith('musichub://')) {
+        console.log('🚫 Игнорируем musichub:// ссылку в openExternalUrl');
+        return;
+    }
+    
+    let cleanUrl = url;
+    
+    // Добавляем https:// если нужно
+    if (cleanUrl && !cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://') && cleanUrl.includes('.')) {
+        cleanUrl = 'https://' + cleanUrl;
+    }
+    
+    // Если после очистки получился мусор — выходим
+    if (!cleanUrl || cleanUrl === 'https:///' || cleanUrl === 'http:///') {
+        console.log('🚫 Игнорируем после очистки:', cleanUrl);
+        return;
+    }
+    
+    // Проверяем, соответствует ли URL одному из активных сервисов
+    const matchedService = checkUrlMatchesService(cleanUrl);
+    
+    if (matchedService && activeServices.includes(matchedService.id)) {
+        // Закрываем homePage если открыта
+        if (globalIsOnHomePage && typeof hideHomePage === 'function') hideHomePage();
+        
+        // Закрываем временный webview если открыт
+        if (tempWebviewOpened) {
+            closeTempWebview();
+        }
+        
+        // Открываем в обычном сервисе
+        const btn = document.getElementById(`btn-${matchedService.id}`);
+        if (btn) {
+            sw(matchedService.id, btn);
+            setTimeout(() => {
+                const wv = document.querySelector('webview.active');
+                if (wv) wv.loadURL(cleanUrl);
+            }, 500);
+        }
+    } else {
+        // Открываем во временном webview
+        openInTempWebview(cleanUrl);
+    }
+}
+
+// Проверка, соответствует ли URL какому-то сервису
+function checkUrlMatchesService(url) {
+    // Защита от пустых URL
+    if (!url || url === 'home') return null;
+    
+    try {
+        const urlObj = new URL(url);
+        const hostname = urlObj.hostname;
+        
+        const serviceDomains = {
+            yandex: ['music.yandex.ru', 'yandex.ru'],
+            youtube: ['music.youtube.com', 'youtube.com', 'youtu.be'],
+            soundcloud: ['soundcloud.com'],
+            spotify: ['open.spotify.com', 'spotify.com'],
+            vk: ['vk.com', 'vk.ru']
+        };
+        
+        for (const service of services) {
+            const domains = serviceDomains[service.id] || [];
+            for (const domain of domains) {
+                if (hostname.includes(domain) || url.includes(domain)) {
+                    return service;
+                }
+            }
+        }
+        
+        // Проверка кастомных сайтов
+        for (let i = 0; i < customSites.length; i++) {
+            const site = customSites[i];
+            if (site.url) {
+                try {
+                    const siteHost = new URL(site.url).hostname;
+                    if (hostname.includes(siteHost)) {
+                        return { id: `custom_${i}`, name: site.name };
+                    }
+                } catch(e) {}
+            }
+        }
+    } catch(e) {
+        // Если не удалось распарсить URL, пробуем простое совпадение
+        for (const service of services) {
+            if (url.includes(service.id)) return service;
+        }
+    }
+    
+    return null;
+}
+
+// Открытие во временном webview
+function openInTempWebview(url) {
+    console.log('🌐 Открываем временный webview:', url);
+    
+    // Закрываем homePage если открыта
+    if (globalIsOnHomePage && typeof hideHomePage === 'function') {
+        hideHomePage();
+    }
+    
+    // Сохраняем текущий активный сервис
+    const activeWv = document.querySelector('webview.active');
+    if (activeWv && !tempWebviewOpened) {
+        lastActiveBeforeTemp = activeWv.id;
+    }
+    
+    // Прячем основные webview через opacity
+    const webviews = document.querySelectorAll('webview:not(#tempWebview)');
+    webviews.forEach(wv => {
+        wv.style.opacity = '0';
+        wv.style.pointerEvents = 'none';
+    });
+    
+    // Убираем активные классы с кнопок
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+        btn.classList.remove('active');
+        const effectLayer = btn.querySelector('.effect-layer');
+        if (effectLayer) effectLayer.className = 'effect-layer none';
+    });
+    
+    // Удаляем старый временный webview
+    if (currentTempWebview && !currentTempWebview.isDestroyed) {
+        currentTempWebview.remove();
+    }
+    
+    // Создаём новый временный webview
+    currentTempWebview = document.createElement('webview');
+    currentTempWebview.id = 'tempWebview';
+    currentTempWebview.src = url;
+    currentTempWebview.partition = 'persist:temp';
+    currentTempWebview.style.cssText = 'width: 100%; height: 100%; opacity: 1; pointer-events: auto;';
+    currentTempWebview.classList.add('active');
+    
+    // Обновляем URL бар для временного webview
+    updateUrlBarForTempWebview(url);
+    
+    // Отслеживаем навигацию внутри временного webview
+    currentTempWebview.addEventListener('did-navigate', (e) => {
+        updateUrlBarForTempWebview(e.url);
+    });
+    currentTempWebview.addEventListener('did-navigate-in-page', (e) => {
+        updateUrlBarForTempWebview(e.url);
+    });
+    
+    document.getElementById('content').appendChild(currentTempWebview);
+    tempWebviewOpened = true;
+    
+    addTempWebviewCloseButton();
+    showToast(`🌐 Открыто: ${new URL(url).hostname}`, 'info');
+}
+
+// Добавление кнопки закрытия для временного webview
+function addTempWebviewCloseButton() {
+    const oldBtn = document.getElementById('tempCloseBtn');
+    if (oldBtn) oldBtn.remove();
+    
+    const closeBtn = document.createElement('button');
+    closeBtn.id = 'tempCloseBtn';
+    closeBtn.innerHTML = '✕ Закрыть вкладку';
+    closeBtn.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: var(--accent-color);
+        color: white;
+        border: none;
+        border-radius: 20px;
+        padding: 8px 16px;
+        cursor: pointer;
+        z-index: 1000;
+        font-size: 12px;
+        opacity: 0.9;
+        transition: opacity 0.2s;
+    `;
+    closeBtn.onmouseover = () => closeBtn.style.opacity = '1';
+    closeBtn.onmouseout = () => closeBtn.style.opacity = '0.9';
+    closeBtn.onclick = () => {
+        closeTempWebview();
+        
+        // Восстанавливаем последний активный сервис
+        if (lastActiveBeforeTemp) {
+            const lastWv = document.getElementById(lastActiveBeforeTemp);
+            if (lastWv) {
+                lastWv.classList.add('active');
+            }
+            const activeBtn = document.getElementById(`btn-${lastActiveBeforeTemp}`);
+            if (activeBtn) {
+                activeBtn.classList.add('active');
+                const effectLayer = activeBtn.querySelector('.effect-layer');
+                if (effectLayer) effectLayer.className = `effect-layer ${currentBtnEffect}`;
+            }
+            lastActiveBeforeTemp = null;
+        } else if (activeServices[0]) {
+            const btn = document.getElementById(`btn-${activeServices[0]}`);
+            if (btn) sw(activeServices[0], btn);
+        }
+        
+        showToast('🔙 Возврат к основным сервисам', 'info');
+    };
+    
+    document.body.appendChild(closeBtn);
+}
 
 
-
-
-
-
-
+function updateUrlBarForTempWebview(url) {
+    const urlText = document.getElementById('urlText');
+    const urlFavicon = document.getElementById('urlFavicon');
+    
+    if (urlText) {
+        try {
+            const urlObj = new URL(url);
+            const domain = urlObj.hostname;
+            const path = urlObj.pathname + urlObj.search + urlObj.hash;
+            urlText.innerHTML = `<span class="url-domain">🌐 ${domain}</span><span class="url-path">${path}</span>`;
+        } catch(e) {
+            urlText.innerHTML = `<span class="url-domain">🌐 ${url}</span><span class="url-path"></span>`;
+        }
+    }
+    if (urlFavicon) {
+        urlFavicon.style.display = 'none';
+    }
+    
+    window.currentUrl = url;
+}
 
 
 
@@ -3418,12 +3792,19 @@ let currentUrl = '';
 let urlTrackingInterval = null;
 
 function updateUrlBar() {
+    // Если открыта домашняя страница — не обновляем URL
+    if (globalIsOnHomePage) {
+        return;
+    }
+    
     const wv = document.querySelector('webview.active');
-    if (!wv) return;
+    if (!wv) {
+        return;
+    }
     
     wv.executeJavaScript('window.location.href')
         .then(url => {
-            if (!url || url === currentUrl) return;
+            if (!url) return;
             currentUrl = url;
             let domain = '', path = '';
             try {
@@ -3435,22 +3816,24 @@ function updateUrlBar() {
             }
             const urlText = document.getElementById('urlText');
             if (urlText) urlText.innerHTML = `<span class="url-domain">${domain}</span><span class="url-path">${path}</span>`;
-        })
-        .catch(() => {});
-    
-    wv.executeJavaScript(`(function(){const l=document.querySelector("link[rel*='icon']");return l?l.href:null;})()`)
-        .then(fav => {
-            const img = document.getElementById('urlFavicon');
-            if (img && fav) {
-                img.src = fav;
-                img.style.display = 'inline';
-            }
-        })
-        .catch(() => {});
-    
-    wv.executeJavaScript('document.title')
-        .then(t => {
-            if (t) document.title = `MusicHub - ${t}`;
+            
+            // Обновляем favicon
+            wv.executeJavaScript(`(function(){const l=document.querySelector("link[rel*='icon']");return l?l.href:null;})()`)
+                .then(fav => {
+                    const img = document.getElementById('urlFavicon');
+                    if (img && fav) {
+                        img.src = fav;
+                        img.style.display = 'inline';
+                    }
+                })
+                .catch(() => {});
+            
+            // Обновляем заголовок окна
+            wv.executeJavaScript('document.title')
+                .then(t => {
+                    if (t) document.title = `MusicHub - ${t}`;
+                })
+                .catch(() => {});
         })
         .catch(() => {});
 }
@@ -4240,6 +4623,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let youtubeWebview = null;
     let lastTrackTitle = '';
     let trackChangeTimeout = null;
+    let lastActiveBeforeTemp = null;
+    let tempWebviewOpened = false;
     
     // ========== ФУНКЦИИ ДОМАШНЕЙ СТРАНИЦЫ ==========
     
@@ -4316,6 +4701,10 @@ function showHomePage() {
     if (!document.getElementById('homePage')) {
         createHomePage();
     }
+
+        if (tempWebviewOpened) {
+        closeTempWebview();
+    }
     
     const homePage = document.getElementById('homePage');
     const webviews = document.querySelectorAll('webview');
@@ -4325,13 +4714,12 @@ function showHomePage() {
         return;
     }
     
-    const activeWv = document.querySelector('webview.active');
-    if (activeWv) {
-        lastActiveWebview = activeWv.id;
-    }
+    // Принудительно показываем home page
+    homePage.style.display = 'block';
+    globalIsOnHomePage = true;
     
+    // Скрываем webview
     webviews.forEach(wv => {
-        freezeWebview(wv);
         wv.style.opacity = '0';
         wv.style.pointerEvents = 'none';
     });
@@ -4357,6 +4745,8 @@ function showHomePage() {
     if (window.homeUpdateInterval) clearInterval(window.homeUpdateInterval);
     window.homeUpdateInterval = setInterval(updateHomeContent, 5000);
 }
+
+globalShowHomePage = showHomePage;
     
 function hideHomePage() {
     console.log('🏠 hideHomePage вызвана');
@@ -4385,8 +4775,10 @@ function hideHomePage() {
     
     globalIsOnHomePage = false;
     
-    // ✅ Восстанавливаем нормальный URL бар
-    updateUrlBar();
+    // Обновляем URL после закрытия homePage
+    setTimeout(() => {
+        updateUrlBar();
+    }, 200);
     
     if (window.homeUpdateInterval) {
         clearInterval(window.homeUpdateInterval);
@@ -4805,49 +5197,60 @@ async function updateStatsUI() {
         return;
     }
     
+    // Проверяем существование элементов
+    const topArtistsContainer = document.getElementById('topArtistsContainer');
+    const statsContainer = document.getElementById('statsContainer');
+    const commentaryContainer = document.getElementById('aiCommentary');
+    
+    if (!topArtistsContainer && !statsContainer && !commentaryContainer) {
+        console.log('⏳ Элементы статистики ещё не созданы');
+        return;
+    }
+    
     const topArtists = getTopArtistsByTime(3);
     const total = getTotalListenTime();
     
-    const topArtistsHtml = topArtists.length > 0 
-        ? `<div style="display: flex; flex-direction: column; gap: 6px;">
-            ${topArtists.map((a, i) => `
-                <div style="display: flex; align-items: center; gap: 8px; justify-content: space-between;">
-                    <span style="font-size: 16px;">${i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}</span>
-                    <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><strong>${escapeHtml(a.name)}</strong></span>
-                    <span style="color: var(--accent-color); font-size: 12px;">${a.formatted}</span>
+    if (topArtistsContainer) {
+        const topArtistsHtml = topArtists.length > 0 
+            ? `<div style="display: flex; flex-direction: column; gap: 6px;">
+                ${topArtists.map((a, i) => `
+                    <div style="display: flex; align-items: center; gap: 8px; justify-content: space-between;">
+                        <span style="font-size: 16px;">${i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}</span>
+                        <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><strong>${escapeHtml(a.name)}</strong></span>
+                        <span style="color: var(--accent-color); font-size: 12px;">${a.formatted}</span>
+                    </div>
+                `).join('')}
+                <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-color); text-align: center; font-size: 12px;">
+                    🎵 Всего: ${total.formatted} (${total.minutes} мин)
                 </div>
-            `).join('')}
-            <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-color); text-align: center; font-size: 12px;">
-                🎵 Всего: ${total.formatted} (${total.minutes} мин)
+               </div>`
+            : `<div style="text-align: center; opacity: 0.6; padding: 10px;">🎵 Слушай музыку (от 30 секунд), чтобы появилась статистика!</div>`;
+        
+        topArtistsContainer.innerHTML = topArtistsHtml;
+    }
+    
+    if (statsContainer) {
+        const weekStats = getDetailedStatsForLastDays(7);
+        const maxMinutes = Math.max(...weekStats.map(s => Math.floor(s.seconds / 60)), 1);
+        
+        const statsHtml = `
+            <div style="display: flex; justify-content: space-between; align-items: flex-end; height: 60px; gap: 6px;">
+                ${weekStats.map(day => {
+                    const minutes = Math.floor(day.seconds / 60);
+                    return `
+                    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;">
+                        <div style="width: 100%; background: var(--accent-color); height: ${(minutes / maxMinutes) * 50}px; border-radius: 6px; transition: height 0.3s;"></div>
+                        <span style="font-size: 10px;">${day.dayName}</span>
+                        <span style="font-size: 9px; opacity: 0.7;">${minutes} мин</span>
+                    </div>`;
+                }).join('')}
             </div>
-           </div>`
-        : `<div style="text-align: center; opacity: 0.6; padding: 10px;">🎵 Слушай музыку (от 30 секунд), чтобы появилась статистика!</div>`;
-    
-    document.getElementById('topArtistsContainer').innerHTML = topArtistsHtml;
-    
-    // График за 7 дней (в минутах)
-    const weekStats = getDetailedStatsForLastDays(7);
-    const maxMinutes = Math.max(...weekStats.map(s => Math.floor(s.seconds / 60)), 1);
-    
-    const statsHtml = `
-        <div style="display: flex; justify-content: space-between; align-items: flex-end; height: 60px; gap: 6px;">
-            ${weekStats.map(day => {
-                const minutes = Math.floor(day.seconds / 60);
-                return `
-                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;">
-                    <div style="width: 100%; background: var(--accent-color); height: ${(minutes / maxMinutes) * 50}px; border-radius: 6px; transition: height 0.3s;"></div>
-                    <span style="font-size: 10px;">${day.dayName}</span>
-                    <span style="font-size: 9px; opacity: 0.7;">${minutes} мин</span>
-                </div>`;
-            }).join('')}
-        </div>
-    `;
-    
-    const statsContainer = document.getElementById('statsContainer');
-    if (statsContainer) statsContainer.innerHTML = statsHtml;
+        `;
+        
+        statsContainer.innerHTML = statsHtml;
+    }
     
     // AI комментарий (обновляем при открытии homePage)
-    const commentaryContainer = document.getElementById('aiCommentary');
     if (commentaryContainer && globalIsOnHomePage) {
         const commentary = await getAICommentary();
         commentaryContainer.innerHTML = `💭 ${commentary}`;
