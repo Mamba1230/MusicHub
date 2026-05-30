@@ -40,6 +40,13 @@ const api = {
     onOpenUrl: (callback) => ipcRenderer.on('open-url', callback),
     onOpenHomePage: (callback) => ipcRenderer.on('open-home-page', callback),
     onOpenExternalUrl: (callback) => ipcRenderer.on('open-external-url', callback),
+    setSystemVolume: (volume) => ipcRenderer.invoke('set-system-volume', volume),
+    getSystemVolume: () => ipcRenderer.invoke('get-system-volume'),
+    setMasterVolume: (volume) => ipcRenderer.send('set-master-volume', volume),
+    onVolumeChange: (callback) => ipcRenderer.on('volume-changed', callback),
+    setAllWebviewsVolume: (volume) => ipcRenderer.send('set-all-webviews-volume', volume),
+    onGlobalSetVolume: (callback) => ipcRenderer.on('global-set-volume', callback),
+    setYandexVolume: (volumePercent) => ipcRenderer.send('set-yandex-volume', volumePercent),
 };
 
 

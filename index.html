@@ -38,7 +38,7 @@
         <img id="splashGif" style="max-width: 200px; max-height: 200px; display: none; border-radius: 20px;">
     </div>
     <div class="splash-title" style="font-size: 28px; font-weight: 600; margin-bottom: 10px;">MusicHub</div>
-    <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v2.9.0</div>
+    <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v2.9.5</div>
     <div class="splash-tip" id="splashTip" style="font-size: 14px; color: var(--text-secondary); max-width: 400px; text-align: center; padding: 0 20px; margin-bottom: 20px;"></div>
     <div class="splash-progress" style="width: 300px; height: 3px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
         <div class="splash-progress-bar" style="width: 0%; height: 100%; background: var(--accent-color); transition: width 0.1s linear;"></div>
@@ -120,7 +120,7 @@
 
             <button class="util-btn" id="miniBtn" onclick="toggleMini(this)">M</button>
             <button class="util-btn" id="settingsBtn">⚙</button>
-            <button class="util-btn" onclick="captureVisualizer()">📸</button>
+            <button class="util-btn" id="adaptiveVolumeBtn" title="Адаптивная громкость">🎤</button>
             <button class="util-btn" id="chatBtn">💬</button>
         </div>
         <div class="content" id="content">
@@ -337,6 +337,60 @@
                 <option value="">🔇 Выключено</option>
             </select>
         </div>
+
+        <!-- Адаптивная громкость (ОТДЕЛЬНЫЙ микрофон) -->
+<div class="settings-section">
+    <div class="section-title">🎤 Адаптивная громкость</div>
+    <div class="settings-grid">
+        <div class="setting-item full-width">
+            <label class="checkbox-label">
+                <input type="checkbox" id="adaptiveVolumeEnabled"> 🔊 Включить адаптивную громкость
+            </label>
+            <div class="setting-hint">При шуме выше порога громкость снижается на указанный процент</div>
+        </div>
+        
+        <div id="adaptiveVolumeSettings" style="display: none;">
+            <div class="setting-item full-width">
+                <label>🎤 Микрофон для замера шума</label>
+                <select id="noiseMicDevice">
+                    <option value="">-- Выберите микрофон --</option>
+                </select>
+                <div class="setting-hint">Выберите микрофон, который будет слушать окружающий шум</div>
+            </div>
+            
+            <div class="setting-item">
+                <label>📊 Порог шума (0-200)</label>
+                <input type="number" id="noiseThreshold" min="10" max="200" step="5" value="60">
+                <div class="setting-hint">Выше этого значения - громкость снижается</div>
+            </div>
+            
+            <div class="setting-item">
+                <label>🔉 Громкость при шуме (%)</label>
+                <input type="number" id="reducedVolumePercent" min="0" max="100" step="5" value="30">
+                <div class="setting-hint">На сколько процентов снижать громкость (например, 30% = 30% от 100%)</div>
+            </div>
+            
+            <div class="setting-item">
+                <label>⏱️ Задержка восстановления (сек)</label>
+                <input type="number" id="restoreDelaySec" min="0.5" max="10" step="0.5" value="3">
+                <div class="setting-hint">Через сколько секунд после тишины вернуть громкость</div>
+            </div>
+            
+            <div class="setting-item full-width">
+                <div style="background: var(--bg-secondary); border-radius: 8px; padding: 10px;">
+                    <div>📊 Уровень шума: <span id="currentNoiseLevel">0</span> / <span id="thresholdDisplay">60</span></div>
+                    <div style="height: 4px; background: #333; border-radius: 2px; margin: 8px 0; overflow: hidden;">
+                        <div id="noiseMeterBar" style="width: 0%; height: 100%; background: var(--accent-color); transition: width 0.1s;"></div>
+                    </div>
+                    <div style="font-size: 12px;">
+                        🎚️ Текущая громкость: <span id="currentVolumeDisplay">100</span>%
+                    </div>
+                    <div id="volumeStatus" style="font-size: 11px; margin-top: 8px; color: var(--accent-color);"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
         
         <div class="setting-item full-width">
             <label class="checkbox-label">
@@ -414,7 +468,7 @@
 
 <div class="settings-footer">
     <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-        <div class="version-pill">MusicHub v2.9.0</div>
+        <div class="version-pill">MusicHub v2.9.5</div>
         <a href="#" id="githubFooterLink" style="color: var(--accent-color); text-decoration: none; font-size: 40px;">
             <i class="fa fa-github"></i>
         </a>
@@ -459,7 +513,6 @@
             <div style="margin: 8px 0;">✅ 25+ визуализаций</div>
             <div style="margin: 8px 0;">✅ Безлимитный AI в чате</div>
             <div style="margin: 8px 0;">✅ Кастомные сайты (до 5)</div>
-            <div style="margin: 8px 0;">✅ Скриншоты визуализации</div>
         </div>
         <button onclick="closePremiumModal()" style="background: transparent; color: var(--text-secondary); padding: 10px; border: 1px solid var(--border-color); border-radius: 10px; width: 100%; cursor: pointer;">Закрыть</button>
     </div>

@@ -971,44 +971,44 @@ function drawVisualization(ctx, width, height, accentColor, dataArray, isFullscr
             ctx.clearRect(0, 0, width, height);
             break;
 
-        case 'galaxy':
-            const galaxyStars = isFullscreenMode ? 200 : 100;
-            for (let i = 0; i < galaxyStars; i++) {
-                let intensity;
-                if (dataArray) intensity = (dataArray[i % dataArray.length] / 255) * sensitivity;
-                else intensity = (Math.sin(time * 2 + i) * 0.5 + 0.5) * sensitivity;
-                const angle = i * 137.5 * Math.PI / 180;
-                const radius = (maxRadius * 0.3) + intensity * maxRadius * 0.7;
-                const x = centerX + Math.cos(angle + time) * radius;
-                const y = centerY + Math.sin(angle + time) * radius;
-                const size = 1 + intensity * 3;
-                ctx.beginPath();
-                const sat = 70 + intensity * 30;
-                const light = 50 + intensity * 30;
-                ctx.fillStyle = `hsl(${baseHue}, ${sat}%, ${light}%)`;
-                ctx.arc(x, y, size, 0, Math.PI * 2);
-                ctx.fill();
-            }
-            break;
+case 'galaxy':
+    const galaxyStars = isFullscreenMode ? 200 : 100;
+    for (let i = 0; i < galaxyStars; i++) {
+        let intensity;
+        if (dataArray) intensity = (dataArray[i % dataArray.length] / 255) * sensitivity;
+        else intensity = (Math.sin(time * 2 + i) * 0.5 + 0.5) * sensitivity;
+        const angle = i * 137.5 * Math.PI / 180;
+        const radius = (maxRadius * 0.3) + intensity * maxRadius * 0.7;
+        const x = centerX + Math.cos(angle + time) * radius;
+        const y = centerY + Math.sin(angle + time) * radius;
+        const size = 1 + intensity * 3;
+        ctx.beginPath();
+        // Просто используем accentColor как в других визуализациях
+        ctx.fillStyle = accentColor;
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    break;
 
-        case 'aurora':
-            for (let i = 0; i < width; i += 3) {
-                let intensity;
-                if (dataArray) {
-                    const dataIndex = Math.floor((i / width) * dataArray.length);
-                    intensity = (dataArray[dataIndex] / 255) * sensitivity;
-                } else {
-                    intensity = (Math.sin(time + i * 0.03) * 0.5 + 0.5) * sensitivity;
-                }
-                const waveY = centerY - (intensity * height * 0.4) + Math.sin(i * 0.03 + time * 2) * 20;
-                ctx.beginPath();
-                const gradient = ctx.createLinearGradient(0, waveY - 20, 0, waveY + 20);
-                gradient.addColorStop(0, `hsl(${baseHue}, 80%, ${50 + intensity * 30}%)`);
-                gradient.addColorStop(1, `hsl(${baseHue}, 60%, 30%)`);
-                ctx.fillStyle = gradient;
-                ctx.fillRect(i, waveY - 15, 2, 30);
-            }
-            break;
+case 'aurora':
+    for (let i = 0; i < width; i += 3) {
+        let intensity;
+        if (dataArray) {
+            const dataIndex = Math.floor((i / width) * dataArray.length);
+            intensity = (dataArray[dataIndex] / 255) * sensitivity;
+        } else {
+            intensity = (Math.sin(time + i * 0.03) * 0.5 + 0.5) * sensitivity;
+        }
+        const waveY = centerY - (intensity * height * 0.4) + Math.sin(i * 0.03 + time * 2) * 20;
+        ctx.beginPath();
+        const gradient = ctx.createLinearGradient(0, waveY - 20, 0, waveY + 20);
+        // Просто используем accentColor с разной прозрачностью
+        gradient.addColorStop(0, accentColor);
+        gradient.addColorStop(1, `rgba(0, 0, 0, 0.3)`);
+        ctx.fillStyle = gradient;
+        ctx.fillRect(i, waveY - 15, 2, 30);
+    }
+    break;
 
 case 'vortex':
     const vortexPoints = isFullscreenMode ? 360 : 180;
@@ -1482,7 +1482,7 @@ function renderServices() {
     createWebviews();
 }
 
- function createWebviews() {
+function createWebviews() {
     const content = document.getElementById('content');
     if (!content) return;
     content.innerHTML = '';
@@ -1499,13 +1499,10 @@ function renderServices() {
                 wv.src = site.url;
                 wv.partition = 'persist:custom';
                 wv.className = index === 0 ? 'active' : '';
+                
+                // Добавляем инжект скрипта для контроля громкости
                 wv.addEventListener('dom-ready', () => {
                     wv.setZoomFactor(parseFloat(document.getElementById('zoom-select').value));
-                    console.log(`✅ Загружен кастомный сайт: ${site.name}`);
-                });
-                wv.addEventListener('did-fail-load', (e) => {
-                    console.error(`❌ Ошибка загрузки ${site.name}:`, e);
-                    addChatMessage(`⚠️ Не удалось загрузить сайт: ${site.url}`, false, 'system');
                 });
             }
         } else {
@@ -1516,6 +1513,7 @@ function renderServices() {
                 wv.src = service.url;
                 wv.partition = 'persist:music';
                 wv.className = index === 0 ? 'active' : '';
+                
                 wv.addEventListener('dom-ready', () => {
                     wv.setZoomFactor(parseFloat(document.getElementById('zoom-select').value));
                 });
@@ -1526,6 +1524,64 @@ function renderServices() {
             content.appendChild(wv);
         }
     });
+}
+
+async function forceSetVolume(volume) {
+    const clampedVolume = Math.max(0, Math.min(1, volume));
+    const webviews = document.querySelectorAll('webview');
+    
+    console.log(`🔊 Устанавливаю громкость ${Math.round(clampedVolume * 100)}% на ${webviews.length} webview`);
+    
+    for (const webview of webviews) {
+        try {
+            // Проверяем, активен ли webview (не скрыт)
+            const isVisible = webview.classList.contains('active') || 
+                             window.getComputedStyle(webview).display !== 'none';
+            
+            // Применяем ко всем, но лог только для активных
+            await webview.executeJavaScript(`
+                (function() {
+                    let changed = 0;
+                    document.querySelectorAll('audio, video').forEach(media => {
+                        if (Math.abs(media.volume - ${clampedVolume}) > 0.01) {
+                            media.volume = ${clampedVolume};
+                            changed++;
+                        }
+                    });
+                    return changed;
+                })();
+            `).catch(e => console.log('JS error:', e));
+            
+            try { webview.setAudioVolume(clampedVolume); } catch(e) {}
+            
+        } catch(e) {
+            console.log('Webview error:', e);
+        }
+    }
+    
+    currentVolume = clampedVolume;
+    
+    const volDisplay = document.getElementById('currentVolumeDisplay');
+    if (volDisplay) volDisplay.textContent = Math.round(clampedVolume * 100);
+}
+
+// Функция изменения громкости во всех webview (РАБОЧАЯ)
+function setAllWebviewVolume(volume) {
+    forceSetVolume(volume);
+    currentVolume = volume;
+    
+    const volDisplay = document.getElementById('currentVolumeDisplay');
+    if (volDisplay) volDisplay.textContent = Math.round(volume * 100);
+}
+
+// Обновляем applyVolumeToAllMedia
+function applyVolumeToAllMedia(volume) {
+    const clampedVolume = Math.max(0, Math.min(1, volume));
+    currentVolume = clampedVolume;
+    setAllWebviewVolume(clampedVolume);
+    
+    const volDisplay = document.getElementById('currentVolumeDisplay');
+    if (volDisplay) volDisplay.textContent = Math.round(clampedVolume * 100);
 }
 
 
@@ -2314,44 +2370,74 @@ if (window.electronAPI.onOpenHomePage) {
 // Самый первый обработчик для musichub://
 if (window.electronAPI.onOpenExternalUrl) {
     window.electronAPI.onOpenExternalUrl((event, url) => {
-        console.log('🔗 RENDERER получил:', url);
+        console.log('🔗 RENDERER получил RAW URL:', url);
         
-        // Игнорируем ТОЛЬКО совсем пустые ссылки
-        if (!url || url === 'musichub://' || url === 'musichub:///') {
-            console.log('🚫 Игнорируем пустую ссылку');
-            return;
-        }
+        // Нормализуем URL
+        let cleanUrl = normalizeUrl(url);
         
-        // Проверка на musichub://home (с / и без)
-        if (url === 'musichub://home' || url === 'musichub://home/') {
-            console.log('🏠 Открываем домашнюю страницу!');
-            if (globalShowHomePage) {
-                globalShowHomePage();
-            } else if (typeof showHomePage === 'function') {
-                showHomePage();
-            }
-            return;
-        }
-        
-        // Если это musichub:// что-то другое
-        if (url.startsWith('musichub://')) {
-            let targetUrl = url.replace('musichub://', '');
-            if (!targetUrl || targetUrl === 'home' || targetUrl === 'home/') {
+        // Игнорируем пустые
+        if (!cleanUrl || cleanUrl === 'home' || cleanUrl === 'home/') {
+            if (cleanUrl === 'home' || cleanUrl === 'home/') {
                 if (globalShowHomePage) globalShowHomePage();
-                return;
             }
-            if (!targetUrl.startsWith('http')) {
-                targetUrl = 'https://' + targetUrl;
-            }
-            openExternalUrl(targetUrl);
             return;
         }
         
-        // Всё остальное
-        openExternalUrl(url);
+        // Проверяем, что URL валидный
+        if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+            console.log('🚫 Невалидный URL после нормализации:', cleanUrl);
+            showToast('❌ Некорректная ссылка', 'error');
+            return;
+        }
+        
+        console.log('✅ Открываю URL:', cleanUrl);
+        openExternalUrl(cleanUrl);
     });
 }
 
+function normalizeUrl(inputUrl) {
+    if (!inputUrl) return '';
+    
+    let url = inputUrl;
+    
+    // Удаляем musichub:// префикс
+    if (url.startsWith('musichub://')) {
+        url = url.replace('musichub://', '');
+    }
+    
+    // Исправляем двойные протоколы
+    if (url.startsWith('https://https://')) {
+        url = url.replace('https://https://', 'https://');
+    }
+    if (url.startsWith('http://http://')) {
+        url = url.replace('http://http://', 'http://');
+    }
+    if (url.startsWith('https://http://')) {
+        url = url.replace('https://http://', 'http://');
+    }
+    if (url.startsWith('http://https://')) {
+        url = url.replace('http://https://', 'https://');
+    }
+    
+    // Исправляем https// (без двоеточия)
+    if (url.startsWith('https//')) {
+        url = url.replace('https//', 'https://');
+    }
+    if (url.startsWith('http//')) {
+        url = url.replace('http//', 'http://');
+    }
+    
+    // Удаляем лишние слеши после протокола
+    url = url.replace(/(https?:\/)[\/]+/g, '$1/');
+    
+    // Если нет протокола, добавляем https://
+    if (url && !url.startsWith('http://') && !url.startsWith('https://') && url.includes('.')) {
+        url = 'https://' + url;
+    }
+    
+    console.log('🔄 Нормализация URL:', inputUrl, '→', url);
+    return url;
+}
 
 
 
@@ -2527,7 +2613,6 @@ if (urlBar) {
     
     let shiftPressed = false;
     
-    // Отслеживаем состояние Shift
     window.addEventListener('keydown', (e) => {
         if (e.key === 'Shift') shiftPressed = true;
     });
@@ -2538,24 +2623,35 @@ if (urlBar) {
     urlBar.addEventListener('click', async () => {
         let urlToCopy = window.currentUrl;
         
-        // Если на домашней странице
+        // Если на домашней странице - копируем musichub://home
         if (globalIsOnHomePage) {
             urlToCopy = 'musichub://home';
-        } else if (!urlToCopy) {
-            const urlText = document.getElementById('urlText')?.innerText;
-            if (urlText) urlToCopy = urlText;
+        } 
+        // Если нет сохранённого URL - пытаемся получить из активного webview
+        else if (!urlToCopy || urlToCopy === 'musichub://home') {
+            const activeWv = document.querySelector('webview.active');
+            if (activeWv) {
+                try {
+                    urlToCopy = await activeWv.executeJavaScript('window.location.href');
+                } catch(e) {
+                    const urlText = document.getElementById('urlText')?.innerText;
+                    if (urlText) urlToCopy = urlText;
+                }
+            }
         }
         
-        // Если зажат Shift — копируем musichub:// ссылку
-        if (shiftPressed && urlToCopy) {
-            const musichubUrl = `musichub://${urlToCopy}`;
-            await navigator.clipboard.writeText(musichubUrl);
-            showToast('🔗 Musichub ссылка скопирована! Можно отправить другу', 'success');
-        } 
-        // Обычный клик — копируем обычную ссылку
-        else if (urlToCopy) {
-            await navigator.clipboard.writeText(urlToCopy);
-            showToast('🔗 Ссылка скопирована', 'success');
+        if (urlToCopy && urlToCopy !== 'musichub://home') {
+            if (shiftPressed) {
+                const musichubUrl = `musichub://${urlToCopy}`;
+                await navigator.clipboard.writeText(musichubUrl);
+                showToast('🔗 Musichub ссылка скопирована!', 'success');
+            } else {
+                await navigator.clipboard.writeText(urlToCopy);
+                showToast('🔗 Ссылка скопирована', 'success');
+            }
+        } else if (globalIsOnHomePage) {
+            await navigator.clipboard.writeText('musichub://home');
+            showToast('🏠 Ссылка на домашнюю страницу скопирована', 'success');
         }
     });
 }
@@ -2914,30 +3010,14 @@ let currentTempWebview = null;
 
 // Открытие внешней ссылки (не из активных сервисов)
 function openExternalUrl(url) {
-    console.log('🌐 openExternalUrl вызвана с:', url);
+    // Нормализуем URL
+    let cleanUrl = normalizeUrl(url);
     
-    // Защита от пустых и некорректных ссылок
-    if (!url || url === 'https:///' || url === 'http:///' || url === '' || url === '/' || url === 'home' || url === 'home/') {
-        console.log('🚫 Игнорируем некорректную ссылку:', url);
-        return;
-    }
+    console.log('🌐 openExternalUrl с:', cleanUrl);
     
-    // Если это musichub:// ссылка (осталась) — игнорируем
-    if (url.startsWith('musichub://')) {
-        console.log('🚫 Игнорируем musichub:// ссылку в openExternalUrl');
-        return;
-    }
-    
-    let cleanUrl = url;
-    
-    // Добавляем https:// если нужно
-    if (cleanUrl && !cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://') && cleanUrl.includes('.')) {
-        cleanUrl = 'https://' + cleanUrl;
-    }
-    
-    // Если после очистки получился мусор — выходим
-    if (!cleanUrl || cleanUrl === 'https:///' || cleanUrl === 'http:///') {
-        console.log('🚫 Игнорируем после очистки:', cleanUrl);
+    if (!cleanUrl || !cleanUrl.startsWith('http')) {
+        console.log('🚫 Некорректный URL:', cleanUrl);
+        showToast('❌ Некорректная ссылка', 'error');
         return;
     }
     
@@ -2945,25 +3025,21 @@ function openExternalUrl(url) {
     const matchedService = checkUrlMatchesService(cleanUrl);
     
     if (matchedService && activeServices.includes(matchedService.id)) {
-        // Закрываем homePage если открыта
         if (globalIsOnHomePage && typeof hideHomePage === 'function') hideHomePage();
+        if (tempWebviewOpened) closeTempWebview();
         
-        // Закрываем временный webview если открыт
-        if (tempWebviewOpened) {
-            closeTempWebview();
-        }
-        
-        // Открываем в обычном сервисе
         const btn = document.getElementById(`btn-${matchedService.id}`);
         if (btn) {
             sw(matchedService.id, btn);
             setTimeout(() => {
                 const wv = document.querySelector('webview.active');
-                if (wv) wv.loadURL(cleanUrl);
+                if (wv) {
+                    console.log('📄 Загружаю URL:', cleanUrl);
+                    wv.loadURL(cleanUrl).catch(e => console.log('Load error:', e));
+                }
             }, 500);
         }
     } else {
-        // Открываем во временном webview
         openInTempWebview(cleanUrl);
     }
 }
@@ -3018,50 +3094,55 @@ function checkUrlMatchesService(url) {
 
 // Открытие во временном webview
 function openInTempWebview(url) {
-    console.log('🌐 Открываем временный webview:', url);
+    let cleanUrl = normalizeUrl(url);
     
-    // Закрываем homePage если открыта
+    if (!cleanUrl || !cleanUrl.startsWith('http')) {
+        console.log('🚫 Невалидный URL для temp webview:', cleanUrl);
+        showToast('❌ Некорректная ссылка', 'error');
+        return;
+    }
+    
+    console.log('🌐 Открываем временный webview:', cleanUrl);
+    
     if (globalIsOnHomePage && typeof hideHomePage === 'function') {
         hideHomePage();
     }
     
-    // Сохраняем текущий активный сервис
     const activeWv = document.querySelector('webview.active');
     if (activeWv && !tempWebviewOpened) {
         lastActiveBeforeTemp = activeWv.id;
     }
     
-    // Прячем основные webview через opacity
     const webviews = document.querySelectorAll('webview:not(#tempWebview)');
     webviews.forEach(wv => {
         wv.style.opacity = '0';
         wv.style.pointerEvents = 'none';
     });
     
-    // Убираем активные классы с кнопок
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.classList.remove('active');
         const effectLayer = btn.querySelector('.effect-layer');
         if (effectLayer) effectLayer.className = 'effect-layer none';
     });
     
-    // Удаляем старый временный webview
     if (currentTempWebview && !currentTempWebview.isDestroyed) {
         currentTempWebview.remove();
     }
     
-    // Создаём новый временный webview
     currentTempWebview = document.createElement('webview');
     currentTempWebview.id = 'tempWebview';
-    currentTempWebview.src = url;
+    currentTempWebview.src = cleanUrl;
     currentTempWebview.partition = 'persist:temp';
     currentTempWebview.style.cssText = 'width: 100%; height: 100%; opacity: 1; pointer-events: auto;';
     currentTempWebview.classList.add('active');
     
-    // Обновляем URL бар для временного webview
-    updateUrlBarForTempWebview(url);
+    currentTempWebview.addEventListener('did-fail-load', (e) => {
+        console.error('❌ Ошибка загрузки:', e.errorDescription, 'URL:', cleanUrl);
+        showToast(`❌ Не удалось загрузить: ${e.errorDescription}`, 'error');
+    });
     
-    // Отслеживаем навигацию внутри временного webview
+    updateUrlBarForTempWebview(cleanUrl);
+    
     currentTempWebview.addEventListener('did-navigate', (e) => {
         updateUrlBarForTempWebview(e.url);
     });
@@ -3071,9 +3152,14 @@ function openInTempWebview(url) {
     
     document.getElementById('content').appendChild(currentTempWebview);
     tempWebviewOpened = true;
-    
     addTempWebviewCloseButton();
-    showToast(`🌐 Открыто: ${new URL(url).hostname}`, 'info');
+    
+    try {
+        const hostname = new URL(cleanUrl).hostname;
+        showToast(`🌐 Открыто: ${hostname}`, 'info');
+    } catch(e) {
+        showToast(`🌐 Открыто`, 'info');
+    }
 }
 
 // Добавление кнопки закрытия для временного webview
@@ -3221,7 +3307,7 @@ function updateUrlBarForTempWebview(url) {
 
          
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 MusicHub v2.8.5');
+    console.log('🚀 MusicHub v2.9.5');
     particleBackground = new ParticleBackground();
     loadSettings();
     loadCustomSites();  
@@ -3237,7 +3323,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initTitlebarEqualizer();
     await checkPremiumStatus();
     document.body.addEventListener('click', createGlobalRipple);
-    showToast('🎵 Добро пожаловать в MusicHub 2.0!', 'success');
+    showToast('🎵 Добро пожаловать в MusicHub уже почти 3.0!', 'success');
     
     const chatBtn = document.getElementById('chatBtn');
     if (chatBtn) {
@@ -3433,10 +3519,9 @@ function addServiceButton(id, icon, name, url) {
     btn.id = `btn-${id}`;
     btn.innerHTML = `<span>${icon}</span><div class="effect-layer ${id === activeServices[0] ? currentBtnEffect : 'none'}"></div>`;
     btn.title = name;
+    
     btn.onclick = () => {
-         
         if (typeof hideHomePage === 'function') hideHomePage();
-
         if (id.startsWith('custom_')) {
             const customSite = customSites[parseInt(id.split('_')[1])];
             if (customSite) {
@@ -3454,6 +3539,24 @@ function addServiceButton(id, icon, name, url) {
             sw(id, btn);
         }
     };
+    
+    // Двойной клик - на домашнюю страницу
+    btn.ondblclick = () => {
+        const wv = document.getElementById(id);
+        if (wv) {
+            const homeUrl = getServiceHomeUrl(id);
+            if (homeUrl) {
+                wv.loadURL(homeUrl);
+                showToast(`🏠 Переход на главную ${name}`, 'info');
+            } else {
+                wv.reload();
+                showToast(`🔄 ${name} перезагружен`, 'info');
+            }
+        } else {
+            showToast(`❌ Сервис ${name} не найден`, 'error');
+        }
+    };
+    
     container.appendChild(btn);
 }
 
@@ -3573,21 +3676,49 @@ function addServiceButton(id, icon, name) {
         }
     };
     
-     
+    // ИЗМЕНЯЕМ ДВОЙНОЙ КЛИК: вместо обновления - переход на домашнюю страницу сервиса
     btn.ondblclick = () => {
-        const wv = document.getElementById(id);
-        if (wv) {
-            wv.reload();
-            showToast(`🔄 ${name} перезагружается...`, 'info');
-            setTimeout(() => {
-                showToast(`✅ ${name} перезагружен`, 'success');
-            }, 1000);
+        const serviceUrl = getServiceHomeUrl(id);
+        if (serviceUrl) {
+            const wv = document.getElementById(id);
+            if (wv) {
+                wv.loadURL(serviceUrl);
+                showToast(`🏠 Переход на главную ${name}`, 'info');
+            } else {
+                showToast(`❌ Сервис ${name} не найден`, 'error');
+            }
         } else {
-            showToast(`❌ Сервис ${name} не найден`, 'error');
+            // Если нет домашнего URL, просто перезагружаем
+            const wv = document.getElementById(id);
+            if (wv) {
+                wv.reload();
+                showToast(`🔄 ${name} перезагружен`, 'info');
+            }
         }
     };
     
     container.appendChild(btn);
+}
+
+function getServiceHomeUrl(serviceId) {
+    const homeUrls = {
+        'yandex': 'https://music.yandex.ru/home',
+        'youtube': 'https://music.youtube.com',
+        'soundcloud': 'https://soundcloud.com/stream',
+        'spotify': 'https://open.spotify.com',
+        'vk': 'https://vk.com/audio'
+    };
+    
+    // Если кастомный сайт - возвращаем его URL
+    if (serviceId.startsWith('custom_')) {
+        const customIndex = parseInt(serviceId.split('_')[1]);
+        const site = customSites[customIndex];
+        if (site && site.url) {
+            return site.url;
+        }
+    }
+    
+    return homeUrls[serviceId] || null;
 }
 
 // Глобальные переменные
@@ -3792,20 +3923,26 @@ let currentUrl = '';
 let urlTrackingInterval = null;
 
 function updateUrlBar() {
-    // Если открыта домашняя страница — не обновляем URL
+    // Если открыта домашняя страница - показываем специальный URL
     if (globalIsOnHomePage) {
+        const urlText = document.getElementById('urlText');
+        const urlFavicon = document.getElementById('urlFavicon');
+        if (urlText) {
+            urlText.innerHTML = '<span class="url-domain">🏠 Home</span><span class="url-path"></span>';
+        }
+        if (urlFavicon) urlFavicon.style.display = 'none';
+        window.currentUrl = 'musichub://home';
         return;
     }
     
+    // Иначе - нормальный URL из активного webview
     const wv = document.querySelector('webview.active');
-    if (!wv) {
-        return;
-    }
+    if (!wv) return;
     
     wv.executeJavaScript('window.location.href')
         .then(url => {
             if (!url) return;
-            currentUrl = url;
+            window.currentUrl = url;  // Сохраняем реальный URL
             let domain = '', path = '';
             try {
                 const u = new URL(url);
@@ -3825,13 +3962,6 @@ function updateUrlBar() {
                         img.src = fav;
                         img.style.display = 'inline';
                     }
-                })
-                .catch(() => {});
-            
-            // Обновляем заголовок окна
-            wv.executeJavaScript('document.title')
-                .then(t => {
-                    if (t) document.title = `MusicHub - ${t}`;
                 })
                 .catch(() => {});
         })
@@ -4446,7 +4576,7 @@ function applySimpleGradient(color) {
 }
 
 function removeSimpleGradient() {
-    // Возвращаем стандартный темный фон (не #1DB954, а #0a0a0a)
+    // Возвращаем стандартный темный фон (не #000000, а #0a0a0a)
     const theme = document.body.classList.contains('dark-theme') ? '#0a0a0a' : '#f5f5f5';
     document.body.style.background = theme;
 }
@@ -4469,7 +4599,7 @@ async function getColorFromArtworkSimple(artworkUrl) {
             
             resolve(`rgb(${r}, ${g}, ${b})`);
         };
-        img.onerror = () => resolve('#1DB954');
+        img.onerror = () => resolve('#000000');
         img.src = artworkUrl;
     });
 }
@@ -5165,21 +5295,38 @@ const clearStatsBtn = document.getElementById('clearStatsBtn');
 if (clearStatsBtn) {
     clearStatsBtn.onclick = () => {
         if (confirm('🗑️ Точно очистить всю статистику? Это действие необратимо.')) {
+            // Очищаем всё!
             localStorage.removeItem('artistListenTime');
             localStorage.removeItem('totalListenTime');
             localStorage.removeItem('dailyListenTime');
             localStorage.removeItem('trackHistory');
-            localStorage.removeItem('artistListenTimeSeconds'); // очищаем время
+            localStorage.removeItem('artistListenTimeSeconds');
+            localStorage.removeItem('dailyListenTimeSeconds');
+            localStorage.removeItem('totalListenTimeSeconds');
+            
+            // Очищаем глобальные переменные
             trackHistory = [];
             currentTrackInfo = null;
             currentTrackStartTime = null;
+            
+            // Сбрасываем накопленное время
+            accumulatedTime = 0;
             
             // Сбрасываем счётчики AI
             window.lastAICommentaryTime = null;
             window.tracksSinceLastComment = 0;
             
-            updateStatsUI();
-            showToast('📊 Статистика очищена!', 'success');
+            // Обновляем UI статистики
+            if (typeof updateStatsUI === 'function') {
+                updateStatsUI();
+            }
+            
+            // Если home page открыта, обновляем её
+            if (globalIsOnHomePage && typeof updateHomeContent === 'function') {
+                updateHomeContent();
+            }
+            
+            showToast('📊 Вся статистика очищена!', 'success');
         }
     };
 }
@@ -5256,6 +5403,595 @@ async function updateStatsUI() {
         commentaryContainer.innerHTML = `💭 ${commentary}`;
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+let globalAudioContext = null;
+let globalGainNode = null;
+let isVolumeControlled = false;
+let currentGlobalVolume = 1.0;
+
+// Создаём AudioContext и перехватываем все аудиопотоки
+async function initGlobalAudioControl() {
+    if (globalAudioContext) return;
+    
+    try {
+        // Создаём контекст
+        globalAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+        await globalAudioContext.resume();
+        
+        // Создаём главный усилитель
+        globalGainNode = globalAudioContext.createGain();
+        globalGainNode.gain.value = currentGlobalVolume;
+        globalGainNode.connect(globalAudioContext.destination);
+        
+        // Перехватываем создание новых аудиоконтекстов
+        const OriginalAudioContext = window.AudioContext || window.webkitAudioContext;
+        
+        // Подменяем конструктор AudioContext
+        window.AudioContext = function() {
+            const ctx = new OriginalAudioContext();
+            
+            // Создаём свой узел для этого контекста
+            const gainNode = ctx.createGain();
+            gainNode.gain.value = currentGlobalVolume;
+            gainNode.connect(ctx.destination);
+            
+            // Перехватываем connect
+            const originalConnect = gainNode.connect.bind(gainNode);
+            gainNode.connect = function(dest) {
+                if (dest === ctx.destination) {
+                    return originalConnect(gainNode);
+                }
+                return originalConnect(dest);
+            };
+            
+            // Сохраняем оригинальный метод
+            const originalCreateMediaElementSource = ctx.createMediaElementSource.bind(ctx);
+            ctx.createMediaElementSource = function(element) {
+                const source = originalCreateMediaElementSource(element);
+                source.connect(gainNode);
+                return source;
+            };
+            
+            return ctx;
+        };
+        
+        console.log('✅ AudioContext перехвачен, громкость под контролем');
+        
+        // Обработчик изменения громкости из main
+        window.electronAPI?.onVolumeChange?.((event, volume) => {
+            if (globalGainNode) {
+                globalGainNode.gain.value = volume;
+                console.log(`🔊 Громкость изменена на: ${Math.round(volume * 100)}%`);
+            }
+        });
+        
+        isVolumeControlled = true;
+        
+    } catch (err) {
+        console.log('AudioContext контроль не удался:', err);
+        // Fallback на старый метод
+        fallbackVolumeControl();
+    }
+}
+
+// Фолбэк через медиа-элементы
+function fallbackVolumeControl() {
+    console.log('🔄 Использую фолбэк контроль громкости');
+    
+    setInterval(() => {
+        if (adaptiveVolumeEnabled) {
+            document.querySelectorAll('webview').forEach(webview => {
+                webview.executeJavaScript(`
+                    document.querySelectorAll('audio, video').forEach(media => {
+                        media.volume = ${currentGlobalVolume};
+                    });
+                `).catch(() => {});
+            });
+        }
+    }, 200);
+}
+
+// Установка громкости
+function setGlobalVolume(volume) {
+    currentGlobalVolume = Math.max(0, Math.min(1, volume));
+    
+    if (globalGainNode && isVolumeControlled) {
+        globalGainNode.gain.value = currentGlobalVolume;
+    }
+    
+    // Отправляем в main для синхронизации
+    window.electronAPI?.setMasterVolume?.(currentGlobalVolume);
+    
+    // Обновляем UI
+    const volDisplay = document.getElementById('currentVolumeDisplay');
+    if (volDisplay) volDisplay.textContent = Math.round(currentGlobalVolume * 100);
+}
+
+// Функция для адаптивной громкости
+function adaptiveVolumeUpdate(targetVolume) {
+    if (!adaptiveVolumeEnabled) return;
+    
+    const startVolume = currentGlobalVolume;
+    const endVolume = targetVolume;
+    const startTime = performance.now();
+    const duration = volumeSmoothing * 1000;
+    
+    function animate(now) {
+        const elapsed = now - startTime;
+        const progress = Math.min(1, elapsed / duration);
+        const easeProgress = 1 - Math.pow(1 - progress, 2);
+        const newVolume = startVolume + (endVolume - startVolume) * easeProgress;
+        
+        setGlobalVolume(newVolume);
+        
+        if (progress < 1) {
+            requestAnimationFrame(animate);
+        }
+    }
+    
+    requestAnimationFrame(animate);
+}
+
+// Инициализация при загрузке приложения
+setTimeout(() => {
+    initGlobalAudioControl();
+    
+    // Включаем пользовательский жест для AudioContext
+    document.body.addEventListener('click', () => {
+        if (globalAudioContext && globalAudioContext.state === 'suspended') {
+            globalAudioContext.resume();
+        }
+    }, { once: true });
+}, 1000);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ========== АДАПТИВНАЯ ГРОМКОСТЬ (РАБОЧАЯ ВЕРСИЯ) ==========
+
+let adaptiveEnabled = false;
+let adaptiveMicStream = null;
+let adaptiveAnalyser = null;
+let adaptiveAudioCtx = null;
+let adaptiveAnimFrame = null;
+let adaptiveNoiseLevel = 0;
+let adaptiveThreshold = 60;
+let adaptiveReducePercent = 30;
+let adaptiveRestoreDelay = 3000;
+let adaptiveMicId = '';
+let adaptiveIsReduced = false;
+let adaptiveRestoreTimer = null;
+let adaptiveCurrentVol = 1.0;
+let adaptiveLastUiUpdate = 0;
+
+// ОСНОВНАЯ ФУНКЦИЯ ИЗМЕНЕНИЯ ГРОМКОСТИ
+function adaptiveSetVolume(volume) {
+    const vol = Math.max(0, Math.min(1, volume));
+    adaptiveCurrentVol = vol;
+    
+    const webviews = document.querySelectorAll('webview');
+    console.log(`🔊 Громкость: ${Math.round(vol * 100)}% на ${webviews.length} webview`);
+    
+    webviews.forEach((webview, idx) => {
+        const jsCode = `
+            (function() {
+                const targetVolume = ${vol};
+                
+                // 1. Меняем ползунок Яндекс Музыки
+                const sliders = document.querySelectorAll('input[type="range"][max="1"][step="0.01"]');
+                for (let i = 0; i < sliders.length; i++) {
+                    const slider = sliders[i];
+                    const label = slider.getAttribute('aria-label') || '';
+                    if (label.includes('громкость') || label.includes('volume')) {
+                        slider.value = targetVolume;
+                        slider.dispatchEvent(new Event('input', { bubbles: true }));
+                        slider.dispatchEvent(new Event('change', { bubbles: true }));
+                        break;
+                    }
+                }
+                
+                // 2. Меняем громкость аудио/видео элементов
+                document.querySelectorAll('audio, video').forEach(media => {
+                    media.volume = targetVolume;
+                });
+                
+                // 3. ПЕРЕХВАТ WEB AUDIO API (ЭТО РЕАЛЬНО МЕНЯЕТ ГРОМКОСТЬ)
+                if (!window.__volumeHijacked) {
+                    window.__volumeHijacked = true;
+                    window.__volumeGainNodes = [];
+                    
+                    const OriginalAudioContext = window.AudioContext || window.webkitAudioContext;
+                    
+                    window.AudioContext = function() {
+                        const ctx = new OriginalAudioContext();
+                        const gainNode = ctx.createGain();
+                        gainNode.gain.value = targetVolume;
+                        gainNode.connect(ctx.destination);
+                        window.__volumeGainNodes.push(gainNode);
+                        return ctx;
+                    };
+                    window.webkitAudioContext = window.AudioContext;
+                }
+                
+                // Обновляем все существующие GainNode
+                if (window.__volumeGainNodes) {
+                    window.__volumeGainNodes.forEach(gain => {
+                        if (gain && gain.gain) gain.gain.value = targetVolume;
+                    });
+                }
+                
+                // 4. YouTube Music
+                const ytSlider = document.querySelector('.ytp-volume-panel input[type="range"]');
+                if (ytSlider) {
+                    ytSlider.value = targetVolume * 100;
+                    ytSlider.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            })();
+        `;
+        
+        webview.executeJavaScript(jsCode).catch(e => console.log(`Error ${idx}:`, e));
+        try { webview.setAudioVolume(vol); } catch(e) {}
+    });
+    
+    const volDisplay = document.getElementById('currentVolumeDisplay');
+    if (volDisplay) volDisplay.textContent = Math.round(vol * 100);
+}
+
+// ПЛАВНОЕ ИЗМЕНЕНИЕ
+function adaptiveSmoothChange(targetVol) {
+    const startVol = adaptiveCurrentVol;
+    const endVol = targetVol;
+    const startTime = performance.now();
+    const duration = 500;
+    
+    function animate(now) {
+        const elapsed = now - startTime;
+        const progress = Math.min(1, elapsed / duration);
+        const ease = 1 - Math.pow(1 - progress, 2);
+        const newVol = startVol + (endVol - startVol) * ease;
+        adaptiveSetVolume(newVol);
+        
+        if (progress < 1) {
+            requestAnimationFrame(animate);
+        } else {
+            adaptiveSetVolume(endVol);
+        }
+    }
+    requestAnimationFrame(animate);
+}
+
+// ЛОГИКА: ШУМ -> ТИХО, ТИШИНА -> ЖДЁМ -> ГРОМКО
+function adaptiveUpdateLogic() {
+    const isNoisy = adaptiveNoiseLevel > adaptiveThreshold;
+    
+    if (isNoisy) {
+        if (adaptiveRestoreTimer) {
+            clearTimeout(adaptiveRestoreTimer);
+            adaptiveRestoreTimer = null;
+        }
+        
+        if (!adaptiveIsReduced) {
+            adaptiveIsReduced = true;
+            const newVol = adaptiveReducePercent / 100;
+            console.log(`🔊 ШУМ! -> громкость ${adaptiveReducePercent}%`);
+            adaptiveSmoothChange(newVol);
+        }
+        
+        const statusDiv = document.getElementById('volumeStatus');
+        if (statusDiv) statusDiv.innerHTML = '🔴 ШУМ - громкость снижена';
+        
+    } else {
+        if (adaptiveIsReduced && !adaptiveRestoreTimer) {
+            console.log(`🔇 ТИШИНА, жду ${adaptiveRestoreDelay/1000} сек...`);
+            const statusDiv = document.getElementById('volumeStatus');
+            if (statusDiv) statusDiv.innerHTML = `⏳ ТИХО - восстановление через ${adaptiveRestoreDelay/1000} сек`;
+            
+            adaptiveRestoreTimer = setTimeout(() => {
+                console.log(`🔊 Восстанавливаю громкость до 100%`);
+                adaptiveIsReduced = false;
+                adaptiveSmoothChange(1.0);
+                adaptiveRestoreTimer = null;
+                if (statusDiv) statusDiv.innerHTML = '✅ НОРМАЛЬНАЯ громкость';
+            }, adaptiveRestoreDelay);
+        }
+    }
+}
+
+// ИЗМЕРЕНИЕ ШУМА
+function adaptiveNoiseLoop() {
+    if (!adaptiveAnalyser || !adaptiveEnabled) {
+        if (adaptiveAnimFrame) cancelAnimationFrame(adaptiveAnimFrame);
+        return;
+    }
+    
+    const data = new Uint8Array(adaptiveAnalyser.frequencyBinCount);
+    adaptiveAnalyser.getByteFrequencyData(data);
+    
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) sum += data[i];
+    const avg = sum / data.length;
+    adaptiveNoiseLevel = Math.round(avg * (200 / 255));
+    
+    const now = Date.now();
+    if (now - adaptiveLastUiUpdate >= 100) {
+        const noiseSpan = document.getElementById('currentNoiseLevel');
+        if (noiseSpan) noiseSpan.textContent = adaptiveNoiseLevel;
+        
+        const meter = document.getElementById('noiseMeterBar');
+        if (meter) {
+            const percent = Math.min(100, (adaptiveNoiseLevel / adaptiveThreshold) * 100);
+            meter.style.width = percent + '%';
+            meter.style.background = adaptiveNoiseLevel > adaptiveThreshold ? '#ff4444' : '#1DB954';
+        }
+        
+        const thresholdSpan = document.getElementById('thresholdDisplay');
+        if (thresholdSpan) thresholdSpan.textContent = adaptiveThreshold;
+        
+        adaptiveLastUiUpdate = now;
+    }
+    
+    adaptiveUpdateLogic();
+    adaptiveAnimFrame = requestAnimationFrame(adaptiveNoiseLoop);
+}
+
+// ЗАПУСК МОНИТОРИНГА
+async function adaptiveStartMonitor() {
+    adaptiveStopMonitor();
+    
+    if (!adaptiveMicId) {
+        console.log('❌ Микрофон не выбран');
+        return;
+    }
+    
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: { deviceId: { exact: adaptiveMicId } }
+        });
+        
+        adaptiveAudioCtx = new AudioContext();
+        await adaptiveAudioCtx.resume();
+        
+        const source = adaptiveAudioCtx.createMediaStreamSource(stream);
+        adaptiveAnalyser = adaptiveAudioCtx.createAnalyser();
+        adaptiveAnalyser.fftSize = 256;
+        source.connect(adaptiveAnalyser);
+        adaptiveMicStream = stream;
+        
+        adaptiveNoiseLoop();
+        console.log('✅ Мониторинг шума запущен');
+        
+    } catch(err) {
+        console.error('❌ Ошибка:', err);
+        if (typeof showToast === 'function') showToast('❌ Нет доступа к микрофону', 'error');
+    }
+}
+
+// ОСТАНОВКА
+function adaptiveStopMonitor() {
+    if (adaptiveAnimFrame) cancelAnimationFrame(adaptiveAnimFrame);
+    if (adaptiveMicStream) adaptiveMicStream.getTracks().forEach(t => t.stop());
+    if (adaptiveAudioCtx) adaptiveAudioCtx.close();
+    if (adaptiveRestoreTimer) clearTimeout(adaptiveRestoreTimer);
+    
+    adaptiveAnalyser = null;
+    adaptiveMicStream = null;
+    adaptiveAudioCtx = null;
+    adaptiveIsReduced = false;
+    adaptiveAnimFrame = null;
+    
+    console.log('⏹️ Мониторинг остановлен');
+}
+
+// ЗАГРУЗКА МИКРОФОНОВ
+async function adaptiveLoadMics() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(t => t.stop());
+        
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const inputs = devices.filter(d => d.kind === 'audioinput');
+        
+        const select = document.getElementById('noiseMicDevice');
+        if (!select) return;
+        
+        select.innerHTML = '<option value="">-- Выберите микрофон --</option>';
+        
+        inputs.forEach(device => {
+            const isVirtual = device.label.toLowerCase().includes('cable') || 
+                             device.label.toLowerCase().includes('vb-audio');
+            const option = document.createElement('option');
+            option.value = device.deviceId;
+            option.textContent = (device.label || 'Микрофон') + (isVirtual ? ' 🎛️[ВИРТ]' : ' 🎤');
+            if (adaptiveMicId === device.deviceId) option.selected = true;
+            select.appendChild(option);
+        });
+        
+        if (!adaptiveMicId && inputs.length) {
+            const realMic = inputs.find(d => !d.label.toLowerCase().includes('cable'));
+            if (realMic) {
+                adaptiveMicId = realMic.deviceId;
+                localStorage.setItem('adaptiveMicId', adaptiveMicId);
+                select.value = adaptiveMicId;
+            }
+        }
+    } catch(err) {
+        console.log('Ошибка загрузки микрофонов:', err);
+    }
+}
+
+// ИНИЦИАЛИЗАЦИЯ
+function adaptiveInit() {
+    adaptiveEnabled = localStorage.getItem('adaptiveEnabled') === 'true';
+    adaptiveThreshold = parseInt(localStorage.getItem('adaptiveThreshold')) || 60;
+    adaptiveReducePercent = parseInt(localStorage.getItem('adaptiveReducePercent')) || 30;
+    adaptiveRestoreDelay = (parseFloat(localStorage.getItem('adaptiveRestoreDelaySec')) || 3) * 1000;
+    adaptiveMicId = localStorage.getItem('adaptiveMicId') || '';
+    
+    const checkbox = document.getElementById('adaptiveVolumeEnabled');
+    const thresholdInput = document.getElementById('noiseThreshold');
+    const reduceInput = document.getElementById('reducedVolumePercent');
+    const restoreInput = document.getElementById('restoreDelaySec');
+    const settingsDiv = document.getElementById('adaptiveVolumeSettings');
+    
+    if (checkbox) checkbox.checked = adaptiveEnabled;
+    if (thresholdInput) thresholdInput.value = adaptiveThreshold;
+    if (reduceInput) reduceInput.value = adaptiveReducePercent;
+    if (restoreInput) restoreInput.value = adaptiveRestoreDelay / 1000;
+    if (settingsDiv) settingsDiv.style.display = adaptiveEnabled ? 'block' : 'none';
+    
+    adaptiveLoadMics();
+    
+    if (adaptiveEnabled && adaptiveMicId) adaptiveStartMonitor();
+    
+    checkbox?.addEventListener('change', (e) => {
+        adaptiveEnabled = e.target.checked;
+        localStorage.setItem('adaptiveEnabled', adaptiveEnabled);
+        if (settingsDiv) settingsDiv.style.display = adaptiveEnabled ? 'block' : 'none';
+        
+        if (adaptiveEnabled && adaptiveMicId) {
+            adaptiveStartMonitor();
+        } else {
+            adaptiveStopMonitor();
+            adaptiveSetVolume(1.0);
+            adaptiveIsReduced = false;
+        }
+    });
+    
+    thresholdInput?.addEventListener('change', (e) => {
+        adaptiveThreshold = parseInt(e.target.value);
+        localStorage.setItem('adaptiveThreshold', adaptiveThreshold);
+    });
+    
+    reduceInput?.addEventListener('change', (e) => {
+        adaptiveReducePercent = parseInt(e.target.value);
+        localStorage.setItem('adaptiveReducePercent', adaptiveReducePercent);
+    });
+    
+    restoreInput?.addEventListener('change', (e) => {
+        adaptiveRestoreDelay = parseFloat(e.target.value) * 1000;
+        localStorage.setItem('adaptiveRestoreDelaySec', e.target.value);
+    });
+    
+    const micSelect = document.getElementById('noiseMicDevice');
+    micSelect?.addEventListener('change', (e) => {
+        adaptiveMicId = e.target.value;
+        localStorage.setItem('adaptiveMicId', adaptiveMicId);
+        if (adaptiveEnabled && adaptiveMicId) {
+            adaptiveStartMonitor();
+        }
+    });
+}
+
+// КНОПКА
+window.adaptiveToggle = function() {
+    const checkbox = document.getElementById('adaptiveVolumeEnabled');
+    if (checkbox) {
+        checkbox.checked = !checkbox.checked;
+        checkbox.dispatchEvent(new Event('change'));
+        
+        const btn = document.getElementById('adaptiveVolumeBtn');
+        if (btn) {
+            btn.style.background = checkbox.checked ? 'var(--accent-color)' : '';
+            if (typeof showToast === 'function') {
+                showToast(checkbox.checked ? '🎤 Адаптивная громкость ВКЛЮЧЕНА' : '🔇 Адаптивная громкость ВЫКЛЮЧЕНА', 'info');
+            }
+        }
+    }
+};
+
+// ТЕСТОВАЯ ФУНКЦИЯ
+window.testNoise = function(level) {
+    adaptiveNoiseLevel = level;
+    adaptiveUpdateLogic();
+    console.log(`📊 Тестовый шум: ${level}`);
+};
+
+// ЗАПУСК
+setTimeout(adaptiveInit, 1000);
+
+
+
+
+function adaptiveToggle() {
+    const checkbox = document.getElementById('adaptiveVolumeEnabled');
+    if (checkbox) {
+        checkbox.checked = !checkbox.checked;
+        checkbox.dispatchEvent(new Event('change'));
+        
+        const btn = document.getElementById('adaptiveVolumeBtn');
+        if (btn) {
+            if (checkbox.checked) {
+                btn.style.background = 'var(--accent-color)';
+                btn.style.boxShadow = '0 0 8px var(--accent-color)';
+                if (typeof showToast === 'function') {
+                    showToast('🎤 Адаптивная громкость ВКЛЮЧЕНА', 'success');
+                }
+            } else {
+                btn.style.background = '';
+                btn.style.boxShadow = '';
+                if (typeof showToast === 'function') {
+                    showToast('🔇 Адаптивная громкость ВЫКЛЮЧЕНА', 'info');
+                }
+            }
+        }
+    }
+}
+
+// Делаем функцию глобальной
+window.adaptiveToggle = adaptiveToggle;
+
+// Также добавляем обработчик на кнопку (на случай если onclick не сработает)
+document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('adaptiveVolumeBtn');
+    if (btn) {
+        btn.addEventListener('click', adaptiveToggle);
+    }
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

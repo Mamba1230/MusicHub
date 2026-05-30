@@ -11,6 +11,8 @@ const { URL } = require('url');
 const url = require('url');
 const AdmZip = require('adm-zip');
 const https = require('https');
+const { setVolume, getVolume } = require('easy-volume');
+const nircmdPath = path.join(__dirname, 'nircmd.exe');
 
 // Константы
 const CHROME_STORE_API = 'https://clients2.google.com/service/update2/crx';
@@ -161,6 +163,8 @@ ipcMain.on('update-artwork-for-tray', (event, imageData) => {
 
 let pythonProcess = null;
 
+
+
 function getWatcherPath() {
     if (app.isPackaged) {
         // В собранном приложении
@@ -222,6 +226,24 @@ function registerProtocol() {
     console.log(`📌 Регистрация протокола musichub: ${succeeded ? 'успешно' : 'ошибка'}`);
 }
 
+function setAllWebviewsVolume(volume) {
+    if (!win || win.isDestroyed()) return;
+    
+    // Получаем все webview через mainWindow
+    const webContents = win.webContents;
+    
+    // Отправляем команду в renderer
+    if (webContents && !webContents.isDestroyed()) {
+        webContents.send('global-set-volume', volume);
+    }
+}
+
+// IPC обработчик
+ipcMain.on('set-all-webviews-volume', (event, volume) => {
+    setAllWebviewsVolume(volume);
+});
+
+
 function getMediaFromFiles() {
     const appData = process.env.APPDATA;
     const basePath = path.join(appData, 'musichub');
@@ -268,6 +290,32 @@ function getMediaFromFiles() {
     }
 }
 
+ipcMain.on('set-master-volume', (event, volume) => {
+    // Пересылаем во все webview
+    const webviews = win.webContents;
+    // Отправляем команду во все webview
+    win.webContents.send('global-volume-change', volume);
+});
+
+ipcMain.handle('set-system-volume', async (event, volumePercent) => {
+    if (require('fs').existsSync(nircmdPath)) {
+        const value = Math.round(volumePercent * 655.35); // 0-65535
+        exec(`"${nircmdPath}" changesysvolume ${value}`, (err, stdout, stderr) => {
+            if (err) console.log('Ошибка nircmd:', err);
+        });
+        return { success: true };
+    }
+    return { success: false };
+});
+
+ipcMain.handle('get-system-volume', async () => {
+    try {
+        const volume = await getVolume();
+        return { success: true, volume };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
+});
 
 
 ipcMain.handle('get-artwork-from-server', async () => {

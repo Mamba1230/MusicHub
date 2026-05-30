@@ -2999,3 +2999,16 @@ webview {
         max-width: 700px;
     }
 }
+
+/* Адаптивная громкость */
+.noise-meter-active {
+    transition: transform 0.1s;
+}
+
+#noiseMeterBar {
+    transition: width 0.1s linear;
+}
+
+.volume-smooth {
+    transition: opacity 0.2s ease-out;
+}

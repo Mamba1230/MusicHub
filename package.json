@@ -1,12 +1,14 @@
 {
   "name": "musichub",
-  "version": "2.9.0",
+  "version": "2.9.5",
   "description": "MusicHub - десктопный музыкальный плеер-агрегатор",
   "author": "Mamba1230",
   "main": "main.js",
   "protocols": {
-  "name": "MusicHub Protocol",
-  "schemes": ["musichub"]
+    "name": "MusicHub Protocol",
+    "schemes": [
+      "musichub"
+    ]
   },
   "scripts": {
     "start": "electron .",
@@ -22,6 +24,7 @@
   },
   "dependencies": {
     "adm-zip": "^0.5.14",
+    "easy-volume": "^1.2.0",
     "ws": "^8.18.0"
   },
   "build": {
