@@ -81,7 +81,6 @@
 | Web Audio API | Анализ звука, визуализации |
 | WebSocket | Чат (с Cloudflare Worker) |
 | Cloudflare Workers | Premium-бэкенд, WebSocket |
-| Chrome Extensions API | Установка расширений |
 
 ---
 
