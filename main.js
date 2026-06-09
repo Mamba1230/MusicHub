@@ -73,6 +73,89 @@ const saveConfig = () => {
     }
 };
 
+
+let volumeControllerProcess = null;
+let volumeControllerRestartTimer = null;
+
+function getVolumeControllerPath() {
+    if (app.isPackaged) {
+        // В собранном приложении
+        return path.join(process.resourcesPath, 'VolumeController.exe');
+    } else {
+        // В разработке
+        return path.join(__dirname, 'VolumeController.exe');
+    }
+}
+
+function startVolumeController() {
+    const exePath = getVolumeControllerPath();
+    console.log('🔍 Looking for VolumeController at:', exePath);
+    
+    if (!fs.existsSync(exePath)) {
+        console.error('❌ VolumeController.exe не найден в:', exePath);
+        return;
+    }
+    
+    console.log('✅ Starting VolumeController...');
+    
+    volumeControllerProcess = spawn(exePath, [], {
+        cwd: app.getPath('userData'),
+        detached: false,
+        stdio: 'pipe'
+    });
+    
+    volumeControllerProcess.stdout.on('data', (data) => {
+        console.log('📦 VolumeController:', data.toString().trim());
+    });
+    
+    volumeControllerProcess.stderr.on('data', (data) => {
+        console.error('⚠️ VolumeController error:', data.toString());
+    });
+    
+    volumeControllerProcess.on('close', (code) => {
+        console.log('💀 VolumeController exited with code:', code);
+        // Планируем перезапуск через 5 секунд
+        if (volumeControllerRestartTimer) clearTimeout(volumeControllerRestartTimer);
+        volumeControllerRestartTimer = setTimeout(() => {
+            console.log('🔄 Перезапуск VolumeController...');
+            startVolumeController();
+        }, 5000);
+    });
+    
+    volumeControllerProcess.on('error', (err) => {
+        console.error('❌ VolumeController error:', err);
+    });
+}
+
+// Функция остановки VolumeController (для корректного завершения)
+function stopVolumeController() {
+    if (volumeControllerRestartTimer) {
+        clearTimeout(volumeControllerRestartTimer);
+        volumeControllerRestartTimer = null;
+    }
+    
+    if (volumeControllerProcess && !volumeControllerProcess.killed) {
+        console.log('🛑 Останавливаем VolumeController...');
+        volumeControllerProcess.kill();
+        volumeControllerProcess = null;
+    }
+}
+
+function createWindow() {
+    mainWindow = new BrowserWindow({
+        width: 1200,
+        height: 800,
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            preload: path.join(__dirname, 'preload.js')  // ← важно!
+        }
+    });
+    
+    mainWindow.loadFile('index.html');
+}
+
+
 let currentTrayRequest = null; // для отмены предыдущего запроса
 
 function updateTrayWithArtwork(imageData) {
@@ -391,6 +474,7 @@ ipcMain.handle('get-windows-media-info', async () => {
 
 // Запускаем при старте
 app.whenReady().then(() => {
+    startVolumeController();
     startMediaWatcher();
     registerProtocol();
 });
@@ -677,13 +761,43 @@ app.on('web-contents-created', (event, contents) => {
         }
     });
 
-    win.on('close', (e) => {
-        if (!isQuitting) { 
-            e.preventDefault(); 
-            win.hide(); 
-            saveConfig();
-        }
-    });
+win.on('close', (e) => {
+    // Сохраняем размер и позицию ПЕРЕД скрытием
+    const bounds = win.getBounds();
+    const config = {
+        width: bounds.width,
+        height: bounds.height,
+        x: bounds.x,
+        y: bounds.y,
+        activeTab: activeTab,
+        theme: theme,
+        startMinimized: startMinimizedFlag
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config));
+    
+    if (!isQuitting) {
+        e.preventDefault();
+        win.hide();
+        saveConfig();
+    }
+});
+
+function loadConfig() {
+    try {
+        const config = JSON.parse(fs.readFileSync(configPath));
+        return {
+            width: config.width || 1300,
+            height: config.height || 850,
+            x: config.x,
+            y: config.y,
+            activeTab: config.activeTab || 'yandex',
+            theme: config.theme || 'dark',
+            startMinimized: config.startMinimized || false
+        };
+    } catch (e) {
+        return { width: 1300, height: 850, activeTab: 'yandex', theme: 'dark', startMinimized: false };
+    }
+}
 
     // Трей
     const iconPath = path.join(__dirname, 'icon.png');
@@ -785,6 +899,10 @@ app.whenReady().then(() => {
 });
 
 app.on('will-quit', () => {
+        if (volumeControllerProcess) {
+        volumeControllerProcess.kill();
+        console.log('❌ VolumeController.exe остановлен');
+    }
     globalShortcut.unregisterAll();
     if (httpServer) httpServer.close();
 });

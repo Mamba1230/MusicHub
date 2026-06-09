@@ -47,8 +47,31 @@ const api = {
     setAllWebviewsVolume: (volume) => ipcRenderer.send('set-all-webviews-volume', volume),
     onGlobalSetVolume: (callback) => ipcRenderer.on('global-set-volume', callback),
     setYandexVolume: (volumePercent) => ipcRenderer.send('set-yandex-volume', volumePercent),
+    setSystemVolume: (volume) => ipcRenderer.invoke('set-system-volume', volume),
+getSystemVolume: () => ipcRenderer.invoke('get-system-volume'),
+getSystemMuted: () => ipcRenderer.invoke('get-system-muted'),
+setSystemMute: (muted) => ipcRenderer.invoke('set-system-mute', muted),
+    
+    // ========== НОВАЯ ФУНКЦИЯ ДЛЯ MUSICHUB И ELECTRON ==========
+    setMusicHubVolume: (volume) => {
+        // volume от 0 до 1 (0.5 = 50%)
+        return fetch('http://localhost:9876/set-volume', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ volume: volume })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                console.log(`✅ Громкость MusicHub и Electron изменена на ${volume * 100}%`);
+            }
+            return data.success;
+        })
+        .catch(error => {
+            console.error('❌ Ошибка при изменении громкости:', error);
+            return false;
+        });
+    }
 };
 
-
-// Экспортируем API (только один раз!)
 contextBridge.exposeInMainWorld('electronAPI', api);

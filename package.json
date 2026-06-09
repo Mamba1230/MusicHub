@@ -1,6 +1,6 @@
 {
   "name": "musichub",
-  "version": "2.9.5",
+  "version": "2.9.7",
   "description": "MusicHub - десктопный музыкальный плеер-агрегатор",
   "author": "Mamba1230",
   "main": "main.js",
@@ -23,8 +23,11 @@
     "vite-plugin-electron-renderer": "^0.14.7"
   },
   "dependencies": {
+    "@pixiv/three-vrm": "^3.5.3",
     "adm-zip": "^0.5.14",
     "easy-volume": "^1.2.0",
+    "express": "^5.2.1",
+    "three": "^0.184.0",
     "ws": "^8.18.0"
   },
   "build": {
@@ -46,6 +49,10 @@
       {
         "from": "media_watcher.exe",
         "to": "media_watcher.exe"
+      },
+      {
+        "from": "VolumeController.exe",
+        "to": "VolumeController.exe"
       }
     ],
     "win": {

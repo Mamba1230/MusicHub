@@ -3307,7 +3307,7 @@ function updateUrlBarForTempWebview(url) {
 
          
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 MusicHub v2.9.5');
+    console.log('🚀 MusicHub v2.9.7');
     particleBackground = new ParticleBackground();
     loadSettings();
     loadCustomSites();  
@@ -5578,8 +5578,9 @@ setTimeout(() => {
 
 
 
-// ========== АДАПТИВНАЯ ГРОМКОСТЬ (РАБОЧАЯ ВЕРСИЯ) ==========
+// ========== АДАПТИВНАЯ ГРОМКОСТЬ (РАБОТАЕТ ЧЕРЕЗ VolumeManager) ==========
 
+let adaptiveOriginalVolume = 1.0;
 let adaptiveEnabled = false;
 let adaptiveMicStream = null;
 let adaptiveAnalyser = null;
@@ -5595,77 +5596,33 @@ let adaptiveRestoreTimer = null;
 let adaptiveCurrentVol = 1.0;
 let adaptiveLastUiUpdate = 0;
 
-// ОСНОВНАЯ ФУНКЦИЯ ИЗМЕНЕНИЯ ГРОМКОСТИ
+// Глобальный экземпляр VolumeManager (будет создан при инициализации)
+let volumeManager = null;
+
+// ОСНОВНАЯ ФУНКЦИЯ ИЗМЕНЕНИЯ ГРОМКОСТИ (через VolumeManager)
 function adaptiveSetVolume(volume) {
     const vol = Math.max(0, Math.min(1, volume));
     adaptiveCurrentVol = vol;
     
-    const webviews = document.querySelectorAll('webview');
-    console.log(`🔊 Громкость: ${Math.round(vol * 100)}% на ${webviews.length} webview`);
+    // ТОЛЬКО ОТПРАВКА, БЕЗ СОХРАНЕНИЯ В localStorage
+    if (volumeManager) {
+        volumeManager.setVolume(vol * 100).catch(e => console.log('Ошибка:', e));
+    }
     
-    webviews.forEach((webview, idx) => {
-        const jsCode = `
-            (function() {
-                const targetVolume = ${vol};
-                
-                // 1. Меняем ползунок Яндекс Музыки
-                const sliders = document.querySelectorAll('input[type="range"][max="1"][step="0.01"]');
-                for (let i = 0; i < sliders.length; i++) {
-                    const slider = sliders[i];
-                    const label = slider.getAttribute('aria-label') || '';
-                    if (label.includes('громкость') || label.includes('volume')) {
-                        slider.value = targetVolume;
-                        slider.dispatchEvent(new Event('input', { bubbles: true }));
-                        slider.dispatchEvent(new Event('change', { bubbles: true }));
-                        break;
-                    }
-                }
-                
-                // 2. Меняем громкость аудио/видео элементов
-                document.querySelectorAll('audio, video').forEach(media => {
-                    media.volume = targetVolume;
-                });
-                
-                // 3. ПЕРЕХВАТ WEB AUDIO API (ЭТО РЕАЛЬНО МЕНЯЕТ ГРОМКОСТЬ)
-                if (!window.__volumeHijacked) {
-                    window.__volumeHijacked = true;
-                    window.__volumeGainNodes = [];
-                    
-                    const OriginalAudioContext = window.AudioContext || window.webkitAudioContext;
-                    
-                    window.AudioContext = function() {
-                        const ctx = new OriginalAudioContext();
-                        const gainNode = ctx.createGain();
-                        gainNode.gain.value = targetVolume;
-                        gainNode.connect(ctx.destination);
-                        window.__volumeGainNodes.push(gainNode);
-                        return ctx;
-                    };
-                    window.webkitAudioContext = window.AudioContext;
-                }
-                
-                // Обновляем все существующие GainNode
-                if (window.__volumeGainNodes) {
-                    window.__volumeGainNodes.forEach(gain => {
-                        if (gain && gain.gain) gain.gain.value = targetVolume;
-                    });
-                }
-                
-                // 4. YouTube Music
-                const ytSlider = document.querySelector('.ytp-volume-panel input[type="range"]');
-                if (ytSlider) {
-                    ytSlider.value = targetVolume * 100;
-                    ytSlider.dispatchEvent(new Event('input', { bubbles: true }));
-                }
-            })();
-        `;
-        
-        webview.executeJavaScript(jsCode).catch(e => console.log(`Error ${idx}:`, e));
-        try { webview.setAudioVolume(vol); } catch(e) {}
-    });
-    
+    // Обновляем UI
     const volDisplay = document.getElementById('currentVolumeDisplay');
     if (volDisplay) volDisplay.textContent = Math.round(vol * 100);
+    
+    const statusDiv = document.getElementById('volumeStatus');
+    if (statusDiv) {
+        if (adaptiveIsReduced) {
+            statusDiv.innerHTML = `🔴 ШУМ - громкость снижена до ${Math.round(vol * 100)}%`;
+        } else {
+            statusDiv.innerHTML = `✅ НОРМАЛЬНАЯ громкость: ${Math.round(vol * 100)}%`;
+        }
+    }
+    
+    console.log(`🎚️ Адаптивная громкость: ${Math.round(vol * 100)}%`);
 }
 
 // ПЛАВНОЕ ИЗМЕНЕНИЕ
@@ -5705,7 +5662,7 @@ function adaptiveUpdateLogic() {
             adaptiveIsReduced = true;
             const newVol = adaptiveReducePercent / 100;
             console.log(`🔊 ШУМ! -> громкость ${adaptiveReducePercent}%`);
-            adaptiveSmoothChange(newVol);
+            adaptiveSetVolume(newVol);
         }
         
         const statusDiv = document.getElementById('volumeStatus');
@@ -5718,9 +5675,9 @@ function adaptiveUpdateLogic() {
             if (statusDiv) statusDiv.innerHTML = `⏳ ТИХО - восстановление через ${adaptiveRestoreDelay/1000} сек`;
             
             adaptiveRestoreTimer = setTimeout(() => {
-                console.log(`🔊 Восстанавливаю громкость до 100%`);
+                console.log(`🔊 Восстанавливаю громкость до ${Math.round(adaptiveOriginalVolume * 100)}%`);
                 adaptiveIsReduced = false;
-                adaptiveSmoothChange(1.0);
+                adaptiveSetVolume(adaptiveOriginalVolume);
                 adaptiveRestoreTimer = null;
                 if (statusDiv) statusDiv.innerHTML = '✅ НОРМАЛЬНАЯ громкость';
             }, adaptiveRestoreDelay);
@@ -5852,28 +5809,46 @@ async function adaptiveLoadMics() {
 
 // ИНИЦИАЛИЗАЦИЯ
 function adaptiveInit() {
+    // Создаём VolumeManager (как в ползунке)
+    if (typeof VolumeManager !== 'undefined') {
+        volumeManager = new VolumeManager();
+    }
+    
     adaptiveEnabled = localStorage.getItem('adaptiveEnabled') === 'true';
     adaptiveThreshold = parseInt(localStorage.getItem('adaptiveThreshold')) || 60;
     adaptiveReducePercent = parseInt(localStorage.getItem('adaptiveReducePercent')) || 30;
     adaptiveRestoreDelay = (parseFloat(localStorage.getItem('adaptiveRestoreDelaySec')) || 3) * 1000;
     adaptiveMicId = localStorage.getItem('adaptiveMicId') || '';
     
+    // Загружаем сохранённую пользователем громкость (оригинальный уровень)
+    const savedVolume = localStorage.getItem('globalVolume');
+    if (savedVolume !== null) {
+        adaptiveOriginalVolume = parseFloat(savedVolume);
+    } else {
+        adaptiveOriginalVolume = 1.0;
+    }
+    
+    // Получаем элементы DOM
     const checkbox = document.getElementById('adaptiveVolumeEnabled');
     const thresholdInput = document.getElementById('noiseThreshold');
     const reduceInput = document.getElementById('reducedVolumePercent');
     const restoreInput = document.getElementById('restoreDelaySec');
     const settingsDiv = document.getElementById('adaptiveVolumeSettings');
     
+    // Устанавливаем значения из localStorage
     if (checkbox) checkbox.checked = adaptiveEnabled;
     if (thresholdInput) thresholdInput.value = adaptiveThreshold;
     if (reduceInput) reduceInput.value = adaptiveReducePercent;
     if (restoreInput) restoreInput.value = adaptiveRestoreDelay / 1000;
     if (settingsDiv) settingsDiv.style.display = adaptiveEnabled ? 'block' : 'none';
     
+    // Загружаем список микрофонов
     adaptiveLoadMics();
     
+    // Если адаптивная громкость включена и есть микрофон - запускаем мониторинг
     if (adaptiveEnabled && adaptiveMicId) adaptiveStartMonitor();
     
+    // Обработчик чекбокса
     checkbox?.addEventListener('change', (e) => {
         adaptiveEnabled = e.target.checked;
         localStorage.setItem('adaptiveEnabled', adaptiveEnabled);
@@ -5883,26 +5858,31 @@ function adaptiveInit() {
             adaptiveStartMonitor();
         } else {
             adaptiveStopMonitor();
-            adaptiveSetVolume(1.0);
+            // Восстанавливаем оригинальную громкость при выключении
+            adaptiveSetVolume(adaptiveOriginalVolume);
             adaptiveIsReduced = false;
         }
     });
     
+    // Обработчик порога шума
     thresholdInput?.addEventListener('change', (e) => {
         adaptiveThreshold = parseInt(e.target.value);
         localStorage.setItem('adaptiveThreshold', adaptiveThreshold);
     });
     
+    // Обработчик процента снижения
     reduceInput?.addEventListener('change', (e) => {
         adaptiveReducePercent = parseInt(e.target.value);
         localStorage.setItem('adaptiveReducePercent', adaptiveReducePercent);
     });
     
+    // Обработчик задержки восстановления
     restoreInput?.addEventListener('change', (e) => {
         adaptiveRestoreDelay = parseFloat(e.target.value) * 1000;
         localStorage.setItem('adaptiveRestoreDelaySec', e.target.value);
     });
     
+    // Обработчик выбора микрофона
     const micSelect = document.getElementById('noiseMicDevice');
     micSelect?.addEventListener('change', (e) => {
         adaptiveMicId = e.target.value;
@@ -5940,7 +5920,28 @@ window.testNoise = function(level) {
 // ЗАПУСК
 setTimeout(adaptiveInit, 1000);
 
+function syncAdaptiveButton() {
+    const adaptiveEnabled = localStorage.getItem('adaptiveEnabled') === 'true';
+    const btn = document.getElementById('adaptiveVolumeBtn');
+    if (btn) {
+        if (adaptiveEnabled) {
+            btn.style.background = 'var(--accent-color)';
+            btn.style.boxShadow = '0 0 8px var(--accent-color)';
+            btn.style.transition = 'all 0.2s';
+        } else {
+            btn.style.background = '';
+            btn.style.boxShadow = '';
+        }
+        console.log(`🎤 Кнопка адаптивной громкости: ${adaptiveEnabled ? 'ВКЛ' : 'ВЫКЛ'}`);
+    } else {
+        console.log('❌ Кнопка adaptiveVolumeBtn не найдена в DOM');
+    }
+}
 
+// Вызываем после загрузки DOM и после adaptiveInit
+setTimeout(() => {
+    syncAdaptiveButton();
+}, 1500);
 
 
 function adaptiveToggle() {
@@ -5967,6 +5968,35 @@ function adaptiveToggle() {
         }
     }
 }
+
+window.adaptiveToggle = function() {
+    const checkbox = document.getElementById('adaptiveVolumeEnabled');
+    if (checkbox) {
+        checkbox.checked = !checkbox.checked;
+        checkbox.dispatchEvent(new Event('change'));
+        
+        // Сохраняем состояние
+        localStorage.setItem('adaptiveEnabled', checkbox.checked);
+        
+        // Меняем стиль кнопки
+        const btn = document.getElementById('adaptiveVolumeBtn');
+        if (btn) {
+            if (checkbox.checked) {
+                btn.style.background = 'var(--accent-color)';
+                btn.style.boxShadow = '0 0 8px var(--accent-color)';
+                if (typeof showToast === 'function') {
+                    showToast('🎤 Адаптивная громкость ВКЛЮЧЕНА', 'success');
+                }
+            } else {
+                btn.style.background = '';
+                btn.style.boxShadow = '';
+                if (typeof showToast === 'function') {
+                    showToast('🔇 Адаптивная громкость ВЫКЛЮЧЕНА', 'info');
+                }
+            }
+        }
+    }
+};
 
 // Делаем функцию глобальной
 window.adaptiveToggle = adaptiveToggle;
@@ -6501,6 +6531,267 @@ document.getElementById('activatePremiumBtn')?.addEventListener('click', async (
 
 
 
+// ========== ПРОСТОЙ ПОЛЗУНОК ГРОМКОСТИ (ТОЛЬКО ЧЕРЕЗ VolumeController) ==========
+(function() {
+    let currentVolumePercent = 100;
+    let volumeManager = null;
+    
+    async function initVolumeManager() {
+        volumeManager = new VolumeManager();
+        
+        // Загружаем сохранённую громкость
+        const saved = localStorage.getItem('globalVolume');
+        let startVolume = 1.0; // по умолчанию 100%
+        
+        if (saved !== null) {
+            startVolume = parseFloat(saved);
+            currentVolumePercent = startVolume * 100;
+        }
+        
+        // ОТПРАВЛЯЕМ В MICROSOFT MIXER ПРИ ЗАПУСКЕ
+        await volumeManager.setVolume(startVolume * 100);
+        
+        // Обновляем adaptiveOriginalVolume
+        if (typeof adaptiveOriginalVolume !== 'undefined') {
+            adaptiveOriginalVolume = startVolume;
+            adaptiveCurrentVol = startVolume;
+        }
+        
+        updateIcon(currentVolumePercent);
+        
+        console.log(`🔊 Установлена громкость при запуске: ${Math.round(startVolume * 100)}%`);
+        return currentVolumePercent;
+    }
+    
+    function updateIcon(percent) {
+        const icon = document.getElementById('volumeIcon');
+        const percentSpan = document.getElementById('volumePercent');
+        if (icon) {
+            if (percent === 0) icon.textContent = '🔇';
+            else if (percent < 30) icon.textContent = '🔈';
+            else if (percent < 70) icon.textContent = '🔉';
+            else icon.textContent = '🔊';
+        }
+        if (percentSpan) {
+            percentSpan.textContent = `${percent}%`;
+        }
+    }
+    
+    async function setVolume(percent) {
+        currentVolumePercent = Math.max(0, Math.min(100, percent));
+        localStorage.setItem('globalVolumePercent', currentVolumePercent);
+        localStorage.setItem('globalVolume', currentVolumePercent / 100);
+        
+        // Обновляем adaptiveOriginalVolume
+        if (typeof adaptiveOriginalVolume !== 'undefined') {
+            adaptiveOriginalVolume = currentVolumePercent / 100;
+        }
+        
+        updateIcon(currentVolumePercent);
+        
+        if (volumeManager) {
+            await volumeManager.setVolume(currentVolumePercent);
+        }
+    }
+    
+    function createUI() {
+        if (document.getElementById('volumeControl')) return;
+        const urlBar = document.querySelector('.url-bar-container');
+        if (!urlBar) return;
+        
+        const html = `
+            <div id="volumeControl" style="position: relative; display: inline-flex; align-items: center; margin-left: 8px;">
+                <div id="volumeIcon" style="font-size: 16px; padding: 4px 8px; cursor: pointer;">🔊</div>
+                <div id="volumeSliderContainer" style="position: absolute; top: 100%; left: 0; margin-top: 8px; background: #1e1e1e; border-radius: 8px; padding: 8px 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 10000; display: none; min-width: 130px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <input type="range" id="volumeSlider" min="0" max="100" value="100" style="flex: 1; height: 4px; -webkit-appearance: none; background: #555; border-radius: 2px;">
+                        <span id="volumePercent" style="font-size: 11px; min-width: 35px; text-align: right; color: var(--text-secondary);">100%</span>
+                    </div>
+                </div>
+            </div>
+        `;
+        urlBar.insertAdjacentHTML('afterend', html);
+        
+        const style = document.createElement('style');
+        style.textContent = `#volumeSlider::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: #1DB954; cursor: pointer; }`;
+        document.head.appendChild(style);
+    }
+    
+    function init() {
+        createUI();
+        
+        const container = document.getElementById('volumeSliderContainer');
+        const icon = document.getElementById('volumeIcon');
+        const slider = document.getElementById('volumeSlider');
+        if (!container || !icon || !slider) return;
+        
+        const parent = container.parentElement;
+        if (parent && getComputedStyle(parent).position !== 'relative') {
+            parent.style.position = 'relative';
+        }
+        
+        let hideTimeout;
+        icon.onmouseenter = () => {
+            if (hideTimeout) clearTimeout(hideTimeout);
+            container.style.display = 'block';
+        };
+        container.onmouseenter = () => {
+            if (hideTimeout) clearTimeout(hideTimeout);
+            container.style.display = 'block';
+        };
+        container.onmouseleave = () => {
+            hideTimeout = setTimeout(() => {
+                container.style.display = 'none';
+            }, 500);
+        };
+        
+        slider.oninput = (e) => {
+            const val = parseInt(e.target.value);
+            setVolume(val);
+        };
+        
+        // Загружаем и устанавливаем положение слайдера
+        initVolumeManager().then((savedPercent) => {
+            slider.value = savedPercent;
+            updateIcon(savedPercent);
+        });
+    }
+    
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
+
+
+
+
+class VolumeManager {
+    constructor(port = 9876) {
+        this.baseUrl = `http://localhost:${port}`;
+        this.isServerRunning = false;
+        this.startPromise = null;
+    }
+    
+    async checkServer() {
+        try {
+            const response = await fetch(`${this.baseUrl}/ping`, {
+                method: 'GET',
+                signal: AbortSignal.timeout(500)
+            });
+            this.isServerRunning = response.ok;
+            return this.isServerRunning;
+        } catch (error) {
+            this.isServerRunning = false;
+            return false;
+        }
+    }
+    
+    async waitForServer(maxAttempts = 20) {
+        for (let i = 0; i < maxAttempts; i++) {
+            if (await this.checkServer()) return true;
+            await new Promise(r => setTimeout(r, 200));
+        }
+        return false;
+    }
+    
+    async setVolume(volumePercent) {
+        // Ждём или запускаем сервер
+        if (!this.isServerRunning) {
+            const started = await this.startServer();
+            if (started) {
+                const ready = await this.waitForServer();
+                if (!ready) {
+                    console.log('Сервер не ответил');
+                    return false;
+                }
+            }
+        }
+        
+        try {
+            const response = await fetch(`${this.baseUrl}/set-volume`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ volume: volumePercent / 100 })
+            });
+            const result = await response.json();
+            return result.success === true;
+        } catch (error) {
+            console.error('Ошибка:', error);
+            this.isServerRunning = false;
+            return false;
+        }
+    }
+    
+    async startServer() {
+        if (this.startPromise) return this.startPromise;
+        
+        this.startPromise = (async () => {
+            try {
+                if (window.require) {
+                    const { exec } = window.require('child_process');
+                    const path = window.require('path');
+                    const exePath = path.join(process.cwd(), 'VolumeController.exe');
+                    
+                    exec(`"${exePath}"`, { detached: true }, (error) => {
+                        if (error) console.error('Ошибка запуска:', error);
+                    });
+                    
+                    await new Promise(r => setTimeout(r, 500));
+                    return true;
+                }
+                return false;
+            } catch (error) {
+                console.error('Ошибка:', error);
+                return false;
+            }
+        })();
+        
+        return this.startPromise;
+    }
+}
+
+// Создаём глобальный экземпляр
+const volumeControl = new VolumeManager();
+
+// Функция для удобного вызова
+async function setMusicHubVolume(volume) {
+    // volume от 0 до 1 (0.5 = 50%)
+    const success = await window.electronAPI.setMusicHubVolume(volume);
+    
+
+}
+
+// Сделаем функцию глобальной для вызова из консоли и кнопок
+window.setMusicHubVolume = setMusicHubVolume;
+
+// Пример: привязываем к существующему ползунку громкости (если есть)
+setTimeout(() => {
+    const volumeSlider = document.getElementById('volumeSlider');
+    if (volumeSlider) {
+        // Добавляем обработчик, который будет менять громкость musichub и electron
+        volumeSlider.addEventListener('input', (e) => {
+            const vol = parseInt(e.target.value, 10) / 100;
+            setMusicHubVolume(vol);
+        });
+    }
+}, 1000);
+
+
+// Примеры использования:
+setMusicHubVolume(0.5); // 50%
+setMusicHubVolume(0.3); // 30%
+setMusicHubVolume(0);   // Выключить звук
+
+// Можно привязать к кнопкам
+document.getElementById('musicVolumeUp')?.addEventListener('click', () => {
+    setMusicHubVolume(0.7);
+});
+
+document.getElementById('musicVolumeDown')?.addEventListener('click', () => {
+    setMusicHubVolume(0.3);
+});
 
 
 
@@ -6508,6 +6799,268 @@ document.getElementById('activatePremiumBtn')?.addEventListener('click', async (
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function initDraggableArtworkPanel() {
+    const panel = document.getElementById('extensionsPanel');
+    if (!panel) return;
+    
+    let isDragging = false;
+    let dragStartX, dragStartY;
+    let panelStartLeft, panelStartTop;
+    
+    // Получаем границы
+    function getBounds() {
+        const titlebar = document.getElementById('titlebar');
+        const sidebar = document.getElementById('sidebar');
+        
+        const minX = sidebar ? sidebar.offsetWidth + 10 : 80;
+        const minY = titlebar ? titlebar.offsetHeight + 10 : 40;
+        const maxX = window.innerWidth - panel.offsetWidth - 10;
+        const maxY = window.innerHeight - panel.offsetHeight - 10;
+        
+        return { minX, minY, maxX, maxY };
+    }
+    
+    let header = panel.querySelector('.ext-panel-header');
+    if (header) {
+        header.style.cursor = 'grab';
+        header.style.userSelect = 'none';
+        
+        header.addEventListener('mousedown', (e) => {
+            if (e.target.closest('#closeExtensionsPanelBtn')) return;
+            
+            isDragging = true;
+            dragStartX = e.clientX;
+            dragStartY = e.clientY;
+            
+            const rect = panel.getBoundingClientRect();
+            panelStartLeft = rect.left;
+            panelStartTop = rect.top;
+            
+            panel.style.position = 'fixed';
+            panel.style.margin = '0';
+            panel.style.left = panelStartLeft + 'px';
+            panel.style.top = panelStartTop + 'px';
+            panel.style.right = 'auto';
+            panel.style.bottom = 'auto';
+            
+            header.style.cursor = 'grabbing';
+            e.preventDefault();
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            
+            const deltaX = e.clientX - dragStartX;
+            const deltaY = e.clientY - dragStartY;
+            
+            let newLeft = panelStartLeft + deltaX;
+            let newTop = panelStartTop + deltaY;
+            
+            // Применяем границы
+            const bounds = getBounds();
+            newLeft = Math.max(bounds.minX, Math.min(bounds.maxX, newLeft));
+            newTop = Math.max(bounds.minY, Math.min(bounds.maxY, newTop));
+            
+            panel.style.left = newLeft + 'px';
+            panel.style.top = newTop + 'px';
+        });
+        
+        document.addEventListener('mouseup', () => {
+            if (isDragging) {
+                localStorage.setItem('artworkPanelLeft', panel.style.left);
+                localStorage.setItem('artworkPanelTop', panel.style.top);
+                isDragging = false;
+                header.style.cursor = 'grab';
+            }
+        });
+        
+        // Восстанавливаем позицию с учётом границ
+        const savedLeft = localStorage.getItem('artworkPanelLeft');
+        const savedTop = localStorage.getItem('artworkPanelTop');
+        if (savedLeft && savedTop) {
+            panel.style.position = 'fixed';
+            panel.style.left = savedLeft;
+            panel.style.top = savedTop;
+            panel.style.right = 'auto';
+            panel.style.bottom = 'auto';
+            
+            // Проверяем, не уехала ли за границы
+            setTimeout(() => {
+                const bounds = getBounds();
+                let left = parseFloat(panel.style.left);
+                let top = parseFloat(panel.style.top);
+                
+                if (left < bounds.minX) panel.style.left = bounds.minX + 'px';
+                if (left > bounds.maxX) panel.style.left = bounds.maxX + 'px';
+                if (top < bounds.minY) panel.style.top = bounds.minY + 'px';
+                if (top > bounds.maxY) panel.style.top = bounds.maxY + 'px';
+            }, 100);
+        }
+    }
+}
+
+// Вызываем при открытии панели
+document.getElementById('extensionsPanelBtn')?.addEventListener('click', () => {
+    setTimeout(initDraggableArtworkPanel, 50);
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function initDraggableTabs() {
+    const container = document.getElementById('services-container');
+    if (!container) {
+        console.log('❌ services-container не найден');
+        return;
+    }
+    
+    let draggedItem = null;
+    
+    // Добавляем CSS
+    if (!document.getElementById('drag-tabs-style')) {
+        const style = document.createElement('style');
+        style.id = 'drag-tabs-style';
+        style.textContent = `
+            .nav-btn.drag-over {
+                border: 2px solid var(--accent-color) !important;
+                background: rgba(29, 185, 84, 0.1) !important;
+            }
+            .nav-btn[draggable="true"] {
+                cursor: grab !important;
+                user-select: none !important;
+            }
+            .nav-btn[draggable="true"]:active {
+                cursor: grabbing !important;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    function makeDraggable(btn) {
+        if (btn.hasAttribute('draggable')) return;
+        
+        btn.setAttribute('draggable', 'true');
+        
+        btn.addEventListener('dragstart', (e) => {
+            draggedItem = btn;
+            e.dataTransfer.setData('text/plain', btn.id);
+            e.dataTransfer.effectAllowed = 'move';
+            btn.style.opacity = '0.4';
+        });
+        
+        btn.addEventListener('dragend', (e) => {
+            if (draggedItem) draggedItem.style.opacity = '';
+            draggedItem = null;
+            document.querySelectorAll('.nav-btn').forEach(b => {
+                b.classList.remove('drag-over');
+            });
+        });
+        
+        btn.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            const target = e.currentTarget;
+            if (draggedItem === target) return;
+            target.classList.add('drag-over');
+            e.dataTransfer.dropEffect = 'move';
+        });
+        
+        btn.addEventListener('dragleave', (e) => {
+            e.currentTarget.classList.remove('drag-over');
+        });
+        
+        btn.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const target = e.currentTarget;
+            target.classList.remove('drag-over');
+            
+            if (!draggedItem || draggedItem === target) return;
+            
+            // Перемещаем в DOM
+            const parent = container;
+            const children = Array.from(parent.children);
+            const fromIndex = children.indexOf(draggedItem);
+            const toIndex = children.indexOf(target);
+            
+            if (fromIndex < toIndex) {
+                target.insertAdjacentElement('afterend', draggedItem);
+            } else {
+                target.insertAdjacentElement('beforebegin', draggedItem);
+            }
+            
+            // Сохраняем порядок
+            const newOrder = Array.from(parent.children).map(child => {
+                const match = child.id.match(/btn-(.+)/);
+                return match ? match[1] : null;
+            }).filter(id => id !== null);
+            
+            localStorage.setItem('tabOrder', JSON.stringify(newOrder));
+            
+            // Обновляем activeServices
+            activeServices = [...newOrder];
+            localStorage.setItem('activeServices', JSON.stringify(activeServices));
+            
+            draggedItem = null;
+        });
+    }
+    
+    // Наблюдаем за появлением новых кнопок
+    const observer = new MutationObserver(() => {
+        const btns = document.querySelectorAll('#services-container .nav-btn');
+        btns.forEach(btn => makeDraggable(btn));
+        
+        // Применяем сохранённый порядок один раз
+        if (!window._orderApplied) {
+            const savedOrder = localStorage.getItem('tabOrder');
+            if (savedOrder) {
+                try {
+                    const order = JSON.parse(savedOrder);
+                    order.forEach(serviceId => {
+                        const btn = document.getElementById(`btn-${serviceId}`);
+                        if (btn && btn.parentNode === container) {
+                            container.appendChild(btn);
+                        }
+                    });
+                } catch(e) {}
+            }
+            window._orderApplied = true;
+        }
+    });
+    
+    observer.observe(container, { childList: true, subtree: true });
+    
+    // Запускаем для уже существующих кнопок
+    document.querySelectorAll('#services-container .nav-btn').forEach(btn => makeDraggable(btn));
+}
+
+// Вызываем через 2 секунды после загрузки
+setTimeout(initDraggableTabs, 2000);
 
 
 
