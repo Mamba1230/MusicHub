@@ -27,6 +27,11 @@
         let globalSaveTrackToHistory = null;
         let globalShowHomePage = null;
 
+
+        let isMediaPlaying = false;
+        let currentMediaVolume = 100;
+        let mediaStatusInterval = null;
+
         const services = [
             { id: 'yandex', name: 'Яндекс Музыка', url: 'https://music.yandex.ru', icon: 'Y' },
             { id: 'youtube', name: 'YouTube Music', url: 'https://music.youtube.com', icon: 'YT' },
@@ -47,6 +52,22 @@ let aiRequestCount = 0;
 const PREMIUM_WORKER = 'https://premium-api.170610maksim.workers.dev';
 
 openExternal: (url) => ipcRenderer.invoke('open-external', url)
+
+// В renderer.js, добавляем глобальную функцию для тестирования
+window.testStartupPage = function(page) {
+    console.log(`🧪 Тест: устанавливаю startupPage = ${page}`);
+    saveStartupPageSetting(page);
+    showToast(`🧪 Установлено: ${page === 'last' ? 'Последний сервис' : 'Домашняя страница'}`, 'info');
+    
+    // Проверяем сохранение
+    setTimeout(() => {
+        const saved = localStorage.getItem('startupPage');
+        console.log(`📋 В localStorage: ${saved}`);
+    }, 500);
+};
+
+// Проверка при загрузке
+console.log('📋 Текущая startupPage в localStorage:', localStorage.getItem('startupPage'));
 
 window.debugBindings = function() {
     console.log('=== ОТЛАДКА БИНДОВ ===');
@@ -73,7 +94,458 @@ setTimeout(() => {
     window.debugBindings();
 }, 2000);
 
-// ========== ФУНКЦИИ СТАТИСТИКИ (ГЛОБАЛЬНЫЕ) ==========
+
+const COMMAND_CODES = {
+    PLAY: '🎵[CMD:PLAY]',
+    PAUSE: '🎵[CMD:PAUSE]',
+    STOP: '🎵[CMD:STOP]',
+    NEXT: '🎵[CMD:NEXT]',
+    PREV: '🎵[CMD:PREV]',
+    VOLUME_UP: '🎵[CMD:VOLUP]',
+    VOLUME_DOWN: '🎵[CMD:VOLDOWN]',
+    VOLUME_SET: '🎵[CMD:VOLSET:',
+    MUTE: '🎵[CMD:MUTE]',
+    UNMUTE: '🎵[CMD:UNMUTE]',
+    TOGGLE: '🎵[CMD:TOGGLE]',
+};
+
+// Отправка команд в VolumeController
+async function sendMediaCommand(command) {
+    try {
+        let result;
+        switch(command) {
+            case 'playpause': 
+                result = await window.electronAPI.mediaPlayPause(); 
+                break;
+            case 'stop': 
+                result = await window.electronAPI.mediaStop(); 
+                break;
+            case 'next': 
+                result = await window.electronAPI.mediaNext(); 
+                break;
+            case 'previous': 
+                result = await window.electronAPI.mediaPrevious(); 
+                break;
+            default: return false;
+        }
+        return result;
+    } catch (err) {
+        console.error('Ошибка отправки команды:', err);
+        return false;
+    }
+}
+
+// Установка громкости
+async function setMediaVolume(percent) {
+    const volume = Math.max(0, Math.min(1, percent / 100));
+    currentMediaVolume = percent;
+    
+    try {
+        const response = await fetch('http://localhost:9876/set-volume', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ volume })
+        });
+        const data = await response.json();
+        if (data.success) {
+            syncVolumeUI(percent);
+        }
+        return data.success;
+    } catch (err) {
+        console.error('Ошибка установки громкости:', err);
+        return false;
+    }
+}
+
+
+// Обновление UI громкости
+function updateVolumeUI(percent) {
+    const slider = document.getElementById('homeVolumeSlider');
+    const display = document.getElementById('homeVolumeDisplay');
+    if (slider) slider.value = percent;
+    if (display) display.textContent = `${percent}%`;
+    currentMediaVolume = percent;
+}
+
+// Обновление кнопки Play/Pause
+function updatePlayButton(isPlayingState) {
+    const playBtn = document.getElementById('mediaPlayBtn');
+    const playIcon = document.getElementById('playIcon');
+    const playLabel = document.getElementById('playLabel');
+    const statusEl = document.getElementById('mediaStatus');
+    
+    isMediaPlaying = isPlayingState;
+    
+    if (!playBtn || !playIcon || !playLabel) return;
+    
+    if (isPlayingState) {
+        playIcon.textContent = '⏸';
+        playLabel.textContent = 'Пауза';
+        playBtn.classList.add('playing');
+        if (statusEl) {
+            statusEl.textContent = '▶️ Воспроизводится';
+            statusEl.className = 'media-status-playing';
+        }
+    } else {
+        playIcon.textContent = '▶';
+        playLabel.textContent = 'Воспроизвести';
+        playBtn.classList.remove('playing');
+        if (statusEl) {
+            statusEl.textContent = '⏸ На паузе';
+            statusEl.className = 'media-status-paused';
+        }
+    }
+}
+
+// ========== ОСНОВНЫЕ ДЕЙСТВИЯ ==========
+
+async function handlePlayPause() {
+    const success = await sendMediaCommand('playpause');
+    if (success) {
+        updatePlayButton(!isMediaPlaying);
+        if (typeof showToast === 'function') {
+            showToast(isMediaPlaying ? '⏸ Пауза' : '▶️ Воспроизведение', 'success');
+        }
+    } else {
+        if (typeof showToast === 'function') {
+            showToast('❌ Не удалось переключить воспроизведение', 'error');
+        }
+    }
+    return success;
+}
+
+async function handleStop() {
+    const success = await sendMediaCommand('stop');
+    if (success) {
+        updatePlayButton(false);
+        const statusEl = document.getElementById('mediaStatus');
+        if (statusEl) {
+            statusEl.textContent = '⏹ Остановлено';
+            statusEl.className = 'media-status-stopped';
+        }
+        if (typeof showToast === 'function') {
+            showToast('⏹ Воспроизведение полностью остановлено', 'info');
+        }
+    } else {
+        if (typeof showToast === 'function') {
+            showToast('❌ Не удалось остановить', 'error');
+        }
+    }
+    return success;
+}
+
+async function handleNext() {
+    const success = await sendMediaCommand('next');
+    if (success) {
+        if (typeof showToast === 'function') {
+            showToast('⏭ Следующий трек', 'success');
+        }
+    } else {
+        if (typeof showToast === 'function') {
+            showToast('❌ Не удалось переключить', 'error');
+        }
+    }
+    return success;
+}
+
+async function handlePrevious() {
+    const success = await sendMediaCommand('previous');
+    if (success) {
+        if (typeof showToast === 'function') {
+            showToast('⏮ Предыдущий трек', 'success');
+        }
+    } else {
+        if (typeof showToast === 'function') {
+            showToast('❌ Не удалось переключить', 'error');
+        }
+    }
+    return success;
+}
+
+// ========== ПАРСИНГ КОМАНД ==========
+
+function parseAICommand(text) {
+    if (!text) return [];
+    
+    const commands = [];
+    
+    if (text.includes(COMMAND_CODES.PLAY)) commands.push({ command: 'play', raw: COMMAND_CODES.PLAY });
+    if (text.includes(COMMAND_CODES.PAUSE)) commands.push({ command: 'pause', raw: COMMAND_CODES.PAUSE });
+    if (text.includes(COMMAND_CODES.STOP)) commands.push({ command: 'stop', raw: COMMAND_CODES.STOP });
+    if (text.includes(COMMAND_CODES.NEXT)) commands.push({ command: 'next', raw: COMMAND_CODES.NEXT });
+    if (text.includes(COMMAND_CODES.PREV)) commands.push({ command: 'prev', raw: COMMAND_CODES.PREV });
+    if (text.includes(COMMAND_CODES.VOLUME_UP)) commands.push({ command: 'volume_up', raw: COMMAND_CODES.VOLUME_UP });
+    if (text.includes(COMMAND_CODES.VOLUME_DOWN)) commands.push({ command: 'volume_down', raw: COMMAND_CODES.VOLUME_DOWN });
+    if (text.includes(COMMAND_CODES.MUTE)) commands.push({ command: 'mute', raw: COMMAND_CODES.MUTE });
+    if (text.includes(COMMAND_CODES.UNMUTE)) commands.push({ command: 'unmute', raw: COMMAND_CODES.UNMUTE });
+    if (text.includes(COMMAND_CODES.TOGGLE)) commands.push({ command: 'toggle', raw: COMMAND_CODES.TOGGLE });
+    
+    const volMatch = text.match(/🎵\[CMD:VOLSET:(\d+)\]/);
+    if (volMatch) {
+        const vol = parseInt(volMatch[1]);
+        if (!isNaN(vol) && vol >= 0 && vol <= 100) {
+            commands.push({ command: 'volume_set', value: vol, raw: volMatch[0] });
+        }
+    }
+    
+    return commands;
+}
+
+// Выполнение команд из нейросети
+async function executeAICommands(commands) {
+    if (!commands || commands.length === 0) return [];
+    
+    const results = [];
+    for (const cmd of commands) {
+        try {
+            let result = false;
+            
+            switch(cmd.command) {
+                case 'play':
+                    if (!isMediaPlaying) result = await handlePlayPause();
+                    else result = true;
+                    break;
+                case 'pause':
+                    if (isMediaPlaying) result = await handlePlayPause();
+                    else result = true;
+                    break;
+                case 'stop':
+                    result = await handleStop();
+                    break;
+                case 'next':
+                    result = await handleNext();
+                    break;
+                case 'prev':
+                    result = await handlePrevious();
+                    break;
+                case 'volume_up':
+                    const volUp = Math.min(100, currentMediaVolume + 10);
+                    result = await setMediaVolume(volUp);
+                    updateVolumeUI(volUp);
+                    break;
+                case 'volume_down':
+                    const volDown = Math.max(0, currentMediaVolume - 10);
+                    result = await setMediaVolume(volDown);
+                    updateVolumeUI(volDown);
+                    break;
+                case 'volume_set':
+                    result = await setMediaVolume(cmd.value);
+                    updateVolumeUI(cmd.value);
+                    break;
+                case 'mute':
+                    result = await setMediaVolume(0);
+                    updateVolumeUI(0);
+                    break;
+                case 'unmute':
+                    const savedVol = parseInt(localStorage.getItem('mediaVolume')) || 50;
+                    result = await setMediaVolume(savedVol);
+                    updateVolumeUI(savedVol);
+                    break;
+                case 'toggle':
+                    result = await handlePlayPause();
+                    break;
+                default:
+                    console.log('Неизвестная команда:', cmd.command);
+            }
+            
+            results.push({ command: cmd.command, success: result });
+        } catch (err) {
+            console.error('Ошибка выполнения команды:', cmd.command, err);
+            results.push({ command: cmd.command, success: false, error: err.message });
+        }
+    }
+    return results;
+}
+
+// Обработчик ответа нейросети
+function handleAIResponse(responseText) {
+    if (!responseText) return { text: '', commands: [] };
+    
+    const commands = parseAICommand(responseText);
+    
+    if (commands && commands.length > 0) {
+        executeAICommands(commands).then(results => {
+            console.log('📊 Результаты выполнения команд:', results);
+        });
+        
+        let cleanText = responseText;
+        for (const cmd of commands) {
+            cleanText = cleanText.replace(cmd.raw, '');
+        }
+        cleanText = cleanText.replace(/\s+/g, ' ').trim();
+        
+        return {
+            text: cleanText || '✅ Команда выполнена!',
+            commands: commands
+        };
+    }
+    
+    return { text: responseText, commands: [] };
+}
+
+// Обработчик команд из чата
+async function handleChatAICommand(message) {
+    const commands = parseAICommand(message);
+    
+    if (commands && commands.length > 0) {
+        const results = await executeAICommands(commands);
+        const cleanText = message.replace(/🎵\[CMD:[^\]]+\]/g, '').trim();
+        return {
+            text: cleanText || '✅ Команда выполнена!',
+            results: results
+        };
+    }
+    
+    return null;
+}
+
+// ========== ИНИЦИАЛИЗАЦИЯ МЕДИА-УПРАВЛЕНИЯ ==========
+
+function initMediaControls() {
+    const playBtn = document.getElementById('mediaPlayBtn');
+    const stopBtn = document.getElementById('mediaStopBtn');
+    const nextBtn = document.getElementById('mediaNextBtn');
+    const prevBtn = document.getElementById('mediaPrevBtn');
+    const volumeSlider = document.getElementById('homeVolumeSlider');
+    const aiInput = document.getElementById('aiCommandInput');
+    const aiBtn = document.getElementById('aiCommandBtn');
+
+    if (playBtn) playBtn.onclick = handlePlayPause;
+    if (stopBtn) stopBtn.onclick = handleStop;
+    if (nextBtn) nextBtn.onclick = handleNext;
+    if (prevBtn) prevBtn.onclick = handlePrevious;
+
+    // Синхронизация слайдера на домашней странице
+    if (volumeSlider) {
+        volumeSlider.oninput = async (e) => {
+            const val = parseInt(e.target.value);
+            await setMediaVolume(val);
+            syncVolumeUI(val);
+        };
+        
+        // Синхронизируем с тайтлбаром при загрузке
+        const savedVol = parseInt(localStorage.getItem('mediaVolume')) || 100;
+        volumeSlider.value = savedVol;
+        const display = document.getElementById('homeVolumeDisplay');
+        if (display) display.textContent = `${savedVol}%`;
+    }
+
+    if (aiBtn && aiInput) {
+        aiBtn.onclick = () => {
+            const text = aiInput.value.trim();
+            if (text) {
+                const commands = parseAICommand(text);
+                if (commands.length > 0) {
+                    executeAICommands(commands);
+                    const resultDiv = document.getElementById('aiCommandResult');
+                    if (resultDiv) {
+                        resultDiv.textContent = `✅ Выполнено: ${commands.map(c => c.command).join(', ')}`;
+                    }
+                } else {
+                    if (typeof askGigaChat === 'function') {
+                        askGigaChat(text);
+                    }
+                }
+                aiInput.value = '';
+            }
+        };
+        aiInput.onkeypress = (e) => {
+            if (e.key === 'Enter') aiBtn.click();
+        };
+    }
+
+    document.querySelectorAll('.quick-ai-btn').forEach(btn => {
+        btn.onclick = async () => {
+            const command = btn.dataset.command;
+            const commands = [{ command: command, raw: '' }];
+            await executeAICommands(commands);
+            const resultDiv = document.getElementById('aiCommandResult');
+            if (resultDiv) {
+                resultDiv.textContent = `✅ Выполнено: "${command}"`;
+            }
+        };
+    });
+
+    // Горячие клавиши
+    document.removeEventListener('keydown', mediaKeyHandler);
+    document.addEventListener('keydown', mediaKeyHandler);
+
+    console.log('🎵 Медиа-управление инициализировано');
+    console.log('🎮 Горячие клавиши: Ctrl+Shift+Space, ←, →, ., ↑, ↓');
+}
+
+// Обработчик горячих клавиш
+function mediaKeyHandler(e) {
+    if (e.ctrlKey && e.shiftKey && e.code === 'Space') {
+        e.preventDefault();
+        handlePlayPause();
+    }
+    if (e.ctrlKey && e.shiftKey && e.code === 'ArrowRight') {
+        e.preventDefault();
+        handleNext();
+    }
+    if (e.ctrlKey && e.shiftKey && e.code === 'ArrowLeft') {
+        e.preventDefault();
+        handlePrevious();
+    }
+    if (e.ctrlKey && e.shiftKey && e.code === 'Period') {
+        e.preventDefault();
+        handleStop();
+    }
+    if (e.ctrlKey && e.shiftKey && e.code === 'ArrowUp') {
+        e.preventDefault();
+        const slider = document.getElementById('homeVolumeSlider');
+        if (slider) {
+            const newVal = Math.min(100, parseInt(slider.value) + 10);
+            slider.value = newVal;
+            slider.dispatchEvent(new Event('input'));
+        }
+    }
+    if (e.ctrlKey && e.shiftKey && e.code === 'ArrowDown') {
+        e.preventDefault();
+        const slider = document.getElementById('homeVolumeSlider');
+        if (slider) {
+            const newVal = Math.max(0, parseInt(slider.value) - 10);
+            slider.value = newVal;
+            slider.dispatchEvent(new Event('input'));
+        }
+    }
+}
+
+// ========== ГЛОБАЛЬНЫЕ ФУНКЦИИ ДЛЯ КОНСОЛИ ==========
+
+window.mediaControls = {
+    play: handlePlayPause,
+    stop: handleStop,
+    next: handleNext,
+    prev: handlePrevious,
+    volume: (percent) => {
+        setMediaVolume(percent);
+        updateVolumeUI(percent);
+    },
+    ai: (command) => {
+        const commands = parseAICommand(command);
+        if (commands.length > 0) {
+            executeAICommands(commands);
+        } else if (typeof askGigaChat === 'function') {
+            askGigaChat(command);
+        }
+    },
+    parseCommand: parseAICommand
+};
+
+console.log('🎮 Доступно: mediaControls.play(), .stop(), .next(), .prev(), .volume(50), .ai("команда")');
+
+// ========== АВТОЗАПУСК МЕДИА-УПРАВЛЕНИЯ ==========
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(initMediaControls, 500);
+    });
+} else {
+    setTimeout(initMediaControls, 500);
+}
+
 
 function formatTime(seconds) {
     const hours = Math.floor(seconds / 3600);
@@ -1594,6 +2066,8 @@ function sw(id, btn) {
     if (tempWebviewOpened) {
         closeTempWebview();
     }
+
+    localStorage.setItem('lastActiveService', id);
      
     if (id.startsWith('custom_')) {
         const customIndex = parseInt(id.split('_')[1]);
@@ -2447,8 +2921,302 @@ function normalizeUrl(inputUrl) {
 
 
 
+// Функция применения страницы запуска
+function applyStartupPage(page) {
+    startupPage = page;
+    localStorage.setItem('startupPage', page);
+    
+    // Обновляем UI
+    const select = document.getElementById('startupPage');
+    if (select) select.value = page;
+    
+    console.log(`📌 Страница запуска: ${page === 'last' ? 'Последний сервис' : 'Домашняя страница'}`);
+}
+
+// Функция перехода на стартовую страницу
+function goToStartupPage() {
+    const page = localStorage.getItem('startupPage') || 'last';
+    console.log(`🚀 Переход на страницу запуска: ${page}`);
+    
+    // Если выбрана домашняя страница
+    if (page === 'home') {
+        // Проверяем, существует ли homePage в DOM
+        let homePage = document.getElementById('homePage');
+        
+        // Если нет - создаём
+        if (!homePage) {
+            console.log('🏠 Создаю homePage...');
+            createHomePage();
+            homePage = document.getElementById('homePage');
+        }
+        
+        // Показываем домашнюю страницу
+        if (homePage) {
+            // Скрываем все webview
+            document.querySelectorAll('webview').forEach(wv => {
+                wv.style.opacity = '0';
+                wv.style.pointerEvents = 'none';
+            });
+            
+            homePage.style.display = 'block';
+            globalIsOnHomePage = true;
+            
+            // Убираем активные классы с кнопок
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('active');
+                const effectLayer = btn.querySelector('.effect-layer');
+                if (effectLayer) effectLayer.className = 'effect-layer none';
+            });
+            
+            // Обновляем контент (с проверкой на существование функции)
+            if (typeof updateHomeContent === 'function') {
+                updateHomeContent();
+            } else {
+                console.warn('⚠️ updateHomeContent не определена');
+            }
+            
+            updateUrlBarForHomePage();
+            
+            if (typeof updateStatsUI === 'function') {
+                updateStatsUI();
+            }
+            
+            // Инициализируем медиа-управление
+            setTimeout(() => {
+                initMediaControls();
+            }, 100);
+            
+            console.log('✅ Открыта домашняя страница');
+        } else {
+            console.error('❌ Не удалось создать homePage');
+        }
+    } else {
+        // Открываем последний активный сервис
+        const lastService = localStorage.getItem('lastActiveService') || activeServices[0] || 'yandex';
+        console.log(`📱 Открываю последний сервис: ${lastService}`);
+        
+        // Сначала скрываем homePage если она видна
+        const homePage = document.getElementById('homePage');
+        if (homePage) {
+            homePage.style.display = 'none';
+            globalIsOnHomePage = false;
+        }
+        
+        // Показываем webview
+        document.querySelectorAll('webview').forEach(wv => {
+            wv.style.opacity = '1';
+            wv.style.pointerEvents = 'auto';
+        });
+        
+        const btn = document.getElementById(`btn-${lastService}`);
+        if (btn && typeof sw === 'function') {
+            sw(lastService, btn);
+        } else {
+            // Если кнопка не найдена, открываем первый сервис
+            const firstService = activeServices[0] || 'yandex';
+            const firstBtn = document.getElementById(`btn-${firstService}`);
+            if (firstBtn && typeof sw === 'function') {
+                sw(firstService, firstBtn);
+            } else {
+                console.warn('⚠️ Не найден ни один сервис');
+            }
+        }
+    }
+}
+
+function forceSaveStartupPage(page) {
+    // Сохраняем в localStorage
+    localStorage.setItem('startupPage', page);
+    startupPage = page;
+    
+    // Обновляем UI
+    const select = document.getElementById('startupPage');
+    if (select) select.value = page;
+    
+    // Отправляем в main
+    if (window.electronAPI && window.electronAPI.setStartupPage) {
+        window.electronAPI.setStartupPage(page);
+    }
+    
+    // Дополнительная проверка - сохраняем в sessionStorage как резерв
+    sessionStorage.setItem('startupPage', page);
+    
+    console.log(`💾 Принудительно сохранена страница запуска: ${page}`);
+    console.log(`📋 localStorage: ${localStorage.getItem('startupPage')}`);
+    console.log(`📋 sessionStorage: ${sessionStorage.getItem('startupPage')}`);
+    
+    // Показываем уведомление
+    showToast(`📌 Страница запуска: ${page === 'last' ? 'Последний сервис' : 'Домашняя страница'}`, 'success');
+}
+
+// Переопределяем функцию saveStartupPageSetting
+function saveStartupPageSetting(page) {
+    forceSaveStartupPage(page);
+}
+
+// Переопределяем testStartupPage
+window.testStartupPage = function(page) {
+    console.log(`🧪 Тест: устанавливаю startupPage = ${page}`);
+    forceSaveStartupPage(page);
+    
+    // Проверяем сохранение
+    setTimeout(() => {
+        const saved = localStorage.getItem('startupPage');
+        console.log(`📋 В localStorage: ${saved}`);
+        console.log(`📋 В sessionStorage: ${sessionStorage.getItem('startupPage')}`);
+        
+        // Проверяем select
+        const select = document.getElementById('startupPage');
+        if (select) {
+            console.log(`📋 В select: ${select.value}`);
+        }
+    }, 500);
+};
+
+// ========== ОБРАБОТЧИКИ НАСТРОЕК ==========
+
+// Обработчик изменения страницы запуска
+document.getElementById('startupPage')?.addEventListener('change', (e) => {
+    const page = e.target.value;
+    applyStartupPage(page);
+    
+    // Отправляем в main для сохранения
+    if (window.electronAPI && window.electronAPI.setStartupPage) {
+        window.electronAPI.setStartupPage(page);
+    }
+    
+    showToast(`📌 Страница запуска: ${page === 'last' ? 'Последний сервис' : 'Домашняя страница'}`, 'info');
+});
+
+let startupPageFromMain = null;
+
+// Обработчик из main для инициализации
+if (window.electronAPI && window.electronAPI.onInitStartupPage) {
+    window.electronAPI.onInitStartupPage((event, page) => {
+        console.log(`📥 Получена startupPage из main: ${page}`);
+        if (page) {
+            startupPageFromMain = page;
+            localStorage.setItem('startupPage', page);
+            startupPage = page;
+            const select = document.getElementById('startupPage');
+            if (select) select.value = page;
+        }
+    });
+}
+document.addEventListener('DOMContentLoaded', function() {
+    // Если еще не пришло из main, берем из localStorage
+    if (startupPageFromMain === null) {
+        loadStartupPageSetting();
+    }
+
+});
 
 
+
+let startupPage = 'last';
+let isFirstStart = true;
+
+// Загрузка настройки из localStorage
+function loadStartupPageSetting() {
+    const saved = localStorage.getItem('startupPage');
+    if (saved) {
+        startupPage = saved;
+    } else {
+        startupPage = 'last';
+        localStorage.setItem('startupPage', 'last');
+    }
+    
+    // Обновляем UI
+    const select = document.getElementById('startupPage');
+    if (select) {
+        select.value = startupPage;
+    }
+    
+    console.log(`📌 Загружена настройка startupPage: ${startupPage}`);
+    return startupPage;
+}
+
+// Принудительное сохранение (с синхронизацией с main)
+function forceSaveStartupPage(page) {
+    // Сохраняем в localStorage
+    localStorage.setItem('startupPage', page);
+    startupPage = page;
+    
+    // Обновляем UI
+    const select = document.getElementById('startupPage');
+    if (select) select.value = page;
+    
+    // Отправляем в main для сохранения в config.json
+    if (window.electronAPI && window.electronAPI.setStartupPage) {
+        window.electronAPI.setStartupPage(page);
+        console.log(`📤 Отправлено в main: ${page}`);
+    }
+    
+    // Дополнительная проверка - сохраняем в sessionStorage как резерв
+    sessionStorage.setItem('startupPage', page);
+    
+    console.log(`💾 Принудительно сохранена страница запуска: ${page}`);
+    console.log(`📋 localStorage: ${localStorage.getItem('startupPage')}`);
+    
+    // Показываем уведомление
+    if (typeof showToast === 'function') {
+        showToast(`📌 Страница запуска: ${page === 'last' ? 'Последний сервис' : 'Домашняя страница'}`, 'success');
+    }
+}
+
+// Загружаем настройку при старте
+loadStartupPageSetting();
+
+// Обработчик изменения select (гарантированно один)
+document.addEventListener('DOMContentLoaded', function() {
+    const startupSelect = document.getElementById('startupPage');
+    if (startupSelect) {
+        // Удаляем старые обработчики, чтобы избежать дублирования
+        const newSelect = startupSelect.cloneNode(true);
+        startupSelect.parentNode.replaceChild(newSelect, startupSelect);
+        
+        // Устанавливаем значение из localStorage
+        const savedPage = localStorage.getItem('startupPage') || 'last';
+        newSelect.value = savedPage;
+        console.log(`📌 Select установлен на: ${savedPage}`);
+        
+        // Обработчик изменения
+        newSelect.addEventListener('change', function(e) {
+            const page = e.target.value;
+            console.log(`🔄 Изменён select на: ${page}`);
+            forceSaveStartupPage(page);
+        });
+    }
+});
+
+// Обработчик из main для инициализации (при старте)
+if (window.electronAPI && window.electronAPI.onInitStartupPage) {
+    window.electronAPI.onInitStartupPage((event, page) => {
+        console.log(`📥 Получена startupPage из main: ${page}`);
+        if (page) {
+            localStorage.setItem('startupPage', page);
+            startupPage = page;
+            const select = document.getElementById('startupPage');
+            if (select) select.value = page;
+        }
+    });
+}
+
+// Тестовая функция для консоли
+window.testStartupPage = function(page) {
+    console.log(`🧪 Тест: устанавливаю startupPage = ${page}`);
+    forceSaveStartupPage(page);
+    
+    setTimeout(() => {
+        const saved = localStorage.getItem('startupPage');
+        console.log(`📋 В localStorage: ${saved}`);
+        // Проверяем select
+        const select = document.getElementById('startupPage');
+        if (select) {
+            console.log(`📋 В select: ${select.value}`);
+        }
+    }, 500);
+};
 
 
 
@@ -3303,11 +4071,16 @@ function updateUrlBarForTempWebview(url) {
 
 
 
+
+
+
+
+
         
 
          
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 MusicHub v2.9.7');
+    console.log('🚀 MusicHub v2.9.8');
     particleBackground = new ParticleBackground();
     loadSettings();
     loadCustomSites();  
@@ -3343,30 +4116,55 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-
-const currentMinimized = await window.electronAPI.getStartMinimized();
-document.getElementById('startMinimized').checked = currentMinimized;
-localStorage.setItem('startMinimized', currentMinimized);
-
+    const currentMinimized = await window.electronAPI.getStartMinimized();
+    document.getElementById('startMinimized').checked = currentMinimized;
+    localStorage.setItem('startMinimized', currentMinimized);
 
     const startMinimized = localStorage.getItem('startMinimized') === 'true';
-window.electronAPI.setStartMinimized(startMinimized);
-
+    window.electronAPI.setStartMinimized(startMinimized);
+    
+    // ========== ЗАГРУЗКА НАСТРОЙКИ СТРАНИЦЫ ЗАПУСКА ==========
+    loadStartupPageSetting();
+    
+    // Обработчик изменения select
+const startupSelect = document.getElementById('startupPage');
+if (startupSelect) {
+    // Удаляем старые обработчики
+    const newSelect = startupSelect.cloneNode(true);
+    startupSelect.parentNode.replaceChild(newSelect, startupSelect);
+    
+    // Устанавливаем значение из localStorage
+    const savedPage = localStorage.getItem('startupPage') || 'last';
+    newSelect.value = savedPage;
+    console.log(`📌 Select установлен на: ${savedPage}`);
+    
+    // Обработчик изменения
+    newSelect.addEventListener('change', function(e) {
+        const page = e.target.value;
+        console.log(`🔄 Изменён select на: ${page}`);
+        forceSaveStartupPage(page);
+    });
+}
+    
+    // ========== ПЕРЕХОД НА СТРАНИЦУ ЗАПУСКА ==========
+    // Ждём загрузки всех сервисов
+    setTimeout(() => {
+        goToStartupPage();
+    }, 1500);
      
+    // Обработчики из main
     window.electronAPI.onInitActiveTab((event, tabId) => {
         const btn = document.getElementById(`btn-${tabId}`);
         if (btn) sw(tabId, btn);
     });
 
-
     window.electronAPI.onInitStartMinimized?.((event, minimized) => {
-    if (minimized) {
-         
-        setTimeout(() => {
-            window.electronAPI.windowCtrl('min');
-        }, 500);
-    }
-});
+        if (minimized) {
+            setTimeout(() => {
+                window.electronAPI.windowCtrl('min');
+            }, 500);
+        }
+    });
     
     window.electronAPI.onInitTheme((event, theme) => {
         changeTheme(theme);
@@ -3379,22 +4177,12 @@ window.electronAPI.setStartMinimized(startMinimized);
         });
     });
     
-    window.electronAPI.onAppBlur(() => {
-         
-    });
-    
-    window.electronAPI.onAppFocus(() => {
-         
-    });
-    
-    window.electronAPI.onAppHidden(() => {
-         
-    });
-    
-    window.electronAPI.onAppShown(() => {
-         
-    });
+    window.electronAPI.onAppBlur(() => {});
+    window.electronAPI.onAppFocus(() => {});
+    window.electronAPI.onAppHidden(() => {});
+    window.electronAPI.onAppShown(() => {});
 });
+
 
  document.getElementById('settingsBtn')?.addEventListener('click', toggleSettings);
 
@@ -4759,71 +5547,129 @@ document.addEventListener('DOMContentLoaded', () => {
     // ========== ФУНКЦИИ ДОМАШНЕЙ СТРАНИЦЫ ==========
     
     function createHomePage() {
-        if (document.getElementById('homePage')) return;
-        
-        const content = document.getElementById('content');
-        if (!content) {
-            console.error('❌ Контейнер content не найден');
-            return;
-        }
-        
-        const homePage = document.createElement('div');
-        homePage.id = 'homePage';
-        homePage.style.cssText = 'display: none; width: 100%; height: 100%; overflow-y: auto; background: var(--bg-primary);';
-        homePage.innerHTML = `
-            <div style="max-width: 800px; margin: 0 auto; padding: 20px;">
-                <div class="home-card">
-                    <h3>🎵 Сейчас играет</h3>
-                    <div style="display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
-                        <img id="homeArtwork" src="" style="width: 100px; height: 100px; border-radius: 12px; object-fit: cover; background: var(--bg-secondary);">
-                        <div style="flex: 1;">
-                            <div id="homeTrackTitle" style="font-size: 18px; font-weight: 600; margin-bottom: 5px;">-</div>
-                            <div id="homeTrackArtist" style="color: var(--text-secondary); margin-bottom: 8px;">-</div>
-                            <div id="homeService" style="font-size: 12px; color: var(--accent-color);"></div>
+    if (document.getElementById('homePage')) return;
+    
+    const content = document.getElementById('content');
+    if (!content) {
+        console.error('❌ Контейнер content не найден');
+        return;
+    }
+    
+    const homePage = document.createElement('div');
+    homePage.id = 'homePage';
+    homePage.style.cssText = 'display: none; width: 100%; height: 100%; overflow-y: auto; background: var(--bg-primary);';
+    homePage.innerHTML = `
+        <div style="max-width: 800px; margin: 0 auto; padding: 20px;">
+            
+            <!-- Сейчас играет -->
+            <div class="home-card">
+                <h3>🎵 Сейчас играет</h3>
+                <div style="display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
+                    <img id="homeArtwork" src="" style="width: 120px; height: 120px; border-radius: 16px; object-fit: cover; background: var(--bg-secondary); box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                    <div style="flex: 1; min-width: 150px;">
+                        <div id="homeTrackTitle" style="font-size: 20px; font-weight: 700; margin-bottom: 4px;">-</div>
+                        <div id="homeTrackArtist" style="color: var(--text-secondary); font-size: 14px; margin-bottom: 8px;">-</div>
+                        <div id="homeService" style="font-size: 12px; color: var(--accent-color);"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- МЕДИА-УПРАВЛЕНИЕ (ВМЕСТО ФОНОВЫХ ПЛЕЕРОВ) -->
+            <div class="home-card" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
+                <h3 style="margin-bottom: 16px;">🎮 Управление воспроизведением</h3>
+                
+                <div style="display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; align-items: center;">
+                    <!-- Предыдущий -->
+                    <button id="mediaPrevBtn" class="media-control-btn" title="Предыдущий трек (Ctrl+Shift+←)">
+                        <span style="font-size: 28px;">⏮</span>
+                        <span style="font-size: 10px; margin-top: 4px;">Назад</span>
+                    </button>
+                    
+                    <!-- Play/Pause -->
+                    <button id="mediaPlayBtn" class="media-control-btn primary" title="Play/Pause (Ctrl+Shift+Space)">
+                        <span style="font-size: 40px;" id="playIcon">▶</span>
+                        <span style="font-size: 10px; margin-top: 4px;" id="playLabel">Воспроизвести</span>
+                    </button>
+                    
+                    <!-- Стоп (полная остановка) -->
+                    <button id="mediaStopBtn" class="media-control-btn stop" title="Полная остановка (Ctrl+Shift+.)">
+                        <span style="font-size: 28px;">⏹</span>
+                        <span style="font-size: 10px; margin-top: 4px;">Стоп</span>
+                    </button>
+                    
+                    <!-- Следующий -->
+                    <button id="mediaNextBtn" class="media-control-btn" title="Следующий трек (Ctrl+Shift+→)">
+                        <span style="font-size: 28px;">⏭</span>
+                        <span style="font-size: 10px; margin-top: 4px;">Вперед</span>
+                    </button>
+                </div>
+
+                <!-- Статус -->
+                <div id="mediaStatus" style="text-align: center; margin-top: 12px; font-size: 12px; color: var(--text-secondary);">
+                    🎵 Готов к управлению
+                </div>
+
+                <!-- Индикатор громкости -->
+                <div style="margin-top: 12px; display: flex; align-items: center; gap: 12px; justify-content: center;">
+                    <span style="font-size: 14px;">🔊</span>
+                    <input type="range" id="homeVolumeSlider" min="0" max="100" value="100" 
+                           style="flex: 1; max-width: 200px; height: 4px; -webkit-appearance: none; background: #444; border-radius: 2px;">
+                    <span id="homeVolumeDisplay" style="font-size: 12px; min-width: 40px;">100%</span>
+                </div>
+            </div>
+
+            <!-- Умное управление (нейросеть) -->
+            <div class="home-card" style="border: 2px solid var(--accent-color); background: rgba(29,185,84,0.05);">
+                <h3>🧠 Умное управление (AI)</h3>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <input type="text" id="aiCommandInput" placeholder='Например: "включи следующий трек" или "сделай погромче"' 
+                           style="flex: 1; min-width: 200px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary);">
+                    <button id="aiCommandBtn" class="btn-primary" style="padding: 10px 20px;">🚀 Выполнить</button>
+                </div>
+                <div id="aiCommandResult" style="margin-top: 10px; font-size: 13px; color: var(--text-secondary); min-height: 20px;"></div>
+                
+                <!-- Быстрые команды -->
+                <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px;">
+                    <button class="quick-ai-btn" data-command="play">▶ Включить</button>
+                    <button class="quick-ai-btn" data-command="pause">⏸ Пауза</button>
+                    <button class="quick-ai-btn" data-command="next">⏭ Следующий</button>
+                    <button class="quick-ai-btn" data-command="prev">⏮ Предыдущий</button>
+                    <button class="quick-ai-btn" data-command="stop">⏹ Стоп</button>
+                    <button class="quick-ai-btn" data-command="volume_up">🔊 Громче</button>
+                    <button class="quick-ai-btn" data-command="volume_down">🔉 Тише</button>
+                </div>
+            </div>
+
+            <!-- Статистика -->
+            <div class="home-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h3 style="margin: 0;">📊 Твоя статистика</h3>
+                    <button id="clearStatsBtn" style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 16px;" title="Очистить статистику">🗑️</button>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                    <div>
+                        <div style="font-size: 14px; font-weight: 600; margin-bottom: 10px;">🏆 Топ исполнители</div>
+                        <div id="topArtistsContainer" style="font-size: 13px;">Загрузка...</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 14px; font-weight: 600; margin-bottom: 10px;">🤖 AI комментарий</div>
+                        <div id="aiStatus" style="font-size: 10px; opacity: 0.6;">✨ креативный режим</div>
+                        <div id="aiCommentary" style="font-size: 13px; font-style: italic; padding: 8px; background: var(--bg-secondary); border-radius: 10px; min-height: 80px;">
+                            💭 Загрузка...
                         </div>
                     </div>
                 </div>
-                <div class="home-card">
-                    <h3>🎵 Фоновый плеер</h3>
-                    <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                        <button id="bgYandexBtn" class="home-service-btn" style="background: var(--accent-color); color: white;">🎧 Яндекс Музыка</button>
-                        <button id="bgYoutubeBtn" class="home-service-btn" style="background: var(--accent-color); color: white;">🎧 YouTube Музыка</button>
-                        <button id="stopBgBtn" class="home-service-btn" style="background: #ff4444; color: white;">⏹️ Остановить</button>
-                    </div>
-                    <div id="bgStatus" style="margin-top: 12px; font-size: 12px; color: var(--text-secondary);"></div>
+                <div style="margin-top: 16px;">
+                    <div style="font-size: 14px; font-weight: 600; margin-bottom: 10px;">📈 Активность за неделю</div>
+                    <div id="statsContainer"></div>
                 </div>
             </div>
-<div class="home-card">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <h3 style="margin: 0;">📊 Твоя статистика</h3>
-        <button id="clearStatsBtn" style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 16px;" title="Очистить статистику">🗑️</button>
-    </div>
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-        <!-- Топ исполнители -->
-        <div>
-            <div style="font-size: 14px; font-weight: 600; margin-bottom: 10px;">🏆 Топ исполнители</div>
-            <div id="topArtistsContainer" style="font-size: 13px;">Загрузка...</div>
         </div>
-        <!-- AI комментарий -->
-        <div>
-            <div style="font-size: 14px; font-weight: 600; margin-bottom: 10px;">🤖 AI комментарий</div>
-            <div id="aiStatus" style="font-size: 10px; opacity: 0.6;">✨ креативный режим</div>
-            <div id="aiCommentary" style="font-size: 13px; font-style: italic; padding: 8px; background: var(--bg-secondary); border-radius: 10px; min-height: 80px;">
-                💭 Загрузка...
-            </div>
-        </div>
-    </div>
-    <!-- График -->
-    <div style="margin-top: 16px;">
-        <div style="font-size: 14px; font-weight: 600; margin-bottom: 10px;">📈 Активность за неделю</div>
-        <div id="statsContainer"></div>
-    </div>
-</div>
-        `;
-        
-        content.appendChild(homePage);
-        console.log('✅ homePage создана динамически');
-    }
+    `;
+    
+    content.appendChild(homePage);
+    console.log('✅ homePage создана динамически с медиа-управлением');
+}
     
 function showHomePage() {
     console.log('🏠 showHomePage вызвана');
@@ -4924,54 +5770,64 @@ globalHideHomePage = hideHomePage;
 
 
     async function updateHomeContent() {
-        try {
-            const mediaInfo = await window.electronAPI.getMediaFromFiles();
-            if (mediaInfo && mediaInfo.title) {
-                const titleEl = document.getElementById('homeTrackTitle');
-                const artistEl = document.getElementById('homeTrackArtist');
-                const artworkEl = document.getElementById('homeArtwork');
-                
-                if (titleEl) titleEl.textContent = mediaInfo.title;
-                if (artistEl) artistEl.textContent = mediaInfo.artist || 'Неизвестен';
-                if (artworkEl && mediaInfo.artwork_base64) {
-                    artworkEl.src = `data:image/jpeg;base64,${mediaInfo.artwork_base64}`;
+    try {
+        // Получаем информацию о текущем треке
+        const mediaInfo = await window.electronAPI.getMediaFromFiles();
+        
+        if (mediaInfo && mediaInfo.title) {
+            const titleEl = document.getElementById('homeTrackTitle');
+            const artistEl = document.getElementById('homeTrackArtist');
+            const artworkEl = document.getElementById('homeArtwork');
+            const serviceEl = document.getElementById('homeService');
+            
+            if (titleEl) titleEl.textContent = mediaInfo.title;
+            if (artistEl) artistEl.textContent = mediaInfo.artist || 'Неизвестен';
+            
+            if (artworkEl && mediaInfo.artwork_base64) {
+                artworkEl.src = `data:image/jpeg;base64,${mediaInfo.artwork_base64}`;
+            }
+            
+            if (serviceEl) {
+                const activeWv = document.querySelector('webview.active');
+                const serviceName = activeWv?.id || 'unknown';
+                const service = services.find(s => s.id === serviceName);
+                serviceEl.textContent = service ? service.name : serviceName;
+            }
+        }
+    } catch(e) {
+        console.log('Ошибка получения трека:', e);
+    }
+    
+    // Обновляем список сервисов на домашней странице
+    const homeServicesDiv = document.getElementById('homeServices');
+    if (homeServicesDiv && activeServices) {
+        homeServicesDiv.innerHTML = '';
+        activeServices.forEach(serviceId => {
+            let icon = '🌐', name = '';
+            if (serviceId.startsWith('custom_')) {
+                const idx = parseInt(serviceId.split('_')[1]);
+                name = customSites[idx]?.name || 'Сайт';
+            } else {
+                const service = services.find(s => s.id === serviceId);
+                if (service) {
+                    icon = service.icon;
+                    name = service.name;
                 }
             }
-        } catch(e) {
-            console.log('Ошибка получения трека:', e);
-        }
-        
-        // Остальной код updateHomeContent...
-        const homeServicesDiv = document.getElementById('homeServices');
-        if (homeServicesDiv && activeServices) {
-            homeServicesDiv.innerHTML = '';
-            activeServices.forEach(serviceId => {
-                let icon = '🌐', name = '';
-                if (serviceId.startsWith('custom_')) {
-                    const idx = parseInt(serviceId.split('_')[1]);
-                    name = customSites[idx]?.name || 'Сайт';
-                } else {
-                    const service = services.find(s => s.id === serviceId);
-                    if (service) {
-                        icon = service.icon;
-                        name = service.name;
-                    }
+            const btn = document.createElement('button');
+            btn.className = 'home-service-btn';
+            btn.innerHTML = `${icon} ${name}`;
+            btn.onclick = () => {
+                const targetBtn = document.getElementById(`btn-${serviceId}`);
+                if (targetBtn) {
+                    sw(serviceId, targetBtn);
+                    hideHomePage();
                 }
-                const btn = document.createElement('button');
-                btn.className = 'home-service-btn';
-                btn.innerHTML = `${icon} ${name}`;
-                btn.onclick = () => {
-                    stopBackgroundPlayer();
-                    const targetBtn = document.getElementById(`btn-${serviceId}`);
-                    if (targetBtn) {
-                        sw(serviceId, targetBtn);
-                        hideHomePage();
-                    }
-                };
-                homeServicesDiv.appendChild(btn);
-            });
-        }
+            };
+            homeServicesDiv.appendChild(btn);
+        });
     }
+}
     
     // Функции фонового плеера
 async function startBackgroundPlayer(service, url, clickSelector) {
@@ -5578,6 +6434,254 @@ setTimeout(() => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ========== СИСТЕМА КОМАНДНЫХ КОДОВ ДЛЯ НЕЙРОСЕТИ ==========
+
+// Командные коды - нейросеть отправляет их в тексте
+
+
+
+// Парсинг команд из текста нейросети
+function parseAICommand(text) {
+    if (!text) return [];
+    
+    const commands = [];
+    
+    if (text.includes(COMMAND_CODES.PLAY)) commands.push({ command: 'play', raw: COMMAND_CODES.PLAY });
+    if (text.includes(COMMAND_CODES.PAUSE)) commands.push({ command: 'pause', raw: COMMAND_CODES.PAUSE });
+    if (text.includes(COMMAND_CODES.STOP)) commands.push({ command: 'stop', raw: COMMAND_CODES.STOP });
+    if (text.includes(COMMAND_CODES.NEXT)) commands.push({ command: 'next', raw: COMMAND_CODES.NEXT });
+    if (text.includes(COMMAND_CODES.PREV)) commands.push({ command: 'prev', raw: COMMAND_CODES.PREV });
+    if (text.includes(COMMAND_CODES.VOLUME_UP)) commands.push({ command: 'volume_up', raw: COMMAND_CODES.VOLUME_UP });
+    if (text.includes(COMMAND_CODES.VOLUME_DOWN)) commands.push({ command: 'volume_down', raw: COMMAND_CODES.VOLUME_DOWN });
+    if (text.includes(COMMAND_CODES.MUTE)) commands.push({ command: 'mute', raw: COMMAND_CODES.MUTE });
+    if (text.includes(COMMAND_CODES.UNMUTE)) commands.push({ command: 'unmute', raw: COMMAND_CODES.UNMUTE });
+    if (text.includes(COMMAND_CODES.TOGGLE)) commands.push({ command: 'toggle', raw: COMMAND_CODES.TOGGLE });
+    
+    const volMatch = text.match(/🎵\[CMD:VOLSET:(\d+)\]/);
+    if (volMatch) {
+        const vol = parseInt(volMatch[1]);
+        if (!isNaN(vol) && vol >= 0 && vol <= 100) {
+            commands.push({ command: 'volume_set', value: vol, raw: volMatch[0] });
+        }
+    }
+    
+    return commands;
+}
+
+// Выполнение команд из нейросети
+async function executeAICommands(commands) {
+    if (!commands || commands.length === 0) return [];
+    
+    const results = [];
+    for (const cmd of commands) {
+        try {
+            let result = false;
+            
+            switch(cmd.command) {
+                case 'play':
+                    if (!isMediaPlaying) result = await handlePlayPause();
+                    else result = true;
+                    break;
+                case 'pause':
+                    if (isMediaPlaying) result = await handlePlayPause();
+                    else result = true;
+                    break;
+                case 'stop':
+                    result = await handleStop();
+                    break;
+                case 'next':
+                    result = await handleNext();
+                    break;
+                case 'prev':
+                    result = await handlePrevious();
+                    break;
+                case 'volume_up':
+                    const volUp = Math.min(100, currentMediaVolume + 10);
+                    result = await setMediaVolume(volUp);
+                    updateVolumeUI(volUp);
+                    break;
+                case 'volume_down':
+                    const volDown = Math.max(0, currentMediaVolume - 10);
+                    result = await setMediaVolume(volDown);
+                    updateVolumeUI(volDown);
+                    break;
+                case 'volume_set':
+                    result = await setMediaVolume(cmd.value);
+                    updateVolumeUI(cmd.value);
+                    break;
+                case 'mute':
+                    result = await setMediaVolume(0);
+                    updateVolumeUI(0);
+                    break;
+                case 'unmute':
+                    const savedVol = parseInt(localStorage.getItem('mediaVolume')) || 50;
+                    result = await setMediaVolume(savedVol);
+                    updateVolumeUI(savedVol);
+                    break;
+                case 'toggle':
+                    result = await handlePlayPause();
+                    break;
+                default:
+                    console.log('Неизвестная команда:', cmd.command);
+            }
+            
+            results.push({ command: cmd.command, success: result });
+        } catch (err) {
+            console.error('Ошибка выполнения команды:', cmd.command, err);
+            results.push({ command: cmd.command, success: false, error: err.message });
+        }
+    }
+    return results;
+}
+
+
+function updateVolumeUI(percent) {
+    const slider = document.getElementById('homeVolumeSlider');
+    const display = document.getElementById('homeVolumeDisplay');
+    if (slider) slider.value = percent;
+    if (display) display.textContent = `${percent}%`;
+    currentMediaVolume = percent;
+}
+
+// ========== ОБРАБОТЧИК ОТВЕТОВ НЕЙРОСЕТИ ==========
+
+function handleAIResponse(responseText) {
+    if (!responseText) return { text: '', commands: [] };
+    
+    const commands = parseAICommand(responseText);
+    
+    if (commands && commands.length > 0) {
+        executeAICommands(commands).then(results => {
+            console.log('📊 Результаты выполнения команд:', results);
+        });
+        
+        let cleanText = responseText;
+        for (const cmd of commands) {
+            cleanText = cleanText.replace(cmd.raw, '');
+        }
+        cleanText = cleanText.replace(/\s+/g, ' ').trim();
+        
+        return {
+            text: cleanText || '✅ Команда выполнена!',
+            commands: commands
+        };
+    }
+    
+    return { text: responseText, commands: [] };
+}
+
+// ========== ФУНКЦИЯ ДЛЯ НЕЙРОСЕТИ (КАК ОНА БУДЕТ ОТПРАВЛЯТЬ КОМАНДЫ) ==========
+
+// Пример того, как нейросеть должна формировать ответ
+function generateAICommandResponse(userRequest) {
+    // Это пример - реальная нейросеть будет генерировать это сама
+    const responses = {
+        'включи музыку': `🎵 Включаю музыку! 🎵[CMD:PLAY]`,
+        'выключи музыку': `🎵 Выключаю музыку... 🎵[CMD:STOP]`,
+        'следующий трек': `🎵 Переключаю на следующий! 🎵[CMD:NEXT]`,
+        'предыдущий трек': `🎵 Возвращаю назад! 🎵[CMD:PREV]`,
+        'сделай погромче': `🎵 Увеличиваю громкость! 🎵[CMD:VOLUP]`,
+        'сделай потише': `🎵 Уменьшаю громкость... 🎵[CMD:VOLDOWN]`,
+        'установи громкость 50': `🎵 Устанавливаю 50% 🎵[CMD:VOLSET:50]`,
+        'пауза': `🎵 Пауза! 🎵[CMD:PAUSE]`,
+        'продолжить': `🎵 Продолжаю! 🎵[CMD:PLAY]`,
+        'переключи на предыдущий': `🎵 Назад! 🎵[CMD:PREV]`,
+    };
+    
+    // Ищем похожую команду
+    for (const [key, value] of Object.entries(responses)) {
+        if (userRequest.toLowerCase().includes(key)) {
+            return value;
+        }
+    }
+    
+    // Если не нашли - возвращаем обычный ответ
+    return `Я не совсем понял команду. Попробуйте: "включи музыку", "следующий трек", "сделай погромче"`;
+}
+
+// ========== МОДИФИЦИРОВАННАЯ ФУНКЦИЯ ДЛЯ ЧАТА ==========
+
+// Обновляем функцию обработки сообщений в чате
+async function handleChatAICommand(message) {
+    // Проверяем, есть ли командный код
+    const commands = parseAICommand(message);
+    
+    if (commands && commands.length > 0) {
+        // Это команда от нейросети - выполняем
+        const results = await executeAICommands(commands);
+        const cleanText = message.replace(/🎵\[CMD:[^\]]+\]/g, '').trim();
+        return {
+            text: cleanText || '✅ Команда выполнена!',
+            results: results
+        };
+    }
+    
+    // Если нет команд - обрабатываем как обычный запрос к AI
+    return null;
+}
+
+// ========== ТЕСТОВЫЕ ФУНКЦИИ ==========
+
+// Для тестирования в консоли
+window.testAICommand = function(command) {
+    const response = generateAICommandResponse(command);
+    console.log('📤 Ответ AI:', response);
+    const result = handleAIResponse(response);
+    console.log('📥 Результат:', result);
+    return result;
+};
+
+// Список доступных команд для нейросети
+window.getAvailableCommands = function() {
+    return {
+        '🎵[CMD:PLAY]': 'Включить воспроизведение',
+        '🎵[CMD:PAUSE]': 'Поставить на паузу',
+        '🎵[CMD:STOP]': 'Полностью остановить',
+        '🎵[CMD:NEXT]': 'Следующий трек',
+        '🎵[CMD:PREV]': 'Предыдущий трек',
+        '🎵[CMD:VOLUP]': 'Увеличить громкость на 10%',
+        '🎵[CMD:VOLDOWN]': 'Уменьшить громкость на 10%',
+        '🎵[CMD:VOLSET:X]': 'Установить громкость X% (где X от 0 до 100)',
+        '🎵[CMD:MUTE]': 'Выключить звук',
+        '🎵[CMD:UNMUTE]': 'Включить звук',
+        '🎵[CMD:TOGGLE]': 'Переключить Play/Pause'
+    };
+};
+
+console.log('🎵 Система командных кодов загружена!');
+console.log('📋 Доступные команды: window.getAvailableCommands()');
+console.log('🧪 Тест: window.testAICommand("включи музыку")');
+
+
+
+
+
 // ========== АДАПТИВНАЯ ГРОМКОСТЬ (РАБОТАЕТ ЧЕРЕЗ VolumeManager) ==========
 
 let adaptiveOriginalVolume = 1.0;
@@ -6010,7 +7114,153 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 
+// ========== УПРАВЛЕНИЕ ГРОМКОСТЬЮ С АВТО-СКРЫТИЕМ ==========
 
+let volumeHideTimeout = null;
+let volumeSliderVisible = false;
+
+// Функция синхронизации громкости между всеми элементами
+function syncVolumeUI(percent) {
+    // Обновляем слайдер в тайтлбаре
+    const titlebarSlider = document.getElementById('volumeSlider');
+    const titlebarPercent = document.getElementById('volumePercent');
+    const titlebarIcon = document.getElementById('volumeIcon');
+    
+    if (titlebarSlider) titlebarSlider.value = percent;
+    if (titlebarPercent) titlebarPercent.textContent = `${percent}%`;
+    
+    // Обновляем слайдер на домашней странице
+    const homeSlider = document.getElementById('homeVolumeSlider');
+    const homeDisplay = document.getElementById('homeVolumeDisplay');
+    
+    if (homeSlider) homeSlider.value = percent;
+    if (homeDisplay) homeDisplay.textContent = `${percent}%`;
+    
+    // Обновляем иконку
+    if (titlebarIcon) {
+        if (percent === 0) titlebarIcon.textContent = '🔇';
+        else if (percent < 30) titlebarIcon.textContent = '🔈';
+        else if (percent < 70) titlebarIcon.textContent = '🔉';
+        else titlebarIcon.textContent = '🔊';
+    }
+    
+    currentMediaVolume = percent;
+    localStorage.setItem('mediaVolume', percent);
+}
+
+// Показать ползунок громкости
+function showVolumeSlider() {
+    const container = document.getElementById('volumeSliderContainer');
+    if (container) {
+        container.style.display = 'block';
+        volumeSliderVisible = true;
+    }
+    
+    // Сбрасываем таймер скрытия
+    if (volumeHideTimeout) {
+        clearTimeout(volumeHideTimeout);
+        volumeHideTimeout = null;
+    }
+}
+
+// Скрыть ползунок громкости
+function hideVolumeSlider() {
+    const container = document.getElementById('volumeSliderContainer');
+    if (container) {
+        container.style.display = 'none';
+        volumeSliderVisible = false;
+    }
+}
+
+// Запланировать скрытие ползунка
+function scheduleVolumeHide(delay = 2000) {
+    if (volumeHideTimeout) {
+        clearTimeout(volumeHideTimeout);
+        volumeHideTimeout = null;
+    }
+    
+    volumeHideTimeout = setTimeout(() => {
+        hideVolumeSlider();
+        volumeHideTimeout = null;
+    }, delay);
+}
+
+// Инициализация громкости в тайтлбаре
+function initTitlebarVolume() {
+    const container = document.getElementById('volumeSliderContainer');
+    const icon = document.getElementById('volumeIcon');
+    const slider = document.getElementById('volumeSlider');
+    
+    if (!container || !icon || !slider) return;
+    
+    // Показываем при наведении на иконку
+    icon.onmouseenter = () => {
+        showVolumeSlider();
+        // Если мышка на иконке - отменяем скрытие
+        if (volumeHideTimeout) {
+            clearTimeout(volumeHideTimeout);
+            volumeHideTimeout = null;
+        }
+    };
+    
+    // Показываем при наведении на сам ползунок
+    container.onmouseenter = () => {
+        showVolumeSlider();
+        if (volumeHideTimeout) {
+            clearTimeout(volumeHideTimeout);
+            volumeHideTimeout = null;
+        }
+    };
+    
+    // Скрываем когда мышка уходит с ползунка
+    container.onmouseleave = () => {
+        scheduleVolumeHide(1500);
+    };
+    
+    // Скрываем когда мышка уходит с иконки (если не на ползунке)
+    icon.onmouseleave = () => {
+        // Проверяем, не наведена ли мышка на ползунок
+        if (!container.matches(':hover')) {
+            scheduleVolumeHide(1500);
+        }
+    };
+    
+    // Слайдер - синхронизация
+    slider.oninput = async (e) => {
+        const val = parseInt(e.target.value);
+        await setMediaVolume(val);
+        syncVolumeUI(val);
+        
+        // Показываем ползунок при взаимодействии
+        showVolumeSlider();
+        
+        // Запланировать скрытие через 2 секунды после последнего движения
+        scheduleVolumeHide(2000);
+    };
+    
+    // Загружаем сохраненную громкость
+    const savedVol = parseInt(localStorage.getItem('mediaVolume')) || 100;
+    slider.value = savedVol;
+    syncVolumeUI(savedVol);
+    
+    // Скрываем через 3 секунды после загрузки
+    setTimeout(() => {
+        if (!container.matches(':hover') && !icon.matches(':hover')) {
+            hideVolumeSlider();
+        }
+    }, 3000);
+}
+
+// ========== ИНИЦИАЛИЗАЦИЯ ==========
+
+// Вызываем после загрузки DOM
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(initTitlebarVolume, 500);
+    });
+} else {
+    setTimeout(initTitlebarVolume, 500);
+}
 
 
 
@@ -7286,24 +8536,115 @@ function showChatNotification(message, sender) {
 }
 
  
-function sendChatMessage() {
+async function sendChatMessage() {
     const input = document.getElementById('chat-input');
     const message = input.value.trim();
     
     if (!message) return;
     
-     
+    // Проверяем команды
     if (message.startsWith('/')) {
         handleCommand(message);
         input.value = '';
         return;
     }
     
-     
     input.value = '';
     
-     
+    // Добавляем сообщение пользователя
+    addChatMessage(message, true);
+    
+    // Проверяем, не является ли это командой для нейросети
+    const aiResult = await handleChatAICommand(message);
+    if (aiResult) {
+        // Это была команда
+        addChatMessage(aiResult.text, false, 'AI');
+        return;
+    }
+    
+    // Обычный запрос к нейросети
     askGigaChat(message);
+}
+
+// Модифицируем askGigaChat чтобы обрабатывать ответы с командами
+async function askGigaChat(question) {
+    const limit = await checkAILimit();
+    const isPremium = premiumStatus?.isPremium || false;
+    
+    if (!isPremium && limit.count >= 10) {
+        addChatMessage(`❌ Достигнут лимит AI запросов (10/день). Подпишитесь на Premium для неограниченного доступа.`, false, 'system');
+        return;
+    }
+    
+    addChatMessage(`🤖 Думаю над: "${question.slice(0, 50)}..."`, false, 'system');
+    
+    try {
+        // Получаем токен GigaChat
+        const authKey = await getGigaAuthKey();
+        const token = await getGigaToken(authKey);
+        
+        // Формируем промпт с инструкцией о командных кодах
+        const systemPrompt = `Ты — AI-помощник в приложении MusicHub.
+
+ВАЖНО: Если пользователь просит управлять музыкой, ты МОЖЕШЬ использовать специальные коды в своём ответе.
+Коды вставляются прямо в текст и приложение их выполнит.
+
+Доступные коды:
+- 🎵[CMD:PLAY] - включить воспроизведение
+- 🎵[CMD:PAUSE] - поставить на паузу
+- 🎵[CMD:STOP] - полностью остановить
+- 🎵[CMD:NEXT] - следующий трек
+- 🎵[CMD:PREV] - предыдущий трек
+- 🎵[CMD:VOLUP] - увеличить громкость на 10%
+- 🎵[CMD:VOLDOWN] - уменьшить громкость на 10%
+- 🎵[CMD:VOLSET:50] - установить громкость 50% (можно любое число от 0 до 100)
+- 🎵[CMD:MUTE] - выключить звук
+- 🎵[CMD:UNMUTE] - включить звук
+
+Примеры ответов:
+- "Включаю музыку! 🎵[CMD:PLAY]"
+- "Переключаю на следующий трек 🎵[CMD:NEXT]"
+- "Устанавливаю громкость 30% 🎵[CMD:VOLSET:30]"
+
+Если пользователь просит что-то не связанное с музыкой, отвечай как обычно, без кодов.
+
+Будь дружелюбным и кратким (2-3 предложения).`;
+
+        const response = await fetch('https://gigachat.devices.sberbank.ru/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                model: 'GigaChat',
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: question }
+                ],
+                temperature: 0.7,
+                max_tokens: 500,
+            })
+        });
+        
+        const data = await response.json();
+        const answer = data.choices?.[0]?.message?.content || 'Не удалось получить ответ';
+        
+        // Обрабатываем ответ - ищем командные коды
+        const processed = handleAIResponse(answer);
+        
+        // Добавляем очищенный ответ в чат
+        addChatMessage(`🤖 ${processed.text}`, false, 'AI');
+        
+        // Если были команды - они уже выполнены в handleAIResponse
+        
+        await incrementAICount();
+        
+    } catch (err) {
+        console.error('AI error:', err);
+        addChatMessage(`❌ Ошибка: ${err.message}`, false, 'system');
+    }
 }
 
 
@@ -7316,11 +8657,30 @@ document.getElementById('startMinimized')?.addEventListener('change', (e) => {
 
 
 
+function safeChatSend(data) {
+    if (chatWebSocket && chatWebSocket.readyState === WebSocket.OPEN) {
+        try {
+            chatWebSocket.send(JSON.stringify(data));
+            return true;
+        } catch (e) {
+            console.log('Ошибка отправки в чат:', e);
+            return false;
+        }
+    }
+    return false;
+}
+
+// Исправленная функция sendTyping
+function sendTyping() {
+    safeChatSend({ type: 'typing' });
+}
+
+// Исправленный обработчик ввода в чате
 document.getElementById('chat-input')?.addEventListener('input', () => {
     if (typingTimeout) clearTimeout(typingTimeout);
-    sendTyping();
+    safeChatSend({ type: 'typing' });
     typingTimeout = setTimeout(() => {
-        chatWebSocket.send(JSON.stringify({ type: 'typing_stop' }));
+        safeChatSend({ type: 'typing_stop' });
     }, 1000);
 });
 
@@ -7328,23 +8688,69 @@ async function handleCommand(command) {
     const parts = command.split(' ');
     const cmd = parts[0].toLowerCase();
     
+    // Проверяем, не является ли это кодом
+    const aiResult = await handleChatAICommand(command);
+    if (aiResult) {
+        addChatMessage(aiResult.text, false, 'AI');
+        return;
+    }
     
     switch(cmd) {
-
-case '/premium-status':
-    const status = premiumStatus || { isPremium: 'unknown' };
-    addChatMessage(`Premium статус: ${JSON.stringify(status)}`, false, 'system');
-    break;
-
-        case '/ai':   
+        case '/ai':
             const query = parts.slice(1).join(' ');
             if (query) {
                 askGigaChat(query);
             } else {
-                addChatMessage('🤖 Использование: /ai [вопрос]\n\nПример: /ai кто написал Bohemian Rhapsody?', false, 'system');
+                addChatMessage('🤖 Использование: /ai [вопрос]', false, 'system');
             }
             break;
+            
+        case '/play':
+            await handlePlayPause();
+            addChatMessage('▶️ Play/Pause', false, 'system');
+            break;
+            
+        case '/stop':
+            await handleStop();
+            addChatMessage('⏹️ Стоп', false, 'system');
+            break;
+            
+        case '/next':
+            await handleNext();
+            addChatMessage('⏭️ Следующий трек', false, 'system');
+            break;
+            
+        case '/prev':
+            await handlePrevious();
+            addChatMessage('⏮️ Предыдущий трек', false, 'system');
+            break;
+            
+        case '/vol':
+            const vol = parseInt(parts[1]);
+            if (!isNaN(vol) && vol >= 0 && vol <= 100) {
+                await setMediaVolume(vol);
+                updateVolumeUI(vol);
+                addChatMessage(`🔊 Громкость: ${vol}%`, false, 'system');
+            } else {
+                addChatMessage('❌ Использование: /vol [0-100]', false, 'system');
+            }
+            break;
+            
+        case '/help':
+            addChatMessage(`📋 Доступные команды:
+/play - Play/Pause
+/stop - Стоп (полная остановка)
+/next - Следующий трек
+/prev - Предыдущий трек
+/vol [0-100] - Установить громкость
+/ai [вопрос] - Спросить у AI
+/clear - Очистить чат
+/coin - Орёл/решка
 
+💡 Также можно писать AI обычным текстом:
+"включи музыку", "следующий трек", "сделай погромче"`, false, 'system');
+            break;
+            
         case '/clear':
             document.getElementById('chat-messages').innerHTML = '';
             addChatMessage('✨ Чат очищен', false, 'system');
@@ -7354,10 +8760,6 @@ case '/premium-status':
             const result = Math.random() < 0.5 ? 'Орёл' : 'Решка';
             addChatMessage(`🪙 Монетка подброшена... ${result}!`, false, 'system');
             break;
-                       
-case '/help':
-    addChatMessage('📋 Доступные команды:\n\n/ai [вопрос] — спросить у AI\n/clear — очистить чат\n/coin — орёл/решка\n/help — показать эту справку', false, 'system');
-    break;
             
         default:
             addChatMessage(`❌ Неизвестная команда: ${cmd}. Введите /help`, false, 'system');

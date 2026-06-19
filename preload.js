@@ -48,9 +48,26 @@ const api = {
     onGlobalSetVolume: (callback) => ipcRenderer.on('global-set-volume', callback),
     setYandexVolume: (volumePercent) => ipcRenderer.send('set-yandex-volume', volumePercent),
     setSystemVolume: (volume) => ipcRenderer.invoke('set-system-volume', volume),
-getSystemVolume: () => ipcRenderer.invoke('get-system-volume'),
-getSystemMuted: () => ipcRenderer.invoke('get-system-muted'),
-setSystemMute: (muted) => ipcRenderer.invoke('set-system-mute', muted),
+    getSystemVolume: () => ipcRenderer.invoke('get-system-volume'),
+    getSystemMuted: () => ipcRenderer.invoke('get-system-muted'),
+    setSystemMute: (muted) => ipcRenderer.invoke('set-system-mute', muted),
+    mediaPlayPause: () => ipcRenderer.invoke('media-playpause'),
+    mediaStop: () => ipcRenderer.invoke('media-stop'),
+    mediaNext: () => ipcRenderer.invoke('media-next'),
+    mediaPrevious: () => ipcRenderer.invoke('media-previous'),
+    mediaPing: () => ipcRenderer.invoke('media-ping'),
+        parseAICommand: (text) => {
+        // Передаём в renderer через ipc
+        return ipcRenderer.invoke('parse-ai-command', text);
+    },
+    executeAICommand: (command) => {
+        return ipcRenderer.invoke('execute-ai-command', command);
+    },
+
+    setStartupPage: (page) => ipcRenderer.send('set-startup-page', page),
+    getStartupPage: () => ipcRenderer.invoke('get-startup-page'),
+    onInitStartupPage: (callback) => ipcRenderer.on('init-startup-page', callback),
+    
     
     // ========== НОВАЯ ФУНКЦИЯ ДЛЯ MUSICHUB И ELECTRON ==========
     setMusicHubVolume: (volume) => {

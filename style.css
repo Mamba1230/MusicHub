@@ -3120,3 +3120,115 @@ webview {
 .volume-slider::-webkit-slider-thumb:hover {
     transform: scale(1.2);
 }
+/* ========== МЕДИА-КНОПКИ ========== */
+.media-control-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 16px 20px;
+    min-width: 70px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: var(--text-primary);
+    user-select: none;
+}
+
+.media-control-btn:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent-color);
+    box-shadow: 0 4px 20px rgba(29, 185, 84, 0.15);
+}
+
+.media-control-btn:active {
+    transform: scale(0.92);
+}
+
+.media-control-btn.primary {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+    color: #000;
+    min-width: 90px;
+    min-height: 90px;
+}
+
+.media-control-btn.primary:hover {
+    box-shadow: 0 0 30px rgba(29, 185, 84, 0.3);
+    transform: translateY(-2px) scale(1.02);
+}
+
+.media-control-btn.stop {
+    border-color: #ff4444;
+}
+
+.media-control-btn.stop:hover {
+    border-color: #ff4444;
+    box-shadow: 0 4px 20px rgba(255, 68, 68, 0.2);
+}
+
+/* Быстрые AI-кнопки */
+.quick-ai-btn {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--text-primary);
+    transition: all 0.2s;
+}
+
+.quick-ai-btn:hover {
+    background: var(--accent-color);
+    color: #000;
+    transform: scale(1.05);
+}
+
+/* Анимация нажатия */
+.media-control-btn.pressed {
+    animation: mediaPress 0.3s ease;
+}
+
+@keyframes mediaPress {
+    0% { transform: scale(1); }
+    50% { transform: scale(0.85); }
+    100% { transform: scale(1); }
+}
+
+/* Индикатор статуса */
+.media-status-playing {
+    color: #1DB954 !important;
+}
+
+.media-status-paused {
+    color: #ffaa00 !important;
+}
+
+.media-status-stopped {
+    color: #ff4444 !important;
+}
+
+/* Стили для селекта в настройках */
+.setting-item select {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    outline: none;
+    width: 100%;
+}
+
+.setting-item select:hover {
+    border-color: var(--accent-color);
+}
+
+.setting-item select:focus {
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 2px rgba(29, 185, 84, 0.2);
+}

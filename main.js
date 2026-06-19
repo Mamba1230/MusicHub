@@ -45,11 +45,19 @@ const loadConfig = () => {
             y: config.y,
             activeTab: config.activeTab || 'yandex',
             theme: config.theme || 'dark',
-            startMinimized: config.startMinimized || false
+            startMinimized: config.startMinimized || false,
+            startupPage: config.startupPage || 'last'  // ✅ Добавлено
         };
     } 
     catch (e) { 
-        return { width: 1300, height: 850, activeTab: 'yandex', theme: 'dark', startMinimized: false }; 
+        return { 
+            width: 1300, 
+            height: 850, 
+            activeTab: 'yandex', 
+            theme: 'dark', 
+            startMinimized: false,
+            startupPage: 'last'  // ✅ Добавлено
+        }; 
     }
 };
 
@@ -64,14 +72,145 @@ const saveConfig = () => {
                 y: bounds.y,
                 activeTab: activeTab,
                 theme: theme,
-                startMinimized: startMinimizedFlag
+                startMinimized: startMinimizedFlag,
+                startupPage: startupPage || 'last'  // ✅ Убедитесь, что это поле есть
             };
-            fs.writeFileSync(configPath, JSON.stringify(config));
+            fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+            console.log('💾 Config saved:', config);
+        } else {
+            // Если окна нет, сохраняем без bounds
+            const config = {
+                width: 1300,
+                height: 850,
+                activeTab: activeTab,
+                theme: theme,
+                startMinimized: startMinimizedFlag,
+                startupPage: startupPage || 'last'
+            };
+            fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+            console.log('💾 Config saved (no window):', config);
         }
     } catch (e) {
-        console.log('Ошибка сохранения конфига:', e.message);
+        console.log('❌ Ошибка сохранения конфига:', e.message);
     }
 };
+
+
+
+// ========== УПРАВЛЕНИЕ МЕДИА-КНОПКАМИ ЧЕРЕЗ VOLUMECONTROLLER ==========
+async function sendMediaCommand(command) {
+    // command: 'playpause', 'stop', 'next', 'previous'
+    const port = 9876;
+    const url = `http://localhost:${port}/media-${command}`;
+    
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+        const result = await response.json();
+        return result.success === true;
+    } catch (error) {
+        console.error('Ошибка отправки медиа-команды:', error);
+        return false;
+    }
+}
+
+// ========== ОБРАБОТЧИКИ МЕДИА-КНОПОК ==========
+ipcMain.handle('media-playpause', async () => {
+    return await sendMediaCommand('playpause');
+});
+
+ipcMain.handle('media-stop', async () => {
+    return await sendMediaCommand('stop');
+});
+
+ipcMain.handle('media-next', async () => {
+    return await sendMediaCommand('next');
+});
+
+ipcMain.handle('media-previous', async () => {
+    return await sendMediaCommand('previous');
+});
+
+// Проверка доступности VolumeController
+ipcMain.handle('media-ping', async () => {
+    try {
+        const response = await fetch('http://localhost:9876/media-ping', {
+            method: 'POST',
+            signal: AbortSignal.timeout(1000)
+        });
+        return response.ok;
+    } catch {
+        return false;
+    }
+});
+
+ipcMain.handle('parse-ai-command', (event, text) => {
+    // Парсим команды из текста
+    const commands = [];
+    
+    const patterns = {
+        '🎵\\[CMD:PLAY\\]': 'play',
+        '🎵\\[CMD:PAUSE\\]': 'pause',
+        '🎵\\[CMD:STOP\\]': 'stop',
+        '🎵\\[CMD:NEXT\\]': 'next',
+        '🎵\\[CMD:PREV\\]': 'prev',
+        '🎵\\[CMD:VOLUP\\]': 'volume_up',
+        '🎵\\[CMD:VOLDOWN\\]': 'volume_down',
+        '🎵\\[CMD:MUTE\\]': 'mute',
+        '🎵\\[CMD:UNMUTE\\]': 'unmute',
+        '🎵\\[CMD:TOGGLE\\]': 'toggle',
+        '🎵\\[CMD:VOLSET:(\\d+)\\]': 'volume_set'
+    };
+    
+    for (const [pattern, command] of Object.entries(patterns)) {
+        const regex = new RegExp(pattern, 'g');
+        let match;
+        while ((match = regex.exec(text)) !== null) {
+            if (command === 'volume_set' && match[1]) {
+                commands.push({ command, value: parseInt(match[1]) });
+            } else {
+                commands.push({ command });
+            }
+        }
+    }
+    
+    return commands;
+});
+
+ipcMain.handle('execute-ai-command', async (event, commandData) => {
+    // Выполняем команду через VolumeController
+    const { command, value } = commandData;
+    
+    switch(command) {
+        case 'play':
+        case 'pause':
+        case 'toggle':
+            return await sendMediaCommand('playpause');
+        case 'stop':
+            return await sendMediaCommand('stop');
+        case 'next':
+            return await sendMediaCommand('next');
+        case 'prev':
+            return await sendMediaCommand('previous');
+        case 'volume_up':
+        case 'volume_down':
+        case 'volume_set':
+            // Получаем текущую громкость и меняем
+            // ...
+            return true;
+        case 'mute':
+            // Выключаем звук
+            return true;
+        case 'unmute':
+            // Включаем звук
+            return true;
+        default:
+            return false;
+    }
+});
 
 
 let volumeControllerProcess = null;
@@ -753,13 +892,21 @@ app.on('web-contents-created', (event, contents) => {
 });
 
     win.once('ready-to-show', () => {
-        if (startMinimizedFlag) win.hide();
-        else win.show();
+        // Показываем или скрываем окно
+        if (startMinimizedFlag) {
+            win.hide();
+        } else {
+            win.show();
+        }
+        
+        // Отправляем настройки в renderer
         if (win && !win.isDestroyed()) {
             win.webContents.send('init-active-tab', config.activeTab || 'yandex');
             win.webContents.send('init-theme', config.theme || 'dark');
+
         }
     });
+
 
 win.on('close', (e) => {
     // Сохраняем размер и позицию ПЕРЕД скрытием
@@ -846,6 +993,23 @@ app.on('second-instance', (event, commandLine, workingDirectory) => {
         }
     }
 });
+
+
+ipcMain.on('set-startup-page', (event, page) => {
+    startupPage = page;
+    console.log(`💾 Сохранение startupPage в main: ${page}`);
+    saveConfig(); // <- эта функция должна перезаписывать файл
+    // Дополнительно можно отправить подтверждение обратно
+    event.reply('startup-page-saved', { success: true, page });
+});
+
+// Получение страницы запуска
+ipcMain.handle('get-startup-page', () => {
+    const saved = startupPage || 'last';
+    console.log(`📤 Возвращаю startupPage: ${saved}`);
+    return saved;
+});
+
 
 
 app.whenReady().then(() => {

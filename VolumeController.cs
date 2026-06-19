@@ -4,6 +4,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.IO;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using NAudio.CoreAudioApi;
 
 namespace VolumeController
@@ -14,9 +15,24 @@ namespace VolumeController
         private static readonly int Port = 9876;
         private static bool _noTargetProcesses = false;
 
+        // Импорт Windows API для медиа-кнопок
+        [DllImport("user32.dll")]
+        private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
+        [DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int vKey);
+
+        private const byte VK_MEDIA_PLAY_PAUSE = 0xB3;
+        private const byte VK_MEDIA_STOP = 0xB2;
+        private const byte VK_MEDIA_NEXT_TRACK = 0xB0;
+        private const byte VK_MEDIA_PREV_TRACK = 0xB1;
+
+        private const uint KEYEVENTF_KEYDOWN = 0x0000;
+        private const uint KEYEVENTF_KEYUP = 0x0002;
+
         static async Task Main(string[] args)
         {
-            Console.WriteLine("VolumeController v9.0 (Auto-close)");
+            Console.WriteLine("VolumeController v9.1 (Media Keys Support)");
 
             // Проверяем, есть ли целевые процессы
             if (!CheckTargetProcessesExist())
@@ -55,7 +71,7 @@ namespace VolumeController
         {
             while (true)
             {
-                await Task.Delay(5000); // Проверяем каждые 5 секунд
+                await Task.Delay(5000);
 
                 bool anyAlive = false;
                 string[] targetNames = { "musichub", "electron" };
@@ -106,7 +122,7 @@ namespace VolumeController
             var response = context.Response;
 
             response.Headers.Add("Access-Control-Allow-Origin", "*");
-            response.Headers.Add("Access-Control-Allow-Methods", "POST, OPTIONS");
+            response.Headers.Add("Access-Control-Allow-Methods", "POST, OPTIONS, GET");
 
             if (request.HttpMethod == "OPTIONS")
             {
@@ -115,23 +131,62 @@ namespace VolumeController
                 return;
             }
 
-            if (request.HttpMethod == "POST" && request.Url?.AbsolutePath == "/set-volume")
+            // ========== ОБРАБОТКА МЕДИА-КОМАНД ==========
+            if (request.HttpMethod == "POST")
             {
                 string body = new StreamReader(request.InputStream).ReadToEnd();
-                float targetVolume = ParseVolume(body);
 
-                bool success = SetVolumeForProcesses(targetVolume);
-
-                string responseText = success ? "{\"success\": true}" : "{\"success\": false}";
-                byte[] buffer = Encoding.UTF8.GetBytes(responseText);
-                response.ContentLength64 = buffer.Length;
-                await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
-                response.StatusCode = 200;
+                if (request.Url?.AbsolutePath == "/set-volume")
+                {
+                    float targetVolume = ParseVolume(body);
+                    bool success = SetVolumeForProcesses(targetVolume);
+                    SendResponse(response, success);
+                }
+                else if (request.Url?.AbsolutePath == "/media-playpause")
+                {
+                    bool success = SendMediaKey(VK_MEDIA_PLAY_PAUSE);
+                    SendResponse(response, success);
+                }
+                else if (request.Url?.AbsolutePath == "/media-stop")
+                {
+                    bool success = SendMediaKey(VK_MEDIA_STOP);
+                    SendResponse(response, success);
+                }
+                else if (request.Url?.AbsolutePath == "/media-next")
+                {
+                    bool success = SendMediaKey(VK_MEDIA_NEXT_TRACK);
+                    SendResponse(response, success);
+                }
+                else if (request.Url?.AbsolutePath == "/media-previous")
+                {
+                    bool success = SendMediaKey(VK_MEDIA_PREV_TRACK);
+                    SendResponse(response, success);
+                }
+                else if (request.Url?.AbsolutePath == "/media-ping")
+                {
+                    // Проверка доступности
+                    SendResponse(response, true);
+                }
+                else
+                {
+                    response.StatusCode = 404;
+                    response.Close();
+                }
             }
             else
             {
                 response.StatusCode = 404;
+                response.Close();
             }
+        }
+
+        static void SendResponse(HttpListenerResponse response, bool success)
+        {
+            string responseText = success ? "{\"success\": true}" : "{\"success\": false}";
+            byte[] buffer = Encoding.UTF8.GetBytes(responseText);
+            response.ContentLength64 = buffer.Length;
+            response.OutputStream.Write(buffer, 0, buffer.Length);
+            response.StatusCode = 200;
             response.Close();
         }
 
@@ -214,5 +269,78 @@ namespace VolumeController
 
             return success;
         }
+
+        // ========== ОТПРАВКА МЕДИА-КЛАВИШ ==========
+        static bool SendMediaKey(byte keyCode)
+        {
+            try
+            {
+                // Нажимаем и отпускаем клавишу
+                keybd_event(keyCode, 0, KEYEVENTF_KEYDOWN, UIntPtr.Zero);
+                System.Threading.Thread.Sleep(50);
+                keybd_event(keyCode, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+
+                Console.WriteLine($"🎵 Отправлена медиа-клавиша: {keyCode:X2}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Ошибка отправки медиа-клавиши: {ex.Message}");
+                return false;
+            }
+        }
+
+        // Альтернативный метод через SendMessage (если keybd_event не работает)
+        static bool SendMediaKeyViaMessage(byte keyCode)
+        {
+            try
+            {
+                // Ищем окно, которое может обработать медиа-команды
+                IntPtr hWnd = FindWindow("Shell_TrayWnd", null);
+                if (hWnd == IntPtr.Zero)
+                {
+                    // Пробуем найти активное окно
+                    hWnd = GetForegroundWindow();
+                }
+
+                if (hWnd != IntPtr.Zero)
+                {
+                    // Отправляем сообщение WM_APPCOMMAND для медиа-кнопок
+                    const int WM_APPCOMMAND = 0x0319;
+                    const int APPCOMMAND_MEDIA_PLAY_PAUSE = 14;
+                    const int APPCOMMAND_MEDIA_STOP = 13;
+                    const int APPCOMMAND_MEDIA_NEXTTRACK = 11;
+                    const int APPCOMMAND_MEDIA_PREVIOUSTRACK = 12;
+
+                    int command = 0;
+                    switch (keyCode)
+                    {
+                        case VK_MEDIA_PLAY_PAUSE: command = APPCOMMAND_MEDIA_PLAY_PAUSE; break;
+                        case VK_MEDIA_STOP: command = APPCOMMAND_MEDIA_STOP; break;
+                        case VK_MEDIA_NEXT_TRACK: command = APPCOMMAND_MEDIA_NEXTTRACK; break;
+                        case VK_MEDIA_PREV_TRACK: command = APPCOMMAND_MEDIA_PREVIOUSTRACK; break;
+                        default: return false;
+                    }
+
+                    SendMessage(hWnd, WM_APPCOMMAND, IntPtr.Zero, (IntPtr)(command << 16));
+                    return true;
+                }
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        // Windows API для альтернативного метода
+        [DllImport("user32.dll")]
+        private static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
     }
 }
