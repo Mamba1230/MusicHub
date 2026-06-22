@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>MusicHub Mobile</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            background: #0a0a0a;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            min-height: 100dvh;
+            overflow: hidden;
+            transition: background 0.5s;
+            touch-action: manipulation;
+        }
+        
+        :root {
+            --accent: #1DB954;
+            --accent-dim: rgba(29, 185, 84, 0.15);
+            --bg: #0a0a0a;
+            --card: #141414;
+            --text: #fff;
+            --text-secondary: #999;
+        }
+        
+        .container {
+            width: 100%;
+            max-width: 500px;
+            padding: 16px 20px;
+            height: 100vh;
+            height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        /* === ОБЩИЕ СТИЛИ ДЛЯ ИКОНОК === */
+        .icon-btn {
+            background: none;
+            border: none;
+            color: #fff;
+            cursor: pointer;
+            transition: all 0.2s;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+            user-select: none;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .icon-btn:active {
+            transform: scale(0.85);
+        }
+        
+        .icon-btn svg {
+            width: 100%;
+            height: 100%;
+            fill: currentColor;
+            transition: fill 0.3s;
+        }
+        
+        /* === ВЕРХ === */
+        .header {
+            text-align: center;
+            padding: 2px 0;
+            flex-shrink: 0;
+        }
+        
+        .header .status {
+            font-size: 11px;
+            color: #666;
+            letter-spacing: 1px;
+        }
+        
+        .header .service {
+            font-size: 10px;
+            color: var(--accent, #1DB954);
+            transition: color 0.3s;
+        }
+        
+        /* === ОБЛОЖКА === */
+        .artwork-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 8px 0;
+            flex-shrink: 0;
+        }
+        
+        .artwork {
+            width: 260px;
+            height: 260px;
+            max-width: 70vmin;
+            max-height: 70vmin;
+            border-radius: 20px;
+            background: #1a1a1a;
+            object-fit: cover;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+            transition: all 0.5s;
+        }
+        
+        .artwork.placeholder {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 70px;
+            background: linear-gradient(135deg, #1a1a1a, #2a2a2a);
+        }
+        
+        .artwork.placeholder::after {
+            content: '🎵';
+        }
+        
+        /* === ТРЕК === */
+        .track-info {
+            text-align: center;
+            padding: 4px 0;
+            flex-shrink: 0;
+        }
+        
+        .track-title {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 2px;
+            transition: color 0.3s;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .track-artist {
+            font-size: 15px;
+            color: #aaa;
+            transition: color 0.3s;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        /* === КНОПКИ УПРАВЛЕНИЯ === */
+        .controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 28px;
+            padding: 8px 0;
+            flex-shrink: 0;
+        }
+        
+        .controls .icon-btn {
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.06);
+            padding: 12px;
+        }
+        
+        .controls .icon-btn svg {
+            width: 24px;
+            height: 24px;
+        }
+        
+.controls .play-btn {
+    width: 72px;
+    height: 72px;
+    background: var(--accent, #1DB954);
+    padding: 18px;
+    box-shadow: 0 0 30px var(--accent-glow, rgba(29, 185, 84, 0.15));
+}
+        
+        .controls .play-btn svg {
+            width: 32px;
+            height: 32px;
+            fill: #000;
+        }
+        
+.controls .play-btn.playing {
+    box-shadow: 0 0 40px var(--accent-glow-strong, rgba(29, 185, 84, 0.3));
+}
+        
+        /* === ГРОМКОСТЬ (горизонтальная) === */
+        .volume-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 4px 0;
+            flex-shrink: 0;
+        }
+        
+        .volume-icon {
+            font-size: 18px;
+            color: #666;
+            transition: color 0.3s;
+            flex-shrink: 0;
+        }
+        
+        .volume-slider {
+            flex: 1;
+            height: 6px;
+            -webkit-appearance: none;
+            background: #333;
+            border-radius: 3px;
+            outline: none;
+            transition: background 0.3s;
+        }
+        
+        .volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--accent, #1DB954);
+            cursor: pointer;
+            transition: background 0.3s, transform 0.15s;
+            box-shadow: 0 0 12px rgba(29, 185, 84, 0.2);
+        }
+        
+        .volume-slider::-webkit-slider-thumb:active {
+            transform: scale(1.1);
+        }
+        
+        .volume-percent {
+            font-size: 12px;
+            color: #666;
+            min-width: 36px;
+            text-align: right;
+            transition: color 0.3s;
+            flex-shrink: 0;
+        }
+        
+        /* === НИЗ === */
+        .footer {
+            text-align: center;
+            padding: 2px 0;
+            flex-shrink: 0;
+        }
+        
+        .footer .ip {
+            font-size: 11px;
+            color: #444;
+        }
+        
+        /* === АНИМАЦИЯ ПУЛЬСАЦИИ === */
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        .artwork.playing {
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        /* ============================================================ */
+        /* === ГОРИЗОНТАЛЬНЫЙ РЕЖИМ (LANDSCAPE) === */
+        /* ============================================================ */
+        @media (orientation: landscape) and (max-height: 500px),
+               (orientation: landscape) and (max-width: 800px) {
+            
+            .container {
+                flex-direction: row;
+                max-width: 100%;
+                padding: 16px 24px;
+                gap: 20px;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            /* Левая колонка — обложка */
+            .artwork-container {
+                flex: 0 0 auto;
+                padding: 0;
+                height: 100%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            .artwork {
+                width: 72vmin;
+                height: 72vmin;
+                max-width: 85vmin;
+                max-height: 85vmin;
+                min-width: 100px;
+                min-height: 100px;
+            }
+            
+            /* Правая колонка — центрированная */
+            .right-panel {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                gap: 6px;
+                min-width: 0;
+                height: 100%;
+                padding: 4px 0;
+                max-width: 500px;
+            }
+            
+            .header {
+                text-align: center;
+                padding: 0;
+            }
+            
+            .header .status { font-size: 10px; }
+            .header .service { font-size: 9px; }
+            
+            .track-info {
+                text-align: center;
+                padding: 2px 0;
+                width: 100%;
+            }
+            
+            .track-title {
+                font-size: 16px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            
+            .track-artist {
+                font-size: 12px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            
+            .controls {
+                padding: 4px 0;
+                gap: 20px;
+            }
+            
+            .controls .icon-btn {
+                width: 44px;
+                height: 44px;
+                padding: 10px;
+            }
+            
+            .controls .icon-btn svg {
+                width: 20px;
+                height: 20px;
+            }
+            
+            .controls .play-btn {
+                width: 60px;
+                height: 60px;
+                padding: 14px;
+            }
+            
+            .controls .play-btn svg {
+                width: 28px;
+                height: 28px;
+            }
+            
+            /* === ВЕРТИКАЛЬНЫЙ ПОЛЗУНОК ГРОМКОСТИ === */
+            .volume-container {
+                display: flex;
+                flex-direction: row;
+                align-items: center;
+                gap: 12px;
+                padding: 2px 0;
+                width: 100%;
+                max-width: 300px;
+                justify-content: center;
+            }
+            
+            .volume-icon {
+                font-size: 16px;
+            }
+            
+            .volume-slider {
+                flex: 1;
+                height: 6px;
+                max-width: 200px;
+            }
+            
+            .volume-percent {
+                font-size: 11px;
+                min-width: 32px;
+            }
+            
+            .footer {
+                text-align: center;
+                padding: 0;
+            }
+            
+            .footer .ip { font-size: 10px; }
+        }
+        
+        /* ============================================================ */
+        /* === ОЧЕНЬ МАЛЕНЬКИЕ ЭКРАНЫ === */
+        /* ============================================================ */
+        @media (max-width: 380px) {
+            .artwork { width: 200px; height: 200px; }
+            .controls .icon-btn { width: 44px; height: 44px; padding: 10px; }
+            .controls .icon-btn svg { width: 20px; height: 20px; }
+            .controls .play-btn { width: 60px; height: 60px; padding: 14px; }
+            .controls .play-btn svg { width: 28px; height: 28px; }
+            .track-title { font-size: 17px; }
+            .track-artist { font-size: 13px; }
+        }
+        
+        @media (max-width: 380px) and (orientation: landscape) {
+            .artwork { width: 25vmin; height: 25vmin; min-width: 80px; min-height: 80px; }
+            .controls .icon-btn { width: 38px; height: 38px; padding: 8px; }
+            .controls .icon-btn svg { width: 18px; height: 18px; }
+            .controls .play-btn { width: 50px; height: 50px; padding: 12px; }
+            .controls .play-btn svg { width: 24px; height: 24px; }
+            .track-title { font-size: 14px; }
+            .track-artist { font-size: 11px; }
+        }
+        
+        /* ============================================================ */
+        /* === ПЛАНШЕТЫ === */
+        /* ============================================================ */
+        @media (min-width: 600px) and (orientation: portrait) {
+            .artwork { width: 340px; height: 340px; }
+            .track-title { font-size: 28px; }
+            .track-artist { font-size: 20px; }
+            .controls .icon-btn { width: 64px; height: 64px; padding: 16px; }
+            .controls .icon-btn svg { width: 30px; height: 30px; }
+            .controls .play-btn { width: 88px; height: 88px; padding: 22px; }
+            .controls .play-btn svg { width: 40px; height: 40px; }
+        }
+        
+        @media (min-width: 800px) and (orientation: landscape) {
+            .artwork { width: 38vmin; height: 38vmin; }
+            .track-title { font-size: 22px; }
+            .track-artist { font-size: 16px; }
+            .controls .icon-btn { width: 52px; height: 52px; padding: 12px; }
+            .controls .icon-btn svg { width: 24px; height: 24px; }
+            .controls .play-btn { width: 68px; height: 68px; padding: 16px; }
+            .controls .play-btn svg { width: 32px; height: 32px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="app">
+        <!-- Левая часть: обложка -->
+        <div class="artwork-container">
+            <img id="artwork" class="artwork placeholder" src="" alt="Обложка">
+        </div>
+        
+        <!-- Правая часть (всё остальное) -->
+        <div class="right-panel">
+            <!-- Верх -->
+            <div class="header">
+                <div class="status">🎵 MusicHub Mobile</div>
+                <div class="service" id="service">—</div>
+            </div>
+            
+            <!-- Трек -->
+            <div class="track-info">
+                <div class="track-title" id="title">Не играет</div>
+                <div class="track-artist" id="artist">—</div>
+            </div>
+            
+            <!-- Кнопки управления с иконками -->
+            <div class="controls">
+                <!-- Предыдущий трек -->
+                <button id="prevBtn" class="icon-btn" aria-label="Предыдущий">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
+                    </svg>
+                </button>
+                
+                <!-- Play/Pause -->
+                <button id="playBtn" class="icon-btn play-btn" aria-label="Воспроизвести">
+                    <svg viewBox="0 0 24 24" id="playIcon">
+                        <path d="M8 5v14l11-7z"/>
+                    </svg>
+                </button>
+                
+                <!-- Следующий трек -->
+                <button id="nextBtn" class="icon-btn" aria-label="Следующий">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+                    </svg>
+                </button>
+            </div>
+            
+            <!-- Громкость -->
+            <div class="volume-container">
+                <span class="volume-icon" id="volumeIcon">🔊</span>
+                <input type="range" id="volumeSlider" class="volume-slider" min="0" max="100" value="50">
+                <span class="volume-percent" id="volumePercent">50%</span>
+            </div>
+            
+            <!-- Низ -->
+            <div class="footer">
+                <div class="ip" id="ipDisplay">Подключение...</div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    // === НАСТРОЙКИ ===
+let ws = null;
+let isConnected = false;
+let currentVolume = 50;
+let isPlayingState = false;
+let currentAccentColor = '#1DB954';
+
+// === ЗАЩИТА ОТ МИГАНИЯ ===
+let lastStatus = {};
+let statusUpdateTimeout = null;
+
+// === DOM ===
+const artwork = document.getElementById('artwork');
+const title = document.getElementById('title');
+const artist = document.getElementById('artist');
+const service = document.getElementById('service');
+const playBtn = document.getElementById('playBtn');
+const playIcon = document.getElementById('playIcon');
+const prevBtn = document.getElementById('prevBtn');
+const nextBtn = document.getElementById('nextBtn');
+const volumeSlider = document.getElementById('volumeSlider');
+const volumePercent = document.getElementById('volumePercent');
+const volumeIcon = document.getElementById('volumeIcon');
+const ipDisplay = document.getElementById('ipDisplay');
+
+// === КОНВЕРТЕР HEX → RGBA ===
+function hexToRgba(hex, alpha) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    if (!result) return `rgba(29, 185, 84, ${alpha})`;
+    const r = parseInt(result[1], 16);
+    const g = parseInt(result[2], 16);
+    const b = parseInt(result[3], 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// === ОБНОВЛЕНИЕ GLOW КНОПКИ ===
+function updatePlayButtonGlow(color) {
+    if (!playBtn) return;
+    currentAccentColor = color || '#1DB954';
+    const rgba = hexToRgba(currentAccentColor, 0.3);
+    const rgbaLight = hexToRgba(currentAccentColor, 0.15);
+    
+    if (playBtn.classList.contains('playing')) {
+        playBtn.style.boxShadow = `0 0 40px ${rgba}`;
+    } else {
+        playBtn.style.boxShadow = `0 0 30px ${rgbaLight}`;
+    }
+}
+
+// === ПОДКЛЮЧЕНИЕ К СЕРВЕРУ ===
+function connect() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    
+    ipDisplay.textContent = '⏳ Подключение...';
+    ipDisplay.style.color = '#ffaa00';
+    ipDisplay.style.opacity = '1';
+    
+    try {
+        ws = new WebSocket(wsUrl);
+        
+        ws.onopen = () => {
+            console.log('✅ Подключено к MusicHub');
+            isConnected = true;
+            
+            ipDisplay.textContent = '✅ Подключено';
+            ipDisplay.style.color = '#1DB954';
+            ipDisplay.style.transition = 'opacity 0.5s';
+            
+            setTimeout(() => {
+                ipDisplay.style.opacity = '0';
+                setTimeout(() => {
+                    ipDisplay.textContent = '';
+                    ipDisplay.style.opacity = '1';
+                }, 500);
+            }, 2000);
+        };
+        
+        ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'status') {
+                    // === ЗАЩИТА ОТ МИГАНИЯ ===
+                    const statusKey = JSON.stringify(data.data);
+                    if (statusKey !== lastStatus.key) {
+                        lastStatus.key = statusKey;
+                        clearTimeout(statusUpdateTimeout);
+                        statusUpdateTimeout = setTimeout(() => {
+                            updateUI(data.data);
+                        }, 50);
+                    }
+                }
+            } catch (e) {
+                console.error('Ошибка:', e);
+            }
+        };
+        
+        ws.onclose = () => {
+            isConnected = false;
+            ipDisplay.textContent = '🔴 Отключено';
+            ipDisplay.style.color = '#ff4444';
+            ipDisplay.style.opacity = '1';
+            setTimeout(connect, 3000);
+        };
+        
+        ws.onerror = () => {};
+    } catch (e) {
+        ipDisplay.textContent = '⚠️ Ошибка';
+        ipDisplay.style.color = '#ff4444';
+        setTimeout(connect, 5000);
+    }
+}
+
+// === ОБНОВЛЕНИЕ UI ===
+function updateUI(data) {
+    // === СОХРАНЯЕМ АКЦЕНТНЫЙ ЦВЕТ (НЕ СБРАСЫВАЕМ ЕСЛИ НЕТ) ===
+    if (data.accentColor && data.accentColor !== 'null' && data.accentColor !== 'undefined') {
+        currentAccentColor = data.accentColor;
+        document.documentElement.style.setProperty('--accent', currentAccentColor);
+        document.body.style.background = `#0a0a0a`;
+        document.body.style.backgroundImage = `
+            radial-gradient(circle at 50% 0%, ${currentAccentColor}22 0%, transparent 70%)
+        `;
+        updatePlayButtonGlow(currentAccentColor);
+    }
+    
+    // === ОБНОВЛЯЕМ ТРЕК (ТОЛЬКО ЕСЛИ ЕСТЬ ДАННЫЕ) ===
+    if (data.title && data.title !== 'null' && data.title !== 'undefined') {
+        title.textContent = data.title;
+    }
+    if (data.artist && data.artist !== 'null' && data.artist !== 'undefined') {
+        artist.textContent = data.artist;
+    }
+    
+    // === ОБНОВЛЯЕМ СЕРВИС ===
+    if (data.service) {
+        const serviceNames = {
+            'yandex': 'Яндекс Музыка',
+            'youtube': 'YouTube Music',
+            'soundcloud': 'SoundCloud',
+            'spotify': 'Spotify',
+            'vk': 'VK Music'
+        };
+        service.textContent = serviceNames[data.service] || data.service;
+    }
+    
+    // === ОБЛОЖКА ===
+    if (data.artwork && data.artwork !== '' && data.artwork !== 'null' && data.artwork !== 'undefined') {
+        artwork.src = data.artwork;
+        artwork.classList.remove('placeholder');
+        artwork.style.display = 'block';
+    } else {
+        // НЕ СБРАСЫВАЕМ ОБЛОЖКУ ЕСЛИ ОНА УЖЕ ЕСТЬ
+        if (!artwork.src || artwork.src === '') {
+            artwork.src = '';
+            artwork.classList.add('placeholder');
+            artwork.style.display = 'flex';
+        }
+    }
+    
+    // === PLAY/PAUSE ===
+    if (data.isPlaying !== undefined && data.isPlaying !== null) {
+        isPlayingState = data.isPlaying;
+        updatePlayButton(isPlayingState);
+    }
+    
+    // === ГРОМКОСТЬ (С ЗАЩИТОЙ ОТ СБРОСА) ===
+    if (data.volume !== undefined && data.volume !== null) {
+        let vol = Math.round(data.volume * 100);
+        // Ограничиваем от 1 до 100
+        vol = Math.max(1, Math.min(100, vol));
+        
+        // Если громкость сильно отличается от текущей — обновляем
+        if (Math.abs(vol - currentVolume) > 0.5) {
+            currentVolume = vol;
+            volumeSlider.value = vol;
+            volumePercent.textContent = `${vol}%`;
+            updateVolumeIcon(vol);
+        }
+    }
+}
+
+// === ОБНОВЛЕНИЕ PLAY BUTTON ===
+function updatePlayButton(playing) {
+    isPlayingState = playing;
+    if (playing) {
+        playBtn.classList.add('playing');
+        artwork.classList.add('playing');
+        playIcon.innerHTML = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
+        playBtn.setAttribute('aria-label', 'Пауза');
+        const rgba = hexToRgba(currentAccentColor, 0.3);
+        playBtn.style.boxShadow = `0 0 40px ${rgba}`;
+    } else {
+        playBtn.classList.remove('playing');
+        artwork.classList.remove('playing');
+        playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+        playBtn.setAttribute('aria-label', 'Воспроизвести');
+        const rgbaLight = hexToRgba(currentAccentColor, 0.15);
+        playBtn.style.boxShadow = `0 0 30px ${rgbaLight}`;
+    }
+}
+
+// === ИКОНКА ГРОМКОСТИ ===
+function updateVolumeIcon(vol) {
+    if (vol <= 1) volumeIcon.textContent = '🔇';
+    else if (vol < 30) volumeIcon.textContent = '🔈';
+    else if (vol < 70) volumeIcon.textContent = '🔉';
+    else volumeIcon.textContent = '🔊';
+}
+
+// === ОТПРАВКА КОМАНД ===
+async function sendCommand(endpoint, data = {}) {
+    try {
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        return await response.json();
+    } catch (e) {
+        console.error('Ошибка:', e);
+    }
+}
+
+// === ОБРАБОТЧИКИ ===
+playBtn.addEventListener('click', () => {
+    sendCommand('/api/play');
+    // Оптимистичное обновление
+    updatePlayButton(!isPlayingState);
+});
+
+prevBtn.addEventListener('click', () => {
+    sendCommand('/api/prev');
+});
+
+nextBtn.addEventListener('click', () => {
+    sendCommand('/api/next');
+});
+
+// === ГРОМКОСТЬ С ОГРАНИЧЕНИЕМ ===
+volumeSlider.addEventListener('input', (e) => {
+    let vol = parseInt(e.target.value);
+    // Ограничение: минимум 1%
+    if (vol < 1) {
+        vol = 1;
+        e.target.value = 1;
+    }
+    currentVolume = vol;
+    volumePercent.textContent = `${vol}%`;
+    updateVolumeIcon(vol);
+    sendCommand('/api/volume', { volume: vol / 100 });
+});
+
+// === ЗАПУСК ===
+connect();
+
+fetch('/api/status')
+    .then(res => res.json())
+    .then(data => updateUI(data))
+    .catch(() => {});
+
+console.log('📱 MusicHub Mobile v3.3 загружен');
+console.log('📱 Исправлены баги с громкостью и миганием!');
+    </script>
+</body>
+</html>
