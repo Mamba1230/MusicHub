@@ -9,7 +9,9 @@
         let useFakeVisualizer = true;
         let currentVizMode = 'bars';
         let currentBtnEffect = 'pulse';
-        
+
+        let audioMode = 0;
+
         let soundEnabled = true;
         let soundType = 'beep1';
         
@@ -22,15 +24,26 @@
         globalUpdateStatsUI = updateStatsUI;
 
         let lastActiveBeforeTemp = null;
+        
         let tempWebviewOpened = false;
 
         let globalSaveTrackToHistory = null;
         let globalShowHomePage = null;
 
+        let scriptProcessorNode = null;
+        let audioQueue = [];
+        let queueProcessorActive = false;
+        let sharedSampleRate = 48000;
+        let sharedChannels = 2;
 
         let isMediaPlaying = false;
         let currentMediaVolume = 100;
         let mediaStatusInterval = null;
+
+
+        let lastMentionedArtist = null; // Хранит последнего упомянутого исполнителя
+let chatHistory = []; // История диалога для контекста
+const MAX_HISTORY = 10; // Сколько последних сообщений хранить
 
         const services = [
             { id: 'yandex', name: 'Яндекс Музыка', url: 'https://music.yandex.ru', icon: 'Y' },
@@ -415,15 +428,12 @@ function initMediaControls() {
     if (nextBtn) nextBtn.onclick = handleNext;
     if (prevBtn) prevBtn.onclick = handlePrevious;
 
-    // Синхронизация слайдера на домашней странице
     if (volumeSlider) {
         volumeSlider.oninput = async (e) => {
             const val = parseInt(e.target.value);
             await setMediaVolume(val);
             syncVolumeUI(val);
         };
-        
-        // Синхронизируем с тайтлбаром при загрузке
         const savedVol = parseInt(localStorage.getItem('mediaVolume')) || 100;
         volumeSlider.value = savedVol;
         const display = document.getElementById('homeVolumeDisplay');
@@ -466,50 +476,130 @@ function initMediaControls() {
         };
     });
 
-    // Горячие клавиши
-    document.removeEventListener('keydown', mediaKeyHandler);
-    document.addEventListener('keydown', mediaKeyHandler);
-
     console.log('🎵 Медиа-управление инициализировано');
-    console.log('🎮 Горячие клавиши: Ctrl+Shift+Space, ←, →, ., ↑, ↓');
+    console.log('🎮 Горячие клавиши управляются через настройки');
 }
 
 // Обработчик горячих клавиш
-function mediaKeyHandler(e) {
-    if (e.ctrlKey && e.shiftKey && e.code === 'Space') {
-        e.preventDefault();
-        handlePlayPause();
-    }
-    if (e.ctrlKey && e.shiftKey && e.code === 'ArrowRight') {
-        e.preventDefault();
-        handleNext();
-    }
-    if (e.ctrlKey && e.shiftKey && e.code === 'ArrowLeft') {
-        e.preventDefault();
-        handlePrevious();
-    }
-    if (e.ctrlKey && e.shiftKey && e.code === 'Period') {
-        e.preventDefault();
-        handleStop();
-    }
-    if (e.ctrlKey && e.shiftKey && e.code === 'ArrowUp') {
-        e.preventDefault();
-        const slider = document.getElementById('homeVolumeSlider');
-        if (slider) {
-            const newVal = Math.min(100, parseInt(slider.value) + 10);
-            slider.value = newVal;
-            slider.dispatchEvent(new Event('input'));
+if (window.electronAPI && window.electronAPI.onHotkeyPressed) {
+    window.electronAPI.onHotkeyPressed((event, action) => {
+        console.log(`🎯 Получена горячая клавиша из main: ${action}`);
+        
+        switch(action) {
+            case 'playpause':
+                handlePlayPause();
+                break;
+            case 'next':
+                handleNext();
+                break;
+            case 'prev':
+                handlePrevious();
+                break;
+            case 'stop':
+                handleStop();
+                break;
+            case 'volumeup':
+                const sliderUp = document.getElementById('homeVolumeSlider');
+                if (sliderUp) {
+                    const newVal = Math.min(100, parseInt(sliderUp.value) + 10);
+                    sliderUp.value = newVal;
+                    sliderUp.dispatchEvent(new Event('input'));
+                    showToast(`🔊 Громкость: ${newVal}%`, 'info');
+                }
+                break;
+            case 'volumedown':
+                const sliderDown = document.getElementById('homeVolumeSlider');
+                if (sliderDown) {
+                    const newVal = Math.max(0, parseInt(sliderDown.value) - 10);
+                    sliderDown.value = newVal;
+                    sliderDown.dispatchEvent(new Event('input'));
+                    showToast(`🔉 Громкость: ${newVal}%`, 'info');
+                }
+                break;
+            default:
+                console.log(`⚠️ Неизвестное действие: ${action}`);
         }
+    });
+}
+
+console.log('🎮 Обработчик горячих клавиш из main зарегистрирован');
+
+function getKeyName(key) {
+    // === СПЕЦИАЛЬНЫЕ КЛАВИШИ ===
+    const specialKeys = {
+        ' ': 'Space',
+        'Tab': 'Tab',
+        'Escape': 'Escape',
+        'Enter': 'Enter',
+        'Backspace': 'Backspace',
+        'Delete': 'Delete',
+        'Insert': 'Insert',
+        'Home': 'Home',
+        'End': 'End',
+        'PageUp': 'PageUp',
+        'PageDown': 'PageDown',
+        'ArrowUp': 'ArrowUp',
+        'ArrowDown': 'ArrowDown',
+        'ArrowLeft': 'ArrowLeft',
+        'ArrowRight': 'ArrowRight',
+        'F1': 'F1', 'F2': 'F2', 'F3': 'F3', 'F4': 'F4',
+        'F5': 'F5', 'F6': 'F6', 'F7': 'F7', 'F8': 'F8',
+        'F9': 'F9', 'F10': 'F10', 'F11': 'F11', 'F12': 'F12',
+        'MediaTrackNext': 'MediaTrackNext',
+        'MediaTrackPrevious': 'MediaTrackPrevious',
+        'MediaPlayPause': 'MediaPlayPause',
+        'MediaStop': 'MediaStop',
+        'VolumeUp': 'VolumeUp',
+        'VolumeDown': 'VolumeDown',
+        'VolumeMute': 'VolumeMute',
+        'NumLock': 'NumLock',
+        'CapsLock': 'CapsLock',
+        'ScrollLock': 'ScrollLock',
+        'PrintScreen': 'PrintScreen',
+        'Pause': 'Pause',
+        'ContextMenu': 'ContextMenu',
+    };
+    
+    // === NUMPAD КЛАВИШИ ===
+    // Клавиши с Numpad имеют свойство key: "1", "2", "3" и т.д.
+    // Но чтобы их отличить от верхнего ряда, нужно проверить location === 3 (DOM_KEY_LOCATION_NUMPAD)
+    // Однако в событии keydown мы получаем просто "1", "2"... 
+    // Поэтому определяем по коду клавиши (code)
+    const numpadMap = {
+        'Numpad0': 'Numpad0',
+        'Numpad1': 'Numpad1',
+        'Numpad2': 'Numpad2',
+        'Numpad3': 'Numpad3',
+        'Numpad4': 'Numpad4',
+        'Numpad5': 'Numpad5',
+        'Numpad6': 'Numpad6',
+        'Numpad7': 'Numpad7',
+        'Numpad8': 'Numpad8',
+        'Numpad9': 'Numpad9',
+        'NumpadAdd': 'NumpadAdd',
+        'NumpadSubtract': 'NumpadSubtract',
+        'NumpadMultiply': 'NumpadMultiply',
+        'NumpadDivide': 'NumpadDivide',
+        'NumpadDecimal': 'NumpadDecimal',
+        'NumpadEnter': 'NumpadEnter',
+    };
+    
+    // Проверяем специальные клавиши
+    if (specialKeys[key]) return specialKeys[key];
+    
+    // Проверяем Numpad (по коду, а не по key)
+    // В событии keydown можно получить code через event.code
+    // Мы передаём key, но в коде ниже мы будем использовать event.code
+    
+    // Цифры и буквы (1 символ) — возвращаем в верхнем регистре
+    if (key.length === 1) {
+        // Проверяем, не является ли это цифрой с Numpad (через event.code)
+        // Но мы не можем проверить code здесь, поэтому делаем отдельную обработку в событии
+        return key.toUpperCase();
     }
-    if (e.ctrlKey && e.shiftKey && e.code === 'ArrowDown') {
-        e.preventDefault();
-        const slider = document.getElementById('homeVolumeSlider');
-        if (slider) {
-            const newVal = Math.max(0, parseInt(slider.value) - 10);
-            slider.value = newVal;
-            slider.dispatchEvent(new Event('input'));
-        }
-    }
+    
+    // Если ничего не подошло — возвращаем как есть
+    return key;
 }
 
 // ========== ГЛОБАЛЬНЫЕ ФУНКЦИИ ДЛЯ КОНСОЛИ ==========
@@ -1298,48 +1388,56 @@ function initSidebarResizer() {
         }
 
          
-        async function selectAudioDevice(deviceId) {
-            stopAudioCapture();
-            
-            currentDeviceId = deviceId;
-            localStorage.setItem('audioDevice', deviceId);
-            
-            if (!deviceId) {
-                useFakeVisualizer = true;
-                startVisualizer();
-                return;
-            }
-            
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        deviceId: deviceId,
-                        echoCancellation: false,
-                        noiseSuppression: false
-                    }
-                });
-                
-                mediaStream = stream;
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                await audioContext.resume();
-                
-                source = audioContext.createMediaStreamSource(stream);
-                analyser = audioContext.createAnalyser();
-                analyser.fftSize = 256;
-                
-                source.connect(analyser);
-                useFakeVisualizer = false;
-                startVisualizer();
-                
-                showToast('🎤 Микрофон подключен!', 'success');
-                
-            } catch (error) {
-                console.error('Ошибка:', error);
-                useFakeVisualizer = true;
-                startVisualizer();
-                showToast('❌ Ошибка подключения микрофона', 'error');
-            }
+async function selectAudioDevice(deviceId) {
+    // Если мы в Modern-режиме – полностью игнорируем выбор микрофона
+    if (audioMode !== 0) return;
+
+    try {
+        if (!deviceId) {
+            useFakeVisualizer = true;
+            if (analyser) analyser = null;
+            startVisualizer();
+            updateAudioStatus();
+            return;
         }
+
+        // Сохраняем только в localStorage
+        localStorage.setItem('selectedMicDeviceId', deviceId);
+
+        // НЕ отправляем fetch – конфиг обновляется только при смене режима
+
+        // Создаём поток из микрофона
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                deviceId: { exact: deviceId },
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false
+            }
+        });
+
+        if (!modernAudioCtx) {
+            modernAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+
+        const micAnalyser = modernAudioCtx.createAnalyser();
+        micAnalyser.fftSize = 1024;
+        micAnalyser.smoothingTimeConstant = 0.4;
+        const source = modernAudioCtx.createMediaStreamSource(stream);
+        source.connect(micAnalyser);
+
+        analyser = micAnalyser;
+        useFakeVisualizer = false;
+        startVisualizer();
+        updateAudioStatus();
+
+    } catch (err) {
+        console.error('❌ Ошибка выбора микрофона:', err);
+        useFakeVisualizer = true;
+        analyser = null;
+        startVisualizer();
+    }
+}
 
          
         function initTitlebarEqualizer() {
@@ -2226,16 +2324,21 @@ function toggleMini(btn) {
     showToast(isActive ? '📱 Мини-режим' : '🖥️ Полный режим', 'info');
 }
 
-        function toggleSettings() {
+function toggleSettings() {
     const settings = document.getElementById('settings-panel');
     const chatPanel = document.getElementById('chat-panel');
     
-     
     if (chatPanel && chatPanel.classList.contains('visible')) {
         chatPanel.classList.remove('visible');
     }
     
     settings.classList.toggle('visible');
+    
+    // Обновляем UI аудио при открытии
+    if (settings.classList.contains('visible')) {
+        setupAudioUI();
+        loadModernDevices(); // Перезагружаем устройства
+    }
 }
 
 
@@ -3332,6 +3435,8 @@ function updatePremiumUI() {
 document.addEventListener('DOMContentLoaded', async () => {
     currentUser = { isGuest: true, username: 'Гость', isPremium: true };
     updatePremiumUI();
+
+    await initAudioSettings();
     
     // Добавляем кнопку выхода в настройки
     const settingsPanel = document.getElementById('settings-panel');
@@ -3520,83 +3625,167 @@ if (changeBtn) {
         // Храним нажатые клавиши
         let pressedKeys = new Set();
         
-        const onKeyDown = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            // Добавляем клавишу в набор
-            let key = e.key;
-            if (key === ' ') key = 'Space';
-            if (key === 'Tab') key = 'Tab';
-            if (key === 'Escape') key = 'Escape';
-            if (key.length === 1) key = key.toUpperCase();
-            
-            // Модификаторы
-            if (e.ctrlKey) pressedKeys.add('Control');
-            if (e.altKey) pressedKeys.add('Alt');
-            if (e.shiftKey) pressedKeys.add('Shift');
-            if (e.metaKey) pressedKeys.add('Meta');
-            
-            if (key !== 'Control' && key !== 'Alt' && key !== 'Shift' && key !== 'Meta') {
-                pressedKeys.add(key);
-            }
-            
-            // Показываем текущую комбинацию
-            const currentBinding = Array.from(pressedKeys).join('+');
-            if (currentBinding) {
-                input.value = currentBinding;
-            }
-        };
-        
-        const onKeyUp = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            // Формируем финальную комбинацию
-            let keys = [];
-            if (e.ctrlKey) keys.push('Control');
-            if (e.altKey) keys.push('Alt');
-            if (e.shiftKey) keys.push('Shift');
-            if (e.metaKey) keys.push('Meta');
-            
-            let key = e.key;
-            if (key === ' ') key = 'Space';
-            if (key === 'Tab') key = 'Tab';
-            if (key === 'Escape') key = 'Escape';
-            if (key.length === 1) key = key.toUpperCase();
-            
-            if (key !== 'Control' && key !== 'Alt' && key !== 'Shift' && key !== 'Meta') {
-                keys.push(key);
-            }
-            
-            // Если ничего не нажато - используем последнюю комбинацию из pressedKeys
-            let binding = keys.join('+');
-            if (!binding || binding === 'Control' || binding === 'Alt' || binding === 'Shift') {
-                binding = Array.from(pressedKeys).join('+');
-            }
-            if (!binding || binding === '') {
-                binding = 'Control+Tab';
-            }
-            
-            input.value = binding;
-            input.style.opacity = '1';
-            
-            // Сохраняем
-            localStorage.setItem('tabBinding', binding);
-            const enabled = document.getElementById('enableTabBinding')?.checked ?? true;
-            localStorage.setItem('tabBindingEnabled', enabled);
-            
-            if (window.electronAPI && window.electronAPI.updateTabBinding) {
-                window.electronAPI.updateTabBinding({ enabled: enabled, binding: binding });
-            }
-            
-            showToast(`✅ Сочетание: ${binding}`, 'success');
-            
-            // Убираем обработчики
-            document.removeEventListener('keydown', onKeyDown);
-            document.removeEventListener('keyup', onKeyUp);
-            pressedKeys.clear();
-        };
+const onKeyDown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Игнорируем одиночные модификаторы
+    if (e.key === 'Control' || e.key === 'Alt' || e.key === 'Shift' || e.key === 'Meta') {
+        return;
+    }
+    
+    let keys = [];
+    
+    // Модификаторы
+    if (e.ctrlKey) keys.push('Control');
+    if (e.altKey) keys.push('Alt');
+    if (e.shiftKey) keys.push('Shift');
+    if (e.metaKey) keys.push('Meta');
+    
+    // === ОСНОВНАЯ КЛАВИША (используем e.code для Numpad) ===
+    let mainKey = '';
+    
+    // Сначала проверяем Numpad по e.code
+    const numpadCodes = [
+        'Numpad0', 'Numpad1', 'Numpad2', 'Numpad3', 'Numpad4',
+        'Numpad5', 'Numpad6', 'Numpad7', 'Numpad8', 'Numpad9',
+        'NumpadAdd', 'NumpadSubtract', 'NumpadMultiply', 
+        'NumpadDivide', 'NumpadDecimal', 'NumpadEnter'
+    ];
+    
+    if (numpadCodes.includes(e.code)) {
+        mainKey = e.code; // Например: "Numpad1", "NumpadAdd"
+    }
+    // Стрелки и специальные клавиши
+    else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+        mainKey = e.code;
+    }
+    else if (['Space', 'Tab', 'Escape', 'Enter', 'Backspace', 'Delete', 'Insert',
+              'Home', 'End', 'PageUp', 'PageDown', 'CapsLock', 'NumLock', 
+              'ScrollLock', 'PrintScreen', 'Pause', 'ContextMenu'].includes(e.code)) {
+        mainKey = e.code;
+    }
+    // F-клавиши
+    else if (e.code.startsWith('F') && e.code.length <= 3) {
+        mainKey = e.code; // F1-F12
+    }
+    // Медиа-клавиши
+    else if (e.code.startsWith('Media')) {
+        mainKey = e.code;
+    }
+    // Volume
+    else if (e.code === 'VolumeUp' || e.code === 'VolumeDown' || e.code === 'VolumeMute') {
+        mainKey = e.code;
+    }
+    // Буквы и цифры (обычные)
+    else if (e.key.length === 1) {
+        mainKey = e.key.toUpperCase();
+    }
+    // Если ничего не подошло
+    else if (e.key && e.key !== 'Control' && e.key !== 'Alt' && e.key !== 'Shift' && e.key !== 'Meta') {
+        mainKey = e.key;
+    }
+    
+    if (mainKey) {
+        keys.push(mainKey);
+    }
+    
+    // Если только модификаторы — ничего не делаем
+    if (keys.length <= 1 && (keys[0] === 'Control' || keys[0] === 'Alt' || keys[0] === 'Shift' || keys[0] === 'Meta')) {
+        return;
+    }
+    
+    // Сортируем модификаторы для консистентности
+    const mods = [];
+    const nonMods = [];
+    for (const k of keys) {
+        if (['Control', 'Alt', 'Shift', 'Meta'].includes(k)) {
+            mods.push(k);
+        } else {
+            nonMods.push(k);
+        }
+    }
+    // Сортируем модификаторы: Control > Alt > Shift > Meta
+    mods.sort((a, b) => {
+        const order = { 'Control': 0, 'Alt': 1, 'Shift': 2, 'Meta': 3 };
+        return (order[a] || 99) - (order[b] || 99);
+    });
+    
+    const binding = [...mods, ...nonMods].join('+');
+    
+    if (binding && binding !== 'Control' && binding !== 'Alt' && binding !== 'Shift' && binding !== 'Meta') {
+        input.value = binding;
+        console.log(`🎹 Текущая комбинация: ${binding}`);
+    }
+};
+
+const onKeyUp = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Собираем финальную комбинацию
+    let keys = [];
+    
+    if (e.ctrlKey) keys.push('Control');
+    if (e.altKey) keys.push('Alt');
+    if (e.shiftKey) keys.push('Shift');
+    if (e.metaKey) keys.push('Meta');
+    
+    // Основная клавиша (аналогично onKeyDown)
+    let mainKey = '';
+    const numpadCodes = ['Numpad0','Numpad1','Numpad2','Numpad3','Numpad4',
+                         'Numpad5','Numpad6','Numpad7','Numpad8','Numpad9',
+                         'NumpadAdd','NumpadSubtract','NumpadMultiply',
+                         'NumpadDivide','NumpadDecimal','NumpadEnter'];
+    
+    if (numpadCodes.includes(e.code)) {
+        mainKey = e.code;
+    } else if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','Tab','Escape',
+                'Enter','Backspace','Delete','Insert','Home','End','PageUp','PageDown'].includes(e.code)) {
+        mainKey = e.code;
+    } else if (e.code.startsWith('F') && e.code.length <= 3) {
+        mainKey = e.code;
+    } else if (e.key.length === 1) {
+        mainKey = e.key.toUpperCase();
+    } else if (e.key && !['Control','Alt','Shift','Meta'].includes(e.key)) {
+        mainKey = e.key;
+    }
+    
+    if (mainKey) keys.push(mainKey);
+    
+    // Сортируем модификаторы
+    const mods = [];
+    const nonMods = [];
+    for (const k of keys) {
+        if (['Control', 'Alt', 'Shift', 'Meta'].includes(k)) {
+            mods.push(k);
+        } else {
+            nonMods.push(k);
+        }
+    }
+    mods.sort((a, b) => {
+        const order = { 'Control': 0, 'Alt': 1, 'Shift': 2, 'Meta': 3 };
+        return (order[a] || 99) - (order[b] || 99);
+    });
+    
+    let binding = [...mods, ...nonMods].join('+');
+    
+    // Если ничего не выбрано — ставим дефолтное значение
+    if (!binding || binding === 'Control' || binding === 'Alt' || binding === 'Shift' || binding === 'Meta') {
+        binding = DEFAULT_HOTKEYS[action] || 'Control+Tab';
+    }
+    
+    input.value = binding;
+    input.style.opacity = '1';
+    input.style.color = '';
+    
+    // Сохраняем
+    saveHotkey(action, binding);
+    showToast(`✅ ${action}: ${binding}`, 'success');
+    
+    document.removeEventListener('keydown', onKeyDown);
+    document.removeEventListener('keyup', onKeyUp);
+};
         
         document.addEventListener('keydown', onKeyDown);
         document.addEventListener('keyup', onKeyUp);
@@ -3772,6 +3961,7 @@ if (window.electronAPI.onOpenUrl) {
         }
     });
 }
+
 
 let tempWebviews = [];
 let currentTempWebview = null;
@@ -4007,9 +4197,211 @@ function updateUrlBarForTempWebview(url) {
 
 
 
+let qrCodeInstance = null;
 
+// Получение локального IP (только 192.168.x.x)
+async function getLocalIP() {
+    if (window.electronAPI && window.electronAPI.getLocalIP) {
+        return await window.electronAPI.getLocalIP();
+    }
+    
+    return new Promise((resolve) => {
+        const pc = new RTCPeerConnection({ iceServers: [] });
+        pc.createDataChannel('');
+        pc.createOffer().then(offer => pc.setLocalDescription(offer));
+        
+        let foundIP = null;
+        pc.onicecandidate = (e) => {
+            if (!e.candidate) {
+                resolve(foundIP || 'localhost');
+                pc.close();
+                return;
+            }
+            const ip = e.candidate.candidate.match(/(\d+\.\d+\.\d+\.\d+)/)?.[1];
+            if (!ip) return;
+            
+            if (ip.startsWith('192.168.')) {
+                foundIP = ip;
+                resolve(ip);
+                pc.close();
+                return;
+            }
+            if (!foundIP && !ip.startsWith('127.')) {
+                foundIP = ip;
+            }
+        };
+        setTimeout(() => {
+            pc.close();
+            resolve(foundIP || 'localhost');
+        }, 3000);
+    });
+}
 
+// Показать QR-код
+async function showQRCode() {
+    const ip = await getLocalIP();
+    const url = `http://${ip}:3457`;
+    
+    if (document.getElementById('qrModal')) {
+        document.getElementById('qrModal').style.display = 'flex';
+        return;
+    }
+    
+    const modal = document.createElement('div');
+    modal.id = 'qrModal';
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.85);
+        backdrop-filter: blur(10px);
+        z-index: 99998;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        animation: fadeIn 0.3s ease;
+    `;
+    
+    modal.innerHTML = `
+        <div style="
+            background: var(--bg-secondary, #1a1a1a);
+            border-radius: 24px;
+            padding: 30px;
+            max-width: 400px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+            border: 1px solid var(--border-color, #333);
+        ">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <h2 style="font-size: 20px; font-weight: 700; color: var(--text-primary, #fff);">
+                    📱 Подключи телефон
+                </h2>
+                <button id="qrCloseBtn" style="
+                    background: none;
+                    border: none;
+                    color: #666;
+                    font-size: 24px;
+                    cursor: pointer;
+                    padding: 4px 8px;
+                    border-radius: 8px;
+                    transition: color 0.2s;
+                " onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#666'">✕</button>
+            </div>
+            
+            <div style="
+                background: #fff;
+                border-radius: 16px;
+                padding: 16px;
+                margin: 12px 0;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 220px;
+            ">
+                <div id="qrContainer" style="width: 200px; height: 200px;"></div>
+            </div>
+            
+            <div style="
+                background: rgba(255,255,255,0.05);
+                border-radius: 10px;
+                padding: 12px;
+                margin: 12px 0;
+            ">
+                <p style="font-size: 13px; color: var(--text-secondary, #999);">
+                    Или введите в браузере телефона:
+                </p>
+                <p style="font-size: 16px; font-weight: 600; color: var(--accent, #1DB954); word-break: break-all;">
+                    ${url}
+                </p>
+            </div>
+            
+            <button id="copyUrlBtn" style="
+                background: rgba(255,255,255,0.08);
+                border: 1px solid var(--border-color, #333);
+                color: var(--text-secondary, #999);
+                padding: 10px 20px;
+                border-radius: 10px;
+                cursor: pointer;
+                font-size: 13px;
+                transition: all 0.2s;
+                width: 100%;
+                margin-top: 4px;
+            " onmouseover="this.style.background='rgba(255,255,255,0.15)'" onmouseout="this.style.background='rgba(255,255,255,0.08)'">
+                📋 Скопировать ссылку
+            </button>
+            
+            <p style="font-size: 11px; color: #555; margin-top: 12px;">
+                💡 Убедитесь, что телефон и компьютер в одной сети Wi-Fi
+            </p>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Генерируем QR-код
+    try {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js';
+        script.onload = () => {
+            const container = document.getElementById('qrContainer');
+            if (container && typeof QRCode !== 'undefined') {
+                qrCodeInstance = new QRCode(container, {
+                    text: url,
+                    width: 200,
+                    height: 200,
+                    colorDark: '#000000',
+                    colorLight: '#ffffff',
+                    correctLevel: QRCode.CorrectLevel.H
+                });
+            }
+        };
+        document.head.appendChild(script);
+    } catch (e) {
+        const container = document.getElementById('qrContainer');
+        if (container) {
+            container.innerHTML = `
+                <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100%;color:#000;">
+                    <div style="font-size:48px;margin-bottom:8px;">📱</div>
+                    <div style="font-size:14px;word-break:break-all;max-width:180px;">${url}</div>
+                </div>
+            `;
+        }
+    }
+    
+    // Обработчики
+    document.getElementById('qrCloseBtn').addEventListener('click', () => modal.remove());
+    document.getElementById('copyUrlBtn').addEventListener('click', async () => {
+        try {
+            await navigator.clipboard.writeText(url);
+            showToast('🔗 Ссылка скопирована!', 'success');
+        } catch (e) {
+            const textarea = document.createElement('textarea');
+            textarea.value = url;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            textarea.remove();
+            showToast('🔗 Ссылка скопирована!', 'success');
+        }
+    });
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+}
 
+// === ОБРАБОТЧИК КНОПКИ ===
+document.addEventListener('DOMContentLoaded', () => {
+    const qrBtn = document.getElementById('qrSettingsBtn');
+    if (qrBtn) {
+        qrBtn.addEventListener('click', showQRCode);
+    }
+});
+
+// === КОМАНДА ДЛЯ КОНСОЛИ ===
+window.showQR = showQRCode;
+
+console.log('📱 QR-код: showQR()');
 
 
 
@@ -4080,7 +4472,7 @@ function updateUrlBarForTempWebview(url) {
 
          
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 MusicHub v2.9.8');
+    console.log('🚀 MusicHub v3.0.0');
     particleBackground = new ParticleBackground();
     loadSettings();
     loadCustomSites();  
@@ -4096,7 +4488,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initTitlebarEqualizer();
     await checkPremiumStatus();
     document.body.addEventListener('click', createGlobalRipple);
-    showToast('🎵 Добро пожаловать в MusicHub уже почти 3.0!', 'success');
+    showToast('🎵 Добро пожаловать в MusicHub 3.0.0!', 'success');
     
     const chatBtn = document.getElementById('chatBtn');
     if (chatBtn) {
@@ -6428,8 +6820,2186 @@ setTimeout(() => {
 
 
 
+// ========== АУДИО-СТРИМИНГ (ПРЯМОЕ УПРАВЛЕНИЕ) ==========
+
+let modernAudioCtx = null;
+let modernAnalyser = null;
+let modernWs = null;
+let modernNextTime = 0;
+let modernFirstBuffer = false;
+let modernSampleRate = 48000;
+let modernChannels = 2;
+let audioStreamActive = false;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+
+// ========== API ФУНКЦИИ ==========
+
+// Запуск захвата на сервере
+async function startServerCapture(deviceId = '') {
+    try {
+        console.log(`📤 Запуск захвата: DeviceId=${deviceId}`);
+        const resp = await fetch('http://localhost:9876/start-capture', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ DeviceId: deviceId })  // <-- исправлено
+        });
+        const result = await resp.json();
+        console.log('✅ Сервер ответил:', result);
+        return result.success;
+    } catch (e) {
+        console.error('❌ Ошибка запуска захвата:', e);
+        return false;
+    }
+}
+
+// Остановка захвата
+async function stopServerCapture() {
+    try {
+        const resp = await fetch('http://localhost:9876/stop-capture', {
+            method: 'POST'
+        });
+        const result = await resp.json();
+        return result.success;
+    } catch (e) {
+        console.error('❌ Ошибка остановки:', e);
+        return false;
+    }
+}
+
+// Проверка статуса захвата
+async function checkCaptureStatus() {
+    try {
+        const resp = await fetch('http://localhost:9876/capture-status');
+        if (!resp.ok) return null;
+        return await resp.json();
+    } catch (e) {
+        return null;
+    }
+}
+
+// Ожидание запуска захвата
+async function waitForCaptureReady(timeout = 10000) {
+    const startTime = Date.now();
+    
+    while (Date.now() - startTime < timeout) {
+        const status = await checkCaptureStatus();
+        
+        if (status && status.isActive) {
+            console.log(`✅ Захват активен (${status.sampleRate}Hz, ${status.channels}ch)`);
+            return true;
+        }
+        
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        console.log(`⏳ Ожидание захвата... (${elapsed}с)`);
+        await new Promise(r => setTimeout(r, 500));
+    }
+    
+    console.error('❌ Таймаут ожидания захвата');
+    return false;
+}
+
+// Сохранение настроек на сервере (вызывается только при выходе)
+async function saveServerSettings() {
+    try {
+        await fetch('http://localhost:9876/save-settings', { method: 'POST' });
+    } catch (e) {}
+}
 
 
+// ========== ИНИЦИАЛИЗАЦИЯ ==========
+
+async function initAudioSettings() {
+    try {
+        console.log('🎵 Инициализация аудио-системы...');
+
+        // 1. Режим из localStorage
+        const savedMode = localStorage.getItem('audioCaptureMode');
+        audioMode = savedMode !== null ? parseInt(savedMode) : 0;
+
+        // 2. ID устройств
+        const savedModernDeviceId = localStorage.getItem('audioCaptureDeviceId') || '';
+        const savedMicDeviceId = localStorage.getItem('selectedMicDeviceId') || '';
+
+        // 3. Загрузка списков
+        await loadModernDevices();
+        await loadMicrophoneDevices();
+
+        // 4. UI
+        setupAudioUI();
+
+        // 5. Запуск нужного режима
+        if (audioMode === 1) {
+            console.log('🎤 Modern режим: запуск захвата...');
+            
+            // ПРЯМОЙ ЗАПУСК
+            const started = await startServerCapture(savedModernDeviceId);
+            if (!started) {
+                console.error('❌ Не удалось запустить захват');
+                showToast('❌ Ошибка запуска захвата', 'error');
+                return;
+            }
+            
+            // ЖДЁМ ГОТОВНОСТИ
+            const ready = await waitForCaptureReady();
+            if (!ready) {
+                showToast('❌ Захват не запустился', 'error');
+                return;
+            }
+            
+            // ПОДКЛЮЧАЕМСЯ
+            await initModernAudio();
+            
+        } else {
+            // Классический режим
+            if (savedMicDeviceId) {
+                const micSelect = document.getElementById('audio-device');
+                if (micSelect) micSelect.value = savedMicDeviceId;
+                await activateMicrophone(savedMicDeviceId);
+            } else {
+                useFakeVisualizer = true;
+                analyser = null;
+                startVisualizer();
+            }
+        }
+
+        console.log('✅ Аудио-система готова');
+    } catch (err) {
+        console.error('❌ initAudioSettings:', err);
+    }
+}
+
+// ========== ЗАГРУЗКА УСТРОЙСТВ (БЕЗ ИЗМЕНЕНИЙ) ==========
+
+async function loadModernDevices() {
+    const select = document.getElementById('audioCaptureDevice');
+    if (!select) return;
+    select.innerHTML = '<option value="">Загрузка...</option>';
+    try {
+        const devices = await window.electronAPI.getAudioDevices();
+        select.innerHTML = '<option value="">По умолчанию</option>';
+        devices.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d.Id;
+            opt.textContent = d.Name + (d.IsDefault ? ' (по умолчанию)' : '');
+            select.appendChild(opt);
+        });
+        const saved = localStorage.getItem('audioCaptureDeviceId');
+        if (saved) select.value = saved;
+    } catch (e) {
+        console.error('Ошибка загрузки устройств:', e);
+        select.innerHTML = '<option value="">Ошибка</option>';
+    }
+}
+
+async function loadMicrophoneDevices() {
+    const select = document.getElementById('audio-device');
+    if (!select) return;
+    select.innerHTML = '<option value="">🔇 Выключено</option><option value="loading">Загрузка...</option>';
+    try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const inputs = devices.filter(d => d.kind === 'audioinput');
+        select.innerHTML = '<option value="">🔇 Выключено</option>';
+        inputs.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d.deviceId;
+            opt.textContent = d.label || 'Микрофон ' + select.options.length;
+            select.appendChild(opt);
+        });
+        const saved = localStorage.getItem('selectedMicDeviceId');
+        if (saved && select.querySelector(`option[value="${saved}"]`)) {
+            select.value = saved;
+        }
+    } catch (e) {
+        console.error('Ошибка загрузки микрофонов:', e);
+        select.innerHTML = '<option value="">Ошибка</option>';
+    }
+}
+
+// ========== АКТИВАЦИЯ МИКРОФОНА (БЕЗ ИЗМЕНЕНИЙ) ==========
+
+async function activateMicrophone(deviceId) {
+    if (!deviceId) {
+        useFakeVisualizer = true;
+        analyser = null;
+        startVisualizer();
+        updateAudioStatus();
+        return;
+    }
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                deviceId: { exact: deviceId },
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false
+            }
+        });
+        if (!modernAudioCtx) {
+            modernAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        const micAnalyser = modernAudioCtx.createAnalyser();
+        micAnalyser.fftSize = 1024;
+        micAnalyser.smoothingTimeConstant = 0.4;
+        const source = modernAudioCtx.createMediaStreamSource(stream);
+        source.connect(micAnalyser);
+
+        analyser = micAnalyser;
+        useFakeVisualizer = false;
+        startVisualizer();
+        console.log('✅ Микрофон активирован');
+    } catch (e) {
+        console.error('❌ Ошибка микрофона:', e);
+        useFakeVisualizer = true;
+        analyser = null;
+        startVisualizer();
+    }
+    updateAudioStatus();
+}
+
+function selectAudioDevice(deviceId) {
+    localStorage.setItem('selectedMicDeviceId', deviceId);
+    if (audioMode === 0) {
+        activateMicrophone(deviceId);
+    }
+}
+
+// ========== НАСТРОЙКА UI ==========
+
+function setupAudioUI() {
+    const modeSelect = document.getElementById('audioCaptureMode');
+    const classicCont = document.getElementById('classicDeviceContainer');
+    const modernCont = document.getElementById('modernDeviceContainer');
+
+    if (!modeSelect) return;
+
+    modeSelect.value = audioMode;
+    if (classicCont) classicCont.style.display = audioMode === 0 ? 'block' : 'none';
+    if (modernCont) modernCont.style.display = audioMode === 1 ? 'block' : 'none';
+
+    updateAudioStatus();
+
+    // Обработчик смены режима
+    modeSelect.removeEventListener('change', modeSelect._listener);
+    const listener = async function() {
+        const mode = parseInt(this.value);
+        audioMode = mode;
+        localStorage.setItem('audioCaptureMode', mode);
+
+        if (classicCont) classicCont.style.display = mode === 0 ? 'block' : 'none';
+        if (modernCont) modernCont.style.display = mode === 1 ? 'block' : 'none';
+
+        console.log(`🔄 Смена режима на ${mode === 0 ? 'Классический' : 'Modern'}`);
+
+        if (mode === 0) {
+            // Останавливаем захват
+            closeModernAudio();
+            await stopServerCapture();
+            
+            // Активируем микрофон
+            const micSelect = document.getElementById('audio-device');
+            const micId = micSelect?.value || '';
+            localStorage.setItem('selectedMicDeviceId', micId);
+            await activateMicrophone(micId);
+            
+        } else {
+            // Запускаем Modern
+            const deviceId = document.getElementById('audioCaptureDevice')?.value ||
+                           localStorage.getItem('audioCaptureDeviceId') || '';
+            
+            const started = await startServerCapture(deviceId);
+            if (started) {
+                const ready = await waitForCaptureReady();
+                if (ready) {
+                    await initModernAudio();
+                } else {
+                    showToast('❌ Захват не запустился', 'error');
+                }
+            }
+        }
+        updateAudioStatus();
+    };
+    modeSelect.addEventListener('change', listener);
+    modeSelect._listener = listener;
+
+    // Обработчик смены устройства Modern
+    const modernDevice = document.getElementById('audioCaptureDevice');
+if (modernDevice) {
+    modernDevice.removeEventListener('change', modernDevice._listener);
+    const devListener = async function() {
+        const deviceId = this.value;
+        localStorage.setItem('audioCaptureDeviceId', deviceId);
+        console.log(`💾 Сохранено: ${deviceId}`);
+
+        if (audioMode === 1) {
+            console.log('🔄 Переключение устройства...');
+            closeModernAudio();
+            
+            const started = await startServerCapture(deviceId);
+            if (started) {
+                const ready = await waitForCaptureReady();
+                if (ready) {
+                    await initModernAudio();
+                }
+            }
+        }
+    };
+    modernDevice.addEventListener('change', devListener);
+    modernDevice._listener = devListener;
+}
+}
+
+// ========== СТАТУС (БЕЗ ИЗМЕНЕНИЙ) ==========
+
+function updateAudioStatus() {
+    const div = document.getElementById('audioStatus');
+    if (!div) return;
+
+    if (audioMode === 0) {
+        div.textContent = useFakeVisualizer ? '🎤 Классический (выкл)' : '🎤 Микрофон';
+        div.style.color = useFakeVisualizer ? 'var(--text-secondary)' : '#1DB954';
+    } else {
+        div.textContent = audioStreamActive ? '✅ Захват активен' : '⏳ Подключение...';
+        div.style.color = audioStreamActive ? '#1DB954' : '#ffaa00';
+    }
+}
+
+// ========== MODERN AUDIO (БЕЗ ИЗМЕНЕНИЙ) ==========
+
+async function initModernAudio() {
+    console.log('🟢 initModernAudio');
+
+    if (modernWs) {
+        try { modernWs.close(); } catch(e) {}
+        modernWs = null;
+    }
+
+    audioStreamActive = false;
+    modernFirstBuffer = false;
+    reconnectAttempts = 0;
+    updateAudioStatus();
+
+    if (!modernAudioCtx) {
+        modernAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        await modernAudioCtx.resume();
+    }
+    if (!modernAnalyser) {
+        modernAnalyser = modernAudioCtx.createAnalyser();
+        modernAnalyser.fftSize = 1024;
+        modernAnalyser.smoothingTimeConstant = 0.4;
+        modernAnalyser.minDecibels = -90;
+        modernAnalyser.maxDecibels = -10;
+    }
+
+    modernWs = new WebSocket('ws://localhost:9876/audio-stream');
+    modernWs.binaryType = 'arraybuffer';
+
+    let timeout = setTimeout(() => {
+        if (modernWs && modernWs.readyState !== WebSocket.OPEN) {
+            console.error('❌ Таймаут WebSocket');
+            try { modernWs.close(); } catch(e) {}
+            modernWs = null;
+            audioStreamActive = false;
+            updateAudioStatus();
+        }
+    }, 5000);
+
+    modernWs.onopen = () => {
+        clearTimeout(timeout);
+        console.log('✅ WebSocket подключен');
+        audioStreamActive = true;
+        modernFirstBuffer = false;
+        modernNextTime = modernAudioCtx.currentTime + 0.1;
+        updateAudioStatus();
+        analyser = modernAnalyser;
+        useFakeVisualizer = false;
+        if (typeof startVisualizer === 'function') startVisualizer();
+    };
+
+    modernWs.onmessage = (event) => {
+        if (typeof event.data === 'string') {
+            if (event.data.startsWith('FORMAT:')) {
+                try {
+                    const fmt = JSON.parse(event.data.substring(7));
+                    modernSampleRate = fmt.sampleRate || 48000;
+                    modernChannels = fmt.channels || 2;
+                    console.log(`🎵 Формат: ${modernSampleRate}Hz, ${modernChannels}ch`);
+                } catch (e) {}
+            } else if (event.data.startsWith('INFO:Capture not active')) {
+                console.warn('⚠️ Захват не активен (не должно быть!)');
+                audioStreamActive = false;
+                updateAudioStatus();
+            }
+            return;
+        }
+
+        const buffer = event.data;
+        if (!buffer || buffer.byteLength <= 4) return;
+        try {
+            const dataView = new DataView(buffer);
+            const pcmLen = dataView.getInt32(0, true);
+            if (pcmLen <= 0 || pcmLen > buffer.byteLength - 4) return;
+
+            const floatData = new Float32Array(buffer, 4, pcmLen / 4);
+            const samplesPerChannel = (pcmLen / 4) / modernChannels;
+            if (samplesPerChannel <= 0) return;
+            const duration = samplesPerChannel / modernSampleRate;
+
+            if (!modernFirstBuffer) {
+                modernFirstBuffer = true;
+                modernNextTime = modernAudioCtx.currentTime + 0.1;
+                console.log('🎵 Первый буфер');
+            }
+
+            const audioBuffer = modernAudioCtx.createBuffer(modernChannels, samplesPerChannel, modernSampleRate);
+            for (let ch = 0; ch < modernChannels; ch++) {
+                const chData = audioBuffer.getChannelData(ch);
+                for (let i = 0; i < samplesPerChannel; i++) {
+                    chData[i] = floatData[i * modernChannels + ch];
+                }
+            }
+            const source = modernAudioCtx.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(modernAnalyser);
+            source.start(modernNextTime);
+            source.onended = () => source.disconnect();
+            modernNextTime += duration;
+        } catch (e) {
+            console.error('Ошибка обработки аудио:', e);
+        }
+    };
+
+    modernWs.onerror = (err) => {
+        clearTimeout(timeout);
+        console.error('❌ WebSocket ошибка:', err);
+        audioStreamActive = false;
+        updateAudioStatus();
+    };
+
+    modernWs.onclose = (event) => {
+        clearTimeout(timeout);
+        console.log(`🔌 WebSocket закрыт (${event.code})`);
+        audioStreamActive = false;
+        updateAudioStatus();
+
+        if (audioMode === 1 && !window._manualClose && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+            reconnectAttempts++;
+            console.log(`🔄 Переподключение ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}...`);
+            setTimeout(() => { if (audioMode === 1) initModernAudio(); }, 3000);
+        }
+        window._manualClose = false;
+    };
+}
+
+function closeModernAudio() {
+    window._manualClose = true;
+    if (modernWs) {
+        try { modernWs.close(); } catch(e) {}
+        modernWs = null;
+    }
+    audioStreamActive = false;
+    modernFirstBuffer = false;
+    updateAudioStatus();
+}
+
+// ========== СОХРАНЕНИЕ ПРИ ВЫХОДЕ ==========
+
+window.addEventListener('beforeunload', () => {
+    saveServerSettings();
+});
+
+// ========== ОТЛАДКА ==========
+
+window.audioDebug = {
+    mode: () => audioMode,
+    active: () => audioStreamActive,
+    status: async () => {
+        const s = await checkCaptureStatus();
+        return { mode: audioMode, active: audioStreamActive, server: s };
+    },
+    restart: async () => {
+        closeModernAudio();
+        const deviceId = localStorage.getItem('audioCaptureDeviceId') || '';
+        await startServerCapture(deviceId);
+        const ready = await waitForCaptureReady();
+        if (ready) await initModernAudio();
+    }
+};
+
+console.log('🎵 Аудио-система готова (прямое управление)');
+
+
+
+
+// ============================================================
+// ЗАГРУЗКА ГОРЯЧИХ КЛАВИШ ПРИ СТАРТЕ (RENDERER)
+// ============================================================
+
+async function loadHotkeysFromMain() {
+    try {
+        // Запрашиваем сохранённые клавиши из main
+        if (window.electronAPI && window.electronAPI.getHotkeysFromStorage) {
+            const saved = await window.electronAPI.getHotkeysFromStorage();
+            if (saved) {
+                console.log('📥 Получены горячие клавиши из main:', saved);
+                
+                // Обновляем локальные hotkeys
+                hotkeys = saved;
+                localStorage.setItem('hotkeys', JSON.stringify(hotkeys));
+                
+                // Обновляем UI
+                const mapping = {
+                    playpause: 'hotkeyPlayPause',
+                    next: 'hotkeyNext',
+                    prev: 'hotkeyPrev',
+                    stop: 'hotkeyStop',
+                    volumeup: 'hotkeyVolumeup',
+                    volumedown: 'hotkeyVolumedown'
+                };
+                
+                for (const [action, inputId] of Object.entries(mapping)) {
+                    const input = document.getElementById(inputId);
+                    if (input && hotkeys[action]) {
+                        input.value = hotkeys[action];
+                    }
+                }
+                
+                return hotkeys;
+            }
+        }
+        
+        // Если не получили из main - загружаем из localStorage
+        return loadHotkeys();
+    } catch (err) {
+        console.error('❌ Ошибка загрузки hotkeys из main:', err);
+        return loadHotkeys();
+    }
+}
+
+// Обработчик из main для загрузки клавиш
+if (window.electronAPI && window.electronAPI.on) {
+    window.electronAPI.on('load-hotkeys', (event, hotkeysData) => {
+        console.log('📥 Получены hotkeys из main (событие):', hotkeysData);
+        if (hotkeysData) {
+            hotkeys = hotkeysData;
+            localStorage.setItem('hotkeys', JSON.stringify(hotkeys));
+            
+            // Обновляем UI
+            const mapping = {
+                playpause: 'hotkeyPlayPause',
+                next: 'hotkeyNext',
+                prev: 'hotkeyPrev',
+                stop: 'hotkeyStop',
+                volumeup: 'hotkeyVolumeup',
+                volumedown: 'hotkeyVolumedown'
+            };
+            
+            for (const [action, inputId] of Object.entries(mapping)) {
+                const input = document.getElementById(inputId);
+                if (input && hotkeys[action]) {
+                    input.value = hotkeys[action];
+                }
+            }
+        }
+    });
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ============================================================
+// ПОЛНАЯ СИСТЕМА ГОРЯЧИХ КЛАВИШ (РАБОТАЕТ СО ВСЕМИ КЛАВИШАМИ)
+// ============================================================
+
+// Хранилище
+let hotkeys = {};
+let rendererHotkeys = {}; // Клавиши, обрабатываемые в renderer
+let pressedKeys = new Set();
+
+// Дефолтные клавиши
+const DEFAULT_HOTKEYS = {
+    playpause: 'Control+Shift+Space',
+    next: 'Control+Shift+ArrowRight',
+    prev: 'Control+Shift+ArrowLeft',
+    stop: 'Control+Shift+Period',
+    volumeup: 'Control+Shift+ArrowUp',
+    volumedown: 'Control+Shift+ArrowDown'
+};
+
+// ============================================================
+// НОРМАЛИЗАЦИЯ КЛАВИШ
+// ============================================================
+
+function normalizeKeyForBinding(event) {
+    const code = event.code;
+    const key = event.key;
+    
+    // Numpad
+    if (code.startsWith('Numpad')) return code;
+    
+    // Стрелки и специальные
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+         'Space', 'Tab', 'Escape', 'Enter', 'Backspace',
+         'Delete', 'Insert', 'Home', 'End', 'PageUp', 'PageDown',
+         'CapsLock', 'NumLock', 'ScrollLock', 'PrintScreen',
+         'Pause', 'ContextMenu'].includes(code)) {
+        return code;
+    }
+    
+    // F-клавиши
+    if (code.startsWith('F') && code.length <= 3) return code;
+    
+    // Медиа-клавиши
+    if (code.startsWith('Media')) return code;
+    
+    // Volume
+    if (['VolumeUp', 'VolumeDown', 'VolumeMute'].includes(code)) return code;
+    
+    // Буквы и цифры
+    if (key && key.length === 1) {
+        if (/[a-zA-Z0-9]/.test(key)) return key.toUpperCase();
+        return key;
+    }
+    
+    return key || code;
+}
+
+function getBindingFromEvent(event) {
+    const keys = [];
+    
+    if (event.ctrlKey) keys.push('Control');
+    if (event.altKey) keys.push('Alt');
+    if (event.shiftKey) keys.push('Shift');
+    if (event.metaKey) keys.push('Meta');
+    
+    const mainKey = normalizeKeyForBinding(event);
+    if (mainKey && !['Control', 'Alt', 'Shift', 'Meta'].includes(mainKey)) {
+        keys.push(mainKey);
+    }
+    
+    // Сортируем модификаторы
+    const order = { 'Control': 0, 'Alt': 1, 'Shift': 2, 'Meta': 3 };
+    keys.sort((a, b) => {
+        const aIsMod = order[a] !== undefined;
+        const bIsMod = order[b] !== undefined;
+        if (aIsMod && bIsMod) return order[a] - order[b];
+        if (aIsMod) return -1;
+        if (bIsMod) return 1;
+        return 0;
+    });
+    
+    return keys.join('+');
+}
+
+// ============================================================
+// ПРОВЕРКА КОМБИНАЦИИ
+// ============================================================
+
+function checkBinding(binding) {
+    if (!binding) return false;
+    
+    const parts = binding.split('+');
+    const currentKeys = Array.from(pressedKeys);
+    
+    // Проверяем модификаторы
+    const mods = ['Control', 'Alt', 'Shift', 'Meta'];
+    for (const mod of mods) {
+        const hasMod = parts.includes(mod);
+        const isPressed = currentKeys.includes(mod);
+        if (hasMod !== isPressed) return false;
+    }
+    
+    // Проверяем основную клавишу
+    const mainKeys = parts.filter(p => !mods.includes(p));
+    if (mainKeys.length === 0) return false;
+    
+    // Проверяем все основные клавиши
+    for (const mainKey of mainKeys) {
+        if (!currentKeys.includes(mainKey)) return false;
+    }
+    
+    return true;
+}
+
+// ============================================================
+// ОБРАБОТЧИКИ СОБЫТИЙ
+// ============================================================
+
+document.addEventListener('keydown', (e) => {
+    // Игнорируем если ввод в поле
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) {
+        return;
+    }
+    
+    // Получаем комбинацию
+    const keys = [];
+    if (e.ctrlKey) keys.push('Control');
+    if (e.altKey) keys.push('Alt');
+    if (e.shiftKey) keys.push('Shift');
+    if (e.metaKey) keys.push('Meta');
+    
+    let mainKey = e.key;
+    if (mainKey === ' ') mainKey = 'Space';
+    if (mainKey === 'ArrowUp') mainKey = 'ArrowUp';
+    if (mainKey === 'ArrowDown') mainKey = 'ArrowDown';
+    if (mainKey === 'ArrowLeft') mainKey = 'ArrowLeft';
+    if (mainKey === 'ArrowRight') mainKey = 'ArrowRight';
+    if (mainKey === 'MediaPlayPause') mainKey = 'MediaPlayPause';
+    if (mainKey === 'MediaNextTrack') mainKey = 'MediaNextTrack';
+    if (mainKey === 'MediaPreviousTrack') mainKey = 'MediaPreviousTrack';
+    if (mainKey === 'VolumeUp') mainKey = 'VolumeUp';
+    if (mainKey === 'VolumeDown') mainKey = 'VolumeDown';
+    if (mainKey === 'VolumeMute') mainKey = 'VolumeMute';
+    if (mainKey.length === 1 && /[a-zA-Z0-9]/.test(mainKey)) {
+        mainKey = mainKey.toUpperCase();
+    }
+    
+    if (!['Control', 'Alt', 'Shift', 'Meta'].includes(mainKey)) {
+        keys.push(mainKey);
+    }
+    
+    if (keys.length <= 1 && ['Control', 'Alt', 'Shift', 'Meta'].includes(keys[0])) {
+        return;
+    }
+    
+    // Сортируем модификаторы
+    const order = { 'Control': 0, 'Alt': 1, 'Shift': 2, 'Meta': 3 };
+    keys.sort((a, b) => {
+        const aIsMod = order[a] !== undefined;
+        const bIsMod = order[b] !== undefined;
+        if (aIsMod && bIsMod) return order[a] - order[b];
+        if (aIsMod) return -1;
+        if (bIsMod) return 1;
+        return 0;
+    });
+    
+    const binding = keys.join('+');
+    
+    // Проверяем наши hotkeys
+    if (window._rendererHotkeys) {
+        for (const [action, hotkeyBinding] of Object.entries(window._rendererHotkeys)) {
+            if (hotkeyBinding === binding) {
+                console.log(`🔔 Renderer клавиша: ${action} (${binding})`);
+                e.preventDefault();
+                e.stopPropagation();
+                
+                // Вызываем обработчик
+                if (window._hotkeyActions && window._hotkeyActions[action]) {
+                    window._hotkeyActions[action]();
+                }
+                
+                // Отправляем в main
+                if (window.electronAPI && window.electronAPI.sendHotkeyAction) {
+                    window.electronAPI.sendHotkeyAction(action);
+                }
+                break;
+            }
+        }
+    }
+});
+
+window._rendererHotkeys = {};
+
+document.addEventListener('keyup', (e) => {
+    const keyName = normalizeKeyForBinding(e);
+    pressedKeys.delete(keyName);
+    if (!e.ctrlKey) pressedKeys.delete('Control');
+    if (!e.altKey) pressedKeys.delete('Alt');
+    if (!e.shiftKey) pressedKeys.delete('Shift');
+    if (!e.metaKey) pressedKeys.delete('Meta');
+});
+
+// ============================================================
+// РЕГИСТРАЦИЯ КЛАВИШ
+// ============================================================
+
+function registerRendererHotkey(action, binding) {
+    if (!binding || binding === '') return;
+    console.log(`📥 Регистрация в renderer: ${action} → ${binding}`);
+    window._rendererHotkeys[action] = binding;
+}
+
+
+function loadHotkeys() {
+    const saved = localStorage.getItem('hotkeys');
+    if (saved) {
+        try {
+            hotkeys = JSON.parse(saved);
+            for (const [key, value] of Object.entries(DEFAULT_HOTKEYS)) {
+                if (!hotkeys[key]) hotkeys[key] = value;
+            }
+        } catch (e) {
+            hotkeys = { ...DEFAULT_HOTKEYS };
+        }
+    } else {
+        hotkeys = { ...DEFAULT_HOTKEYS };
+    }
+    localStorage.setItem('hotkeys', JSON.stringify(hotkeys));
+    
+    // Регистрируем ВСЕ клавиши в renderer (включая поддерживаемые)
+    for (const [action, binding] of Object.entries(hotkeys)) {
+        registerRendererHotkey(action, binding);
+    }
+    
+    // Отправляем в main
+    if (window.electronAPI && window.electronAPI.updateHotkeys) {
+        window.electronAPI.updateHotkeys(hotkeys);
+    }
+    
+    return hotkeys;
+}
+
+function saveHotkey(action, binding) {
+    hotkeys[action] = binding;
+    localStorage.setItem('hotkeys', JSON.stringify(hotkeys));
+    
+    // Регистрируем в renderer
+    registerRendererHotkey(action, binding);
+    
+    // Отправляем в main
+    if (window.electronAPI && window.electronAPI.updateHotkeys) {
+        window.electronAPI.updateHotkeys(hotkeys);
+    }
+    
+    // Обновляем UI
+    updateHotkeysUI();
+}
+
+// ============================================================
+// UI
+// ============================================================
+
+function updateHotkeysUI() {
+    const mapping = {
+        playpause: 'hotkeyPlayPause',
+        next: 'hotkeyNext',
+        prev: 'hotkeyPrev',
+        stop: 'hotkeyStop',
+        volumeup: 'hotkeyVolumeup',
+        volumedown: 'hotkeyVolumedown'
+    };
+    
+    for (const [action, inputId] of Object.entries(mapping)) {
+        const input = document.getElementById(inputId);
+        if (input && hotkeys[action]) {
+            input.value = hotkeys[action];
+            input.readOnly = true;
+        }
+    }
+}
+
+async function startKeyCapture(action, inputElement) {
+    inputElement.value = '🎹 Нажми...';
+    inputElement.style.opacity = '0.6';
+    inputElement.style.color = 'var(--accent-color)';
+    inputElement.focus();
+    
+    return new Promise((resolve) => {
+        let captured = false;
+        let timer = null;
+        let lastBinding = '';
+        
+        const onKeyDown = (e) => {
+            if (e.key === 'Control' || e.key === 'Alt' || e.key === 'Shift' || e.key === 'Meta') {
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const binding = getBindingFromEvent(e);
+            if (binding) {
+                lastBinding = binding;
+                inputElement.value = binding;
+            }
+        };
+        
+        const onKeyUp = (e) => {
+            if (e.key === 'Control' || e.key === 'Alt' || e.key === 'Shift' || e.key === 'Meta') {
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            
+            let binding = getBindingFromEvent(e);
+            if (!binding) binding = lastBinding;
+            if (!binding) binding = 'Control+Space';
+            
+            cleanup();
+            resolve(binding);
+        };
+        
+        const cleanup = () => {
+            if (timer) clearTimeout(timer);
+            document.removeEventListener('keydown', onKeyDown);
+            document.removeEventListener('keyup', onKeyUp);
+            captured = true;
+        };
+        
+        timer = setTimeout(() => {
+            if (!captured) {
+                cleanup();
+                resolve(lastBinding || hotkeys[action] || DEFAULT_HOTKEYS[action]);
+            }
+        }, 5000);
+        
+        document.addEventListener('keydown', onKeyDown);
+        document.addEventListener('keyup', onKeyUp);
+    });
+}
+
+// ============================================================
+// ИНИЦИАЛИЗАЦИЯ
+// ============================================================
+
+function initHotkeysUI() {
+    console.log('🎮 Инициализация горячих клавиш...');
+    
+    loadHotkeys();
+    updateHotkeysUI();
+    
+    // Обработчики кнопок
+    document.querySelectorAll('.hotkey-change-btn').forEach(btn => {
+        btn.addEventListener('click', async function() {
+            const action = this.dataset.action;
+            const mapping = {
+                playpause: 'hotkeyPlayPause',
+                next: 'hotkeyNext',
+                prev: 'hotkeyPrev',
+                stop: 'hotkeyStop',
+                volumeup: 'hotkeyVolumeup',
+                volumedown: 'hotkeyVolumedown'
+            };
+            
+            const input = document.getElementById(mapping[action]);
+            if (!input) return;
+            
+            const binding = await startKeyCapture(action, input);
+            input.value = binding;
+            input.style.opacity = '1';
+            input.style.color = '';
+            
+            saveHotkey(action, binding);
+            showToast(`✅ ${action}: ${binding}`, 'success');
+        });
+    });
+    
+    // Кнопка сброса
+    document.getElementById('resetHotkeysBtn')?.addEventListener('click', () => {
+        for (const [action, value] of Object.entries(DEFAULT_HOTKEYS)) {
+            hotkeys[action] = value;
+            registerRendererHotkey(action, value);
+        }
+        localStorage.setItem('hotkeys', JSON.stringify(hotkeys));
+        updateHotkeysUI();
+        
+        if (window.electronAPI && window.electronAPI.updateHotkeys) {
+            window.electronAPI.updateHotkeys(hotkeys);
+        }
+        
+        showToast('🔄 Горячие клавиши сброшены', 'success');
+    });
+}
+
+// ============================================================
+// ОБРАБОТЧИК ИЗ MAIN ДЛЯ RENDERER КЛАВИШ
+// ============================================================
+
+if (window.electronAPI && window.electronAPI.on) {
+    window.electronAPI.on('register-fallback-hotkey', (event, data) => {
+        console.log(`📥 Получена fallback клавиша: ${data.action} → ${data.binding}`);
+        registerRendererHotkey(data.action, data.binding);
+    });
+    
+    window.electronAPI.on('load-hotkeys', (event, hotkeys) => {
+        console.log('📥 Загружены hotkeys из main:', hotkeys);
+        for (const [action, binding] of Object.entries(hotkeys)) {
+            registerRendererHotkey(action, binding);
+        }
+    });
+}
+
+// ============================================================
+// ЗАПУСК
+// ============================================================
+
+document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(initHotkeysUI, 500);
+});
+
+console.log('🎮 Система горячих клавиш (renderer) инициализирована');
+console.log('🎮 Поддерживаются: стрелки, Numpad, медиа-клавиши, Volume');
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ============================================================
+// ПРОВЕРКА ОБНОВЛЕНИЙ
+// ============================================================
+
+const WORKER_URL_1 = 'https://tips-proxy.170610maksim.workers.dev';
+const APP_VERSION = '3.0.0'; // ← ТЕКУЩАЯ ВЕРСИЯ ПРИЛОЖЕНИЯ
+
+let updateCheckDone = false;
+let dontShowUpdateAgain = false;
+
+// ============================================================
+// РУЧНОЙ ВЫЗОВ ОКНА ОБНОВЛЕНИЙ (БЕЗ ПРОВЕРКИ)
+// ============================================================
+
+function showUpdateModalManually() {
+    const data = {
+        latestVersion: '9.9.9',
+        releaseDate: '2026-06-22',
+        releaseNotes: [
+            '🚀 Добавлен CarPlay-интерфейс для телефона',
+            '🧠 AI научился искать в YouTube Music',
+            '⌨️ Гибкие горячие клавиши (можно менять)',
+            '🎵 Управление музыкой с главной страницы',
+            '📱 QR-код для быстрого подключения телефона'
+        ],
+        downloadUrl: 'https://github.com/Mamba1230/MusicHub/releases/latest'
+    };
+    
+    showUpdateModal(data);
+}
+
+// === КОМАНДА ДЛЯ КОНСОЛИ ===
+window.showUpdate = showUpdateModalManually;
+
+console.log('📱 Для показа окна обновлений введи: showUpdate()');
+
+async function checkForUpdates() {
+    // Проверяем, не отключил ли пользователь уведомления
+    if (localStorage.getItem('dontShowUpdateAgain') === 'true') {
+        console.log('🔇 Уведомления об обновлениях отключены');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${WORKER_URL_1}/check-update?version=${APP_VERSION}`);
+        const data = await response.json();
+        
+        if (data.updateAvailable) {
+            console.log(`🆕 Доступна новая версия: ${data.latestVersion} (текущая: ${APP_VERSION})`);
+            showUpdateModal(data);
+        } else {
+            console.log(`✅ У вас актуальная версия (${APP_VERSION})`);
+        }
+    } catch (err) {
+        console.log('⚠️ Ошибка проверки обновлений:', err);
+    }
+}
+
+// === МОДАЛЬНОЕ ОКНО ОБ ОБНОВЛЕНИИ ===
+function showUpdateModal(data) {
+    if (document.getElementById('updateModal')) return;
+    
+    const modal = document.createElement('div');
+    modal.id = 'updateModal';
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        backdrop-filter: blur(10px);
+        z-index: 99999;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        animation: fadeIn 0.3s ease;
+    `;
+    
+    modal.innerHTML = `
+        <div style="
+            background: var(--bg-secondary, #1a1a1a);
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 420px;
+            width: 90%;
+            position: relative;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+            border: 1px solid var(--border-color, #333);
+        ">
+            <button id="updateModalClose" style="
+                position: absolute;
+                top: 12px;
+                right: 16px;
+                background: none;
+                border: none;
+                color: #666;
+                font-size: 24px;
+                cursor: pointer;
+                transition: color 0.2s;
+                padding: 4px 8px;
+                border-radius: 8px;
+            " onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#666'">✕</button>
+            
+            <div style="text-align: center; margin-bottom: 20px;">
+                <div style="font-size: 48px; margin-bottom: 8px;">🆕</div>
+                <h2 style="font-size: 24px; font-weight: 700; color: var(--text-primary, #fff);">
+                    Доступно обновление!
+                </h2>
+                <p style="color: var(--text-secondary, #999); font-size: 14px; margin-top: 4px;">
+                    MusicHub v${data.latestVersion}
+                </p>
+                <p style="color: #666; font-size: 12px; margin-top: 2px;">
+                    Выпущено: ${data.releaseDate}
+                </p>
+            </div>
+            
+            <div style="
+                background: rgba(255,255,255,0.03);
+                border-radius: 12px;
+                padding: 16px;
+                margin-bottom: 20px;
+                max-height: 200px;
+                overflow-y: auto;
+            ">
+                <p style="font-size: 13px; font-weight: 600; color: var(--text-secondary, #999); margin-bottom: 8px;">
+                    📋 Что нового:
+                </p>
+                ${data.releaseNotes.map(note => `
+                    <div style="
+                        display: flex;
+                        align-items: flex-start;
+                        gap: 8px;
+                        padding: 4px 0;
+                        font-size: 13px;
+                        color: var(--text-primary, #fff);
+                    ">
+                        <span style="color: var(--accent, #1DB954);">•</span>
+                        <span>${note}</span>
+                    </div>
+                `).join('')}
+            </div>
+            
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                <!-- === ИСПРАВЛЕННАЯ КНОПКА === -->
+                <button id="updateDownloadBtn" style="
+                    display: block;
+                    width: 100%;
+                    text-align: center;
+                    background: var(--accent, #1DB954);
+                    color: #000;
+                    padding: 14px;
+                    border-radius: 12px;
+                    border: none;
+                    font-weight: 600;
+                    font-size: 16px;
+                    cursor: pointer;
+                    transition: transform 0.2s, box-shadow 0.2s;
+                " onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
+                    ⬇️ Скачать обновление
+                </button>
+                
+                <button id="updateDontShowBtn" style="
+                    background: none;
+                    border: none;
+                    color: #666;
+                    font-size: 13px;
+                    cursor: pointer;
+                    padding: 8px;
+                    transition: color 0.2s;
+                " onmouseover="this.style.color='#999'" onmouseout="this.style.color='#666'">
+                    🔕 Больше не напоминать
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // === ОБРАБОТЧИКИ ===
+    document.getElementById('updateModalClose').addEventListener('click', () => {
+        modal.remove();
+    });
+    
+    // === ОТКРЫТИЕ В БРАУЗЕРЕ ЧЕРЕЗ ELECTRON API ===
+    document.getElementById('updateDownloadBtn').addEventListener('click', () => {
+        // Используем electronAPI.openExternal для открытия в браузере
+        if (window.electronAPI && window.electronAPI.openExternal) {
+            window.electronAPI.openExternal(data.downloadUrl);
+        } else {
+            // Fallback: window.open
+            window.open(data.downloadUrl, '_blank');
+        }
+        modal.remove();
+    });
+    
+    document.getElementById('updateDontShowBtn').addEventListener('click', () => {
+        localStorage.setItem('dontShowUpdateAgain', 'true');
+        modal.remove();
+        showToast('🔕 Уведомления об обновлениях отключены', 'info');
+    });
+    
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+    });
+}
+
+// === ФУНКЦИЯ СРАВНЕНИЯ ВЕРСИЙ (дубль, на случай если воркер не ответит) ===
+function compareVersions(v1, v2) {
+    const parts1 = v1.split('.').map(Number);
+    const parts2 = v2.split('.').map(Number);
+    
+    for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+        const num1 = parts1[i] || 0;
+        const num2 = parts2[i] || 0;
+        if (num1 !== num2) {
+            return num1 - num2;
+        }
+    }
+    return 0;
+}
+
+// === ЗАПУСК ПРОВЕРКИ ===
+setTimeout(() => {
+    checkForUpdates();
+}, 3000); // Через 3 секунды после загрузки
+
+// Для консоли
+window.checkForUpdates = checkForUpdates;
+
+console.log(`🔄 MusicHub v${APP_VERSION}`);
+console.log('📱 Для проверки обновлений: checkForUpdates()');
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ============================================================
+// ПОИСК В YOUTUBE MUSIC ЧЕРЕЗ NEUROСЕТЬ
+// ============================================================
+
+// Функция поиска (может вызываться из AI или вручную)
+function searchYoutubeMusic(query) {
+    if (!query || query.trim() === '') {
+        showToast('❌ Введите запрос для поиска', 'error');
+        return;
+    }
+    
+    const encodedQuery = encodeURIComponent(query.trim());
+    const searchUrl = `https://music.youtube.com/search?q=${encodedQuery}`;
+    
+    console.log(`🔍 Поиск: ${searchUrl}`);
+    
+    // Проверяем, активен ли YouTube Music
+    const activeWv = document.querySelector('webview.active');
+    
+    if (activeWv && activeWv.id === 'youtube') {
+        // Если уже на YouTube - просто загружаем
+        activeWv.loadURL(searchUrl);
+        showToast(`🔍 Поиск: "${query}"`, 'success');
+    } else {
+        // Иначе переключаемся на YouTube Music
+        const ytBtn = document.getElementById('btn-youtube');
+        if (ytBtn) {
+            // Переключаемся
+            sw('youtube', ytBtn);
+            
+            // Через секунду загружаем поиск
+            setTimeout(() => {
+                const wv = document.querySelector('webview.active');
+                if (wv && wv.id === 'youtube') {
+                    wv.loadURL(searchUrl);
+                    showToast(`🔍 Поиск: "${query}"`, 'success');
+                }
+            }, 500);
+        } else {
+            // Если YouTube Music не в активных сервисах - открываем во временном webview
+            const tempUrl = `musichub://${searchUrl}`;
+            if (window.electronAPI && window.electronAPI.openExternalUrl) {
+                window.electronAPI.openExternalUrl(tempUrl);
+            }
+        }
+    }
+}
+
+// Обработка команд от AI
+function parseSearchCommand(text) {
+    // Проверяем разные форматы
+    const patterns = [
+        /🔍\[SEARCH:(.+?)\]/,           // 🔍[SEARCH:запрос]
+        /🔍\[SEARCH:(.+?)\]/i,           // 🔍[search:запрос]
+        /поищи?\s+["']?(.+?)["']?/i,     // "поищи Shape of You"
+        /найди\s+["']?(.+?)["']?/i,      // "найди Shape of You"
+        /ищи\s+["']?(.+?)["']?/i,        // "ищи Shape of You"
+    ];
+    
+    for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (match) {
+            const query = match[1].trim();
+            if (query) {
+                return query;
+            }
+        }
+    }
+    
+    return null;
+}
+
+// Модифицируем обработчик AI ответа
+const originalHandleAIResponse = handleAIResponse;
+handleAIResponse = function(text) {
+    // Проверяем поисковую команду
+    const searchQuery = parseSearchCommand(text);
+    if (searchQuery) {
+        // Выполняем поиск
+        searchYoutubeMusic(searchQuery);
+        
+        // Возвращаем красивый ответ
+        return `🔍 Ищу "${searchQuery}" в YouTube Music...`;
+    }
+    
+    // Если нет поиска - используем старую логику
+    if (originalHandleAIResponse) {
+        return originalHandleAIResponse(text);
+    }
+    
+    return text;
+};
+
+
+
+// Глобальная функция для консоли
+window.searchYoutubeMusic = searchYoutubeMusic;
+
+console.log('🎵 Поиск в YouTube Music через нейросеть готов!');
+console.log('📝 Используйте: searchYoutubeMusic("Shape of You")');
+console.log('🧠 В чате: "найди Shape of You" или "🔍[SEARCH:Shape of You]"');
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+let mediaWs = null;
+let mediaStatusConnected = false;
+
+function connectMediaStatus() {
+    try {
+        mediaWs = new WebSocket('ws://localhost:9876/audio-stream');
+        
+        mediaWs.onopen = () => {
+            console.log('✅ Подключен к статусу плеера (C#)');
+            mediaStatusConnected = true;
+            
+            // Запрашиваем текущий статус
+            mediaWs.send(JSON.stringify({ command: 'sync_status' }));
+        };
+        
+        mediaWs.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === 'media_status') {
+                    // Обновляем UI
+                    const titleEl = document.getElementById('homeTrackTitle');
+                    const artistEl = document.getElementById('homeTrackArtist');
+                    const playBtn = document.getElementById('mediaPlayBtn');
+                    
+                    if (titleEl) titleEl.textContent = data.data.title || 'Не играет';
+                    if (artistEl) artistEl.textContent = data.data.artist || '—';
+                    
+                    // Обновляем состояние Play/Pause
+                    if (data.data.isPlaying !== undefined) {
+                        isMediaPlaying = data.data.isPlaying;
+                        updatePlayButton(data.data.isPlaying);
+                    }
+                    
+                    // Отправляем статус на мобильный сервер
+                    if (window.electronAPI && window.electronAPI.sendMobileStatus) {
+                        window.electronAPI.sendMobileStatus({
+                            title: data.data.title || 'Не играет',
+                            artist: data.data.artist || '—',
+                            isPlaying: data.data.isPlaying || false,
+                            progress: data.data.progress || 0,
+                            duration: data.data.duration || 0
+                        });
+                    }
+                }
+            } catch (e) {
+                // Игнорируем ошибки парсинга
+            }
+        };
+        
+        mediaWs.onclose = () => {
+            console.log('❌ Отключен от статуса плеера');
+            mediaStatusConnected = false;
+            setTimeout(connectMediaStatus, 3000);
+        };
+        
+        mediaWs.onerror = () => {
+            // Ошибка соединения
+        };
+    } catch (e) {
+        console.log('⚠️ Ошибка подключения к статусу плеера:', e);
+    }
+}
+
+// Запускаем подключение
+setTimeout(connectMediaStatus, 2000);
+
+
+// ============================================================
+// ОПРЕДЕЛЕНИЕ PLAY/PAUSE ПО АУДИОДАННЫМ ОТ C#
+// ============================================================
+
+let audioWs = null;
+let audioConnected = false;
+let audioPlaying = false;
+let silenceCounter = 0;
+const SILENCE_THRESHOLD = 5; // 5 тихих пакетов = пауза
+let lastAudioTime = Date.now();
+
+function connectToAudioStream() {
+    try {
+        audioWs = new WebSocket('ws://localhost:9876/audio-stream');
+        audioWs.binaryType = 'arraybuffer';
+        
+        audioWs.onopen = () => {
+            console.log('✅ Подключен к аудиопотоку C#');
+            audioConnected = true;
+            silenceCounter = 0;
+        };
+        
+        audioWs.onmessage = (event) => {
+            // === АНАЛИЗИРУЕМ АУДИОДАННЫЕ ===
+            if (event.data instanceof ArrayBuffer) {
+                // Есть аудиоданные → звук идёт
+                const buffer = event.data;
+                if (buffer.byteLength > 4) { // Минимальный размер пакета
+                    // Проверяем, есть ли реальные данные (не тишина)
+                    const dataView = new DataView(buffer);
+                    const pcmLen = dataView.getInt32(0, true);
+                    
+                    if (pcmLen > 4) {
+                        // Проверяем громкость (быстрый анализ)
+                        const samples = new Int16Array(buffer, 4, Math.min(pcmLen / 2, 100));
+                        let maxSample = 0;
+                        for (let i = 0; i < samples.length; i++) {
+                            const val = Math.abs(samples[i]);
+                            if (val > maxSample) maxSample = val;
+                        }
+                        
+                        // Если есть звук (громкость выше порога)
+                        if (maxSample > 100) { // Порог тишины
+                            silenceCounter = 0;
+                            if (!audioPlaying) {
+                                audioPlaying = true;
+                                onPlayStateChanged(true);
+                            }
+                            lastAudioTime = Date.now();
+                            return;
+                        }
+                    }
+                }
+            }
+            
+            // Если дошли сюда — звука нет или тишина
+            silenceCounter++;
+            if (silenceCounter >= SILENCE_THRESHOLD && audioPlaying) {
+                audioPlaying = false;
+                onPlayStateChanged(false);
+            }
+        };
+        
+        audioWs.onclose = () => {
+            console.log('❌ Отключен от аудиопотока C#');
+            audioConnected = false;
+            setTimeout(connectToAudioStream, 3000);
+        };
+        
+        audioWs.onerror = () => {
+            // Ошибка соединения — пробуем переподключиться
+            setTimeout(connectToAudioStream, 5000);
+        };
+        
+    } catch (e) {
+        console.log('⚠️ Ошибка подключения к аудиопотоку:', e);
+        setTimeout(connectToAudioStream, 5000);
+    }
+}
+
+// Обработчик изменения состояния Play/Pause
+function onPlayStateChanged(isPlaying) {
+    if (isPlaying === isMediaPlaying) return; // Не изменилось
+    
+    isMediaPlaying = isPlaying;
+    console.log(`🎵 ${isPlaying ? '▶️ PLAY' : '⏸️ PAUSE'} (определено по звуку)`);
+    
+    // Обновляем UI
+    updatePlayButton(isPlaying);
+    
+    // Отправляем на мобильный сервер
+    if (window.electronAPI && window.electronAPI.sendMobileStatus) {
+        window.electronAPI.sendMobileStatus({
+            isPlaying: isPlaying
+        });
+    }
+    
+    // Обновляем индикатор звука
+    updateSoundIndicator(isPlaying);
+}
+
+// Индикатор звука в UI
+function updateSoundIndicator(isPlaying) {
+    const indicator = document.getElementById('soundIndicator');
+    const status = document.getElementById('soundStatus');
+    
+    if (indicator) {
+        indicator.style.width = isPlaying ? '100%' : '0%';
+        indicator.style.background = isPlaying ? '#1DB954' : '#444';
+        indicator.style.transition = 'width 0.3s';
+    }
+    
+    if (status) {
+        status.textContent = isPlaying ? '▶' : '⏸';
+        status.style.color = isPlaying ? '#1DB954' : '#888';
+    }
+}
+
+
+
+// Подключаемся к аудиопотоку
+setTimeout(connectToAudioStream, 2000);
+
+// Переподключение при переключении вкладок
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && !audioConnected) {
+        console.log('🔄 Вкладка активна, переподключаюсь...');
+        connectToAudioStream();
+    }
+});
+
+// Остановка при закрытии
+window.addEventListener('beforeunload', () => {
+    if (audioWs) {
+        try { audioWs.close(); } catch(e) {}
+    }
+});
+
+// Для отладки
+window.audioDebug = {
+    connected: () => audioConnected,
+    playing: () => audioPlaying,
+    reconnect: connectToAudioStream
+};
+
+console.log('🎤 Audio stream listener готов');
+
+// ============================================================
+// ОТПРАВКА СТАТУСА В МОБИЛЬНЫЙ СЕРВЕР
+// ============================================================
+
+let mobileStatusInterval = null;
+let lastSentStatus = '';
+
+
+function sendMobileStatus() {
+    // Получаем информацию из DOM домашней страницы
+    const titleEl = document.getElementById('homeTrackTitle');
+    const artistEl = document.getElementById('homeTrackArtist');
+    const artworkEl = document.getElementById('homeArtwork');
+    const serviceEl = document.getElementById('homeService');
+    
+    // Получаем акцентный цвет
+    const accentColor = getComputedStyle(document.documentElement)
+        .getPropertyValue('--accent-color').trim() || '#1DB954';
+    
+    // Получаем информацию о текущем треке из медиа-инфо
+    let trackTitle = titleEl?.textContent || 'Не играет';
+    let trackArtist = artistEl?.textContent || '—';
+    let artworkUrl = artworkEl?.src || '';
+    
+    // Если на домашней странице нет информации — пробуем из panelArtwork
+    if (trackTitle === 'Не играет' || trackTitle === '-') {
+        const panelTitle = document.getElementById('panelTrackTitle');
+        const panelArtwork = document.getElementById('panelArtwork');
+        if (panelTitle && panelTitle.textContent !== '—') {
+            trackTitle = panelTitle.textContent;
+        }
+        if (panelArtwork && panelArtwork.src && panelArtwork.src !== '') {
+            artworkUrl = panelArtwork.src;
+        }
+    }
+    
+    // Если всё ещё нет — пробуем из mediaInfo
+    if (trackTitle === 'Не играет' || trackTitle === '-') {
+        // Используем данные из последнего трека
+        if (window.lastTrackInfo) {
+            trackTitle = window.lastTrackInfo.title || 'Не играет';
+            trackArtist = window.lastTrackInfo.artist || '—';
+        }
+    }
+    
+    // Формируем статус
+    const status = {
+        title: trackTitle,
+        artist: trackArtist,
+        artwork: artworkUrl,
+        isPlaying: isMediaPlaying || false,
+        volume: currentMediaVolume / 100,
+        service: document.querySelector('webview.active')?.id || 'unknown',
+        progress: 0,
+        duration: 0,
+        accentColor: accentColor // ← Добавляем акцентный цвет
+    };
+    
+    // Отправляем только если изменилось
+    const statusStr = JSON.stringify(status);
+    if (statusStr !== lastSentStatus) {
+        lastSentStatus = statusStr;
+        if (window.electronAPI && window.electronAPI.sendMobileStatus) {
+            window.electronAPI.sendMobileStatus(status);
+        }
+    }
+}
+
+// Запускаем отправку статуса каждые 2 секунды
+function initMobileStatus() {
+    if (mobileStatusInterval) clearInterval(mobileStatusInterval);
+    mobileStatusInterval = setInterval(sendMobileStatus, 1000);
+}
+
+// Запускаем при загрузке
+setTimeout(initMobileStatus, 3000);
+
+// Обработчики команд с мобильного
+if (window.electronAPI && window.electronAPI.onMobileCommand) {
+    window.electronAPI.onMobileCommand((event, command) => {
+        console.log('📱 Команда с телефона:', command);
+        switch(command) {
+            case 'playpause':
+                handlePlayPause();
+                break;
+            case 'next':
+                handleNext();
+                break;
+            case 'prev':
+                handlePrevious();
+                break;
+        }
+    });
+}
+
+if (window.electronAPI && window.electronAPI.onMobileVolume) {
+    window.electronAPI.onMobileVolume((event, volume) => {
+        console.log('📱 Громкость с телефона:', volume);
+        setMediaVolume(volume * 100);
+        syncVolumeUI(volume * 100);
+    });
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ========== DISCORD RPC ==========
+
+async function testDiscordRPC() {
+    console.log('🧪 Тестируем Discord RPC из renderer...');
+    
+    try {
+        // 1. Проверяем, доступен ли метод
+        if (!window.electronAPI || !window.electronAPI.toggleDiscordRPC) {
+            console.log('❌ electronAPI.toggleDiscordRPC не доступен');
+            return;
+        }
+        
+        console.log('✅ electronAPI.toggleDiscordRPC доступен');
+        
+        // 2. Включаем RPC
+        console.log('📤 Включаем RPC...');
+        await window.electronAPI.toggleDiscordRPC(true);
+        console.log('✅ Команда отправлена в main');
+        
+        // 3. Ждём 2 секунды и отправляем тестовый трек
+        setTimeout(() => {
+            console.log('📤 Отправляем тестовый трек...');
+            if (window.electronAPI && window.electronAPI.updateTrackInfo) {
+                window.electronAPI.updateTrackInfo({
+                    title: 'Тестовый трек из браузера',
+                    artist: 'MusicHub Test'
+                });
+                console.log('✅ Трек отправлен в main');
+            }
+        }, 2000);
+        
+        // 4. Проверяем статус через 3 секунды
+        setTimeout(async () => {
+            try {
+                if (window.electronAPI && window.electronAPI.getDiscordRPCStatus) {
+                    const status = await window.electronAPI.getDiscordRPCStatus();
+                    console.log('📊 Статус RPC в main:', status);
+                    if (status) {
+                        console.log('✅ Discord RPC включён! Проверьте Discord');
+                    } else {
+                        console.log('❌ Discord RPC выключен или не инициализирован');
+                    }
+                }
+            } catch (e) {
+                console.log('❌ Ошибка получения статуса:', e);
+            }
+        }, 3000);
+        
+    } catch (err) {
+        console.log('❌ Ошибка:', err);
+    }
+}
+
+// Делаем функцию глобальной для вызова из консоли
+window.testDiscordRPC = testDiscordRPC;
+
+console.log('🎵 Введите testDiscordRPC() в консоль для проверки Discord RPC');
+
+function loadDiscordRPCStatus() {
+    const enabled = localStorage.getItem('discordRPCEnabled') === 'true';
+    const checkbox = document.getElementById('discordRPCEnabled');
+    const statusDiv = document.getElementById('discordRPCStatus');
+    
+    if (checkbox) {
+        checkbox.checked = enabled;
+        if (statusDiv) {
+            statusDiv.style.display = enabled ? 'block' : 'none';
+            statusDiv.innerHTML = enabled ? '✅ Discord RPC активен' : '⏹️ Discord RPC отключён';
+            statusDiv.style.color = enabled ? '#1DB954' : 'var(--text-secondary)';
+        }
+    }
+    
+    // Отправляем в main
+    if (window.electronAPI && window.electronAPI.toggleDiscordRPC) {
+        window.electronAPI.toggleDiscordRPC(enabled);
+    }
+}
+
+// Обработчик переключения
+document.addEventListener('DOMContentLoaded', () => {
+    const discordCheckbox = document.getElementById('discordRPCEnabled');
+    if (discordCheckbox) {
+        discordCheckbox.addEventListener('change', function() {
+            const enabled = this.checked;
+            localStorage.setItem('discordRPCEnabled', enabled);
+            loadDiscordRPCStatus();
+            showToast(enabled ? '💬 Discord RPC включён' : '🔇 Discord RPC выключён', 'info');
+        });
+    }
+    
+    loadDiscordRPCStatus();
+});
+
+// Обновляем при смене трека
+const originalSaveTrackToHistory = saveTrackToHistory;
+saveTrackToHistory = function(title, artist, service) {
+    originalSaveTrackToHistory(title, artist, service);
+    if (window.electronAPI && window.electronAPI.updateTrackInfo) {
+        window.electronAPI.updateTrackInfo({ title, artist });
+    }
+};
+
+async function forceTestRPC() {
+    console.log('🔴 ПРИНУДИТЕЛЬНЫЙ ТЕСТ RPC');
+    
+    try {
+        // 1. Включаем RPC
+        console.log('📤 Включаем RPC...');
+        await window.electronAPI.toggleDiscordRPC(true);
+        
+        // 2. Ждём 2 секунды
+        await new Promise(r => setTimeout(r, 2000));
+        
+        // 3. Отправляем тестовый трек с эмодзи
+        console.log('📤 Отправляем тестовый трек...');
+        window.electronAPI.updateTrackInfo({
+            title: '🔴 ТЕСТОВЫЙ ТРЕК',
+            artist: 'Discord RPC Проверка'
+        });
+        
+        // 4. Ждём ещё 2 секунды
+        await new Promise(r => setTimeout(r, 2000));
+        
+        // 5. Получаем статус
+        const status = await window.electronAPI.getDiscordRPCStatus();
+        console.log('📊 Статус RPC:', status);
+        
+        if (status) {
+            console.log('✅ RPC ВКЛЮЧЁН! Статус должен появиться в Discord');
+            console.log('📌 Проверьте Discord: нажмите на свою аватарку');
+            console.log('🎵 Должен быть статус: "🔴 ТЕСТОВЫЙ ТРЕК - Discord RPC Проверка"');
+        } else {
+            console.log('❌ RPC ВЫКЛЮЧЕН');
+        }
+        
+        // 6. Ещё раз через 5 секунд отправляем статус с эмодзи
+        setTimeout(async () => {
+            console.log('🔄 Повторная отправка статуса...');
+            window.electronAPI.updateTrackInfo({
+                title: '🎵 MusicHub v3.0.0',
+                artist: 'Слушаю музыку'
+            });
+        }, 5000);
+        
+    } catch (err) {
+        console.log('❌ Ошибка:', err);
+    }
+}
+
+// Делаем глобальным
+window.forceTestRPC = forceTestRPC;
+
+console.log('🎵 Введите forceTestRPC() в консоль для теста RPC');
+console.log('📌 После этого проверьте Discord -> нажмите на аватарку');
+
+async function sendInitialRPCStatus() {
+    console.log('🎵 Отправка начального статуса RPC...');
+    
+    try {
+        // Получаем текущий трек
+        const mediaInfo = await window.electronAPI.getMediaFromFiles();
+        
+        if (mediaInfo && mediaInfo.title) {
+            // Если есть трек — отправляем его
+            const trackInfo = {
+                title: mediaInfo.title,
+                artist: mediaInfo.artist || 'Неизвестен'
+            };
+            
+            if (window.electronAPI && window.electronAPI.updateTrackInfo) {
+                window.electronAPI.updateTrackInfo(trackInfo);
+            }
+            console.log('✅ Отправлен статус с текущим треком:', trackInfo);
+        } else {
+            // Если нет трека — отправляем тестовый статус
+            if (window.electronAPI && window.electronAPI.updateTrackInfo) {
+                window.electronAPI.updateTrackInfo({
+                    title: '🎵 MusicHub',
+                    artist: 'Готов к прослушиванию'
+                });
+            }
+            console.log('✅ Отправлен тестовый статус');
+        }
+    } catch (err) {
+        console.log('❌ Ошибка отправки статуса:', err);
+    }
+}
+
+// Перехватываем включение RPC
+const originalToggleRPC = window.electronAPI?.toggleDiscordRPC;
+if (window.electronAPI && window.electronAPI.toggleDiscordRPC) {
+    // Сохраняем оригинальный метод
+    const originalMethod = window.electronAPI.toggleDiscordRPC;
+    
+    // Переопределяем
+    window.electronAPI.toggleDiscordRPC = function(enabled) {
+        console.log(`🔄 toggleDiscordRPC(${enabled}) через renderer`);
+        
+        // Вызываем оригинальный метод
+        const result = originalMethod(enabled);
+        
+        // Если включаем RPC — отправляем статус
+        if (enabled) {
+            setTimeout(() => {
+                sendInitialRPCStatus();
+            }, 2000); // Ждём 2 секунды, чтобы RPC инициализировался
+        }
+        
+        return result;
+    };
+}
+
+// Также добавляем обработчик для кнопки в настройках
+document.addEventListener('DOMContentLoaded', () => {
+    const discordCheckbox = document.getElementById('discordRPCEnabled');
+    if (discordCheckbox) {
+        // Сохраняем оригинальный обработчик
+        const originalChange = discordCheckbox.onchange;
+        
+        discordCheckbox.addEventListener('change', function() {
+            const enabled = this.checked;
+            
+            if (enabled) {
+                // Если включили RPC — отправляем статус через 2 секунды
+                setTimeout(() => {
+                    sendInitialRPCStatus();
+                }, 2000);
+            }
+        });
+    }
+});
 
 
 
@@ -7376,6 +9946,102 @@ async function getGigaToken(authKey) {
   return data.access_token;
 }
 
+const KNOWLEDGE_URL = 'https://gigachattips.170610maksim.workers.dev/knowledge.txt';
+let knowledgeCache = null;
+
+async function loadKnowledge() {
+    if (knowledgeCache) return knowledgeCache;
+    
+    try {
+        console.log('📚 Загружаю базу знаний...');
+        const response = await fetch(KNOWLEDGE_URL);
+        knowledgeCache = await response.text();
+        console.log('✅ База знаний загружена');
+        return knowledgeCache;
+    } catch (err) {
+        console.error('❌ Ошибка загрузки базы:', err);
+        return null;
+    }
+}
+
+async function searchKnowledge(query) {
+    const knowledge = await loadKnowledge();
+    if (!knowledge) return null;
+    
+    console.log('🔍 Ищем в базе:', query);  // ← Добавь для отладки
+    
+    const lines = knowledge.split('\n').filter(line => 
+        line.trim() && 
+        !line.startsWith('===') && 
+        !line.startsWith('🎵') &&
+        !line.startsWith('---')
+    );
+    
+    // Поиск с транслитерацией
+    const lowerQuery = query.toLowerCase().trim();
+    
+    // Транслитерация
+    const translitMap = {
+        'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd',
+        'е': 'e', 'ё': 'e', 'ж': 'zh', 'з': 'z', 'и': 'i',
+        'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm', 'н': 'n',
+        'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't',
+        'у': 'u', 'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch',
+        'ш': 'sh', 'щ': 'sch', 'ъ': '', 'ы': 'y', 'ь': '',
+        'э': 'e', 'ю': 'yu', 'я': 'ya'
+    };
+    
+    let translitQuery = lowerQuery;
+    for (const [rus, lat] of Object.entries(translitMap)) {
+        translitQuery = translitQuery.replace(new RegExp(rus, 'g'), lat);
+    }
+    
+    console.log('🔍 Транслитерация:', translitQuery);  // ← Добавь для отладки
+    
+    // Ищем
+    let results = lines.filter(line => 
+        line.toLowerCase().includes(translitQuery) ||
+        line.toLowerCase().includes(lowerQuery)
+    );
+    
+    if (results.length === 0) {
+        // Поиск по словам
+        const words = translitQuery.split(' ');
+        for (const word of words) {
+            if (word.length > 2) {
+                const found = lines.filter(line => line.toLowerCase().includes(word));
+                if (found.length > 0) {
+                    results = found;
+                    break;
+                }
+            }
+        }
+    }
+    
+    if (results.length === 0) {
+        console.log('❌ Ничего не найдено');
+        return null;
+    }
+    
+    console.log('✅ Найдено:', results[0]);  // ← Добавь для отладки
+    return results.slice(0, 3).join('\n');
+}
+
+// Функция получения случайного факта
+async function getRandomFact() {
+    const knowledge = await loadKnowledge();
+    if (!knowledge) return '🎵 Музыка — это жизнь!';
+    
+    const lines = knowledge.split('\n').filter(line => 
+        line.trim() && 
+        !line.startsWith('=') && 
+        !line.startsWith('🎵') &&
+        !line.startsWith('===')
+    );
+    
+    return lines[Math.floor(Math.random() * lines.length)] || '🎵 Музыка — это жизнь!';
+}
+
  
 async function askGigaChat(question) {
     const limit = await checkAILimit();
@@ -7432,16 +10098,14 @@ MusicHub — это десктопный музыкальный плеер с в
 - Кастомные сайты: можно добавить до 5 любых музыкальных сайтов (Spotify, Apple Music, SoundCloud и другие)
 - Переключение между сервисами: Ctrl+Tab (даже когда окно не активно)
 
-🎨 ВИЗУАЛИЗАЦИИ (25+ режимов):
-Базовые (бесплатно): Полоски, Волна, Круг, Точки, Огонь, Частицы, Спектр, Радиальный, Пузырьки
-Премиум: 3D Туннель, 3D Куб, Галактика, Северное сияние, Метеоритный дождь, Лава, Неоновая сетка, Волны на воде, Вихрь, Цветок, Фрактал, Пульсирующее сердце, Эквалайзер, Звездный взрыв, Лазерное шоу, Глитч-эффект, Плазма, GIF анимация
+🎨 ВИЗУАЛИЗАЦИИ (10 режимов):
+Базовые (бесплатно): Полоски, Волна, Круг, Точки, Частицы, Радиальный, Галактика, Северное сияние, Вихрь, Звездный взрыв, GIF анимация
 - Полноэкранный режим визуализации (кнопка ⤢)
-- Скриншоты визуализации (📸) — в Premium
 
 🎤 ЗАХВАТ ЗВУКА:
-- Можно выбрать устройство захвата (микрофон или Virtual Audio Cable)
+- Можно выбрать устройство захвата (микрофон или Virtual Audio Cable) или использовать modern режим
 - Визуализации реагируют на громкость в реальном времени
-- Чувствительность регулируется (0.1-3)
+- Чувствительность регулируется ползунком
 
 🖥️ ИНТЕРФЕЙС И УПРАВЛЕНИЕ:
 - Мини-режим (кнопка M) — окно поверх всех окон
@@ -7453,9 +10117,6 @@ MusicHub — это десктопный музыкальный плеер с в
 - Звуки переключения: Короткий писк, Двойной писк, Щелчок, Вжух, Выключен
 - Звуки уведомлений (отдельная настройка)
 - Всплывающие уведомления (вкл/выкл)
-
-💎 PREMIUM (50 ₽/месяц):
-Открывает: все визуализации, безлимитный AI, кастомные сайты (до 5), скриншоты
 
 💬 ЧАТ И КОМАНДЫ:
 Доступные команды:
@@ -7470,6 +10131,29 @@ MusicHub — это десктопный музыкальный плеер с в
 - Сброс сервисов до стандартных
 - GIF для визуализатора (свой файл)
 
+ВАЖНО: Если пользователь просит найти песню, исполнителя или альбом, ты ОБЯЗАН использовать команду для открытия поиска:
+
+🔍[SEARCH:текст запроса]
+
+Эту команду я обработаю и открою поиск в YouTube Music.
+
+ПРИМЕРЫ ПРАВИЛЬНЫХ ОТВЕТОВ:
+- Пользователь: "найди Shape of You"
+  Ты: 🔍[SEARCH:Shape of You]
+  
+- Пользователь: "включи Queen"
+  Ты: 🔍[SEARCH:Queen]
+  
+- Пользователь: "поищи расслабляющую музыку"
+  Ты: 🔍[SEARCH:relaxing music]
+
+ПРАВИЛА:
+1. ВСЕГДА используй 🔍[SEARCH:запрос] когда просят найти музыку
+2. НЕ пиши лишнего текста, только команду
+3. Запрос должен быть на том же языке, что и просил пользователь
+
+Если запрос не про поиск музыки — отвечай как обычно.
+
 Если спрашивают о возможностях — рассказывай о них. Если спрашивают о Premium — говори, что стоит 50 ₽ и даёт доступ ко всем визуализациям, безлимитному AI и кастомным сайтам.`
     },
     { role: 'user', content: question }
@@ -7483,7 +10167,8 @@ MusicHub — это десктопный музыкальный плеер с в
         const answer = data.choices?.[0]?.message?.content || 'Не удалось получить ответ';
         
         await incrementAICount();
-        addChatMessage(`🤖 ${answer}`, false, 'AI');
+        const processed = await processAIResponse(answer);
+        addChatMessage(`🤖 ${processed}`, false, 'AI');
         
     } catch (err) {
         console.error('AI error:', err);
@@ -8394,6 +11079,27 @@ function updateChatBadge() {
     }
 }
 
+function addToHistory(role, content) {
+    chatHistory.push({ role, content });
+    // Оставляем только последние MAX_HISTORY сообщений
+    if (chatHistory.length > MAX_HISTORY) {
+        chatHistory = chatHistory.slice(-MAX_HISTORY);
+    }
+    console.log(`📝 История (${chatHistory.length}):`, chatHistory);
+}
+
+// Функция получения истории для контекста
+function getHistoryContext() {
+    if (chatHistory.length === 0) return '';
+    
+    let context = '\n=== ИСТОРИЯ ДИАЛОГА ===\n';
+    for (const msg of chatHistory) {
+        const sender = msg.role === 'user' ? 'Пользователь' : 'Ты (AI)';
+        context += `${sender}: ${msg.content}\n`;
+    }
+    context += '=== КОНЕЦ ИСТОРИИ ===\n';
+    return context;
+}
  
 function addChatMessage(message, isOutgoing = false, sender = null) {
     const container = document.getElementById('chat-messages');
@@ -8403,6 +11109,12 @@ function addChatMessage(message, isOutgoing = false, sender = null) {
     messageDiv.className = `chat-message ${isOutgoing ? 'outgoing' : 'incoming'}`;
     
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        const role = isOutgoing ? 'user' : 'assistant';
+    // Для системных сообщений не добавляем в историю
+    if (sender !== 'system') {
+        addToHistory(role, message);
+    }
     
     let senderName = sender || (isOutgoing ? 'Вы' : 'Пользователь');
     if (sender === 'system') {
@@ -8566,7 +11278,6 @@ async function sendChatMessage() {
     askGigaChat(message);
 }
 
-// Модифицируем askGigaChat чтобы обрабатывать ответы с командами
 async function askGigaChat(question) {
     const limit = await checkAILimit();
     const isPremium = premiumStatus?.isPremium || false;
@@ -8579,38 +11290,65 @@ async function askGigaChat(question) {
     addChatMessage(`🤖 Думаю над: "${question.slice(0, 50)}..."`, false, 'system');
     
     try {
-        // Получаем токен GigaChat
-        const authKey = await getGigaAuthKey();
-        const token = await getGigaToken(authKey);
+        const keyResponse = await fetch(`${WORKER_URL}/key`, {
+            headers: { 'X-App-Key': APP_KEY }
+        });
+        const keyData = await keyResponse.json();
+        if (!keyData.success) throw new Error(keyData.error);
+        const authKey = keyData.authKey;
         
-        // Формируем промпт с инструкцией о командных кодах
-        const systemPrompt = `Ты — AI-помощник в приложении MusicHub.
+        const tokenResponse = await fetch('https://ngw.devices.sberbank.ru:9443/api/v2/oauth', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Accept': 'application/json',
+                'RqUID': crypto.randomUUID(),
+                'Authorization': `Basic ${authKey}`,
+            },
+            body: 'scope=GIGACHAT_API_PERS',
+        });
+        
+        const tokenData = await tokenResponse.json();
+        const token = tokenData.access_token;
+        
+        // === ПОЛУЧАЕМ ИСТОРИЮ ДЛЯ КОНТЕКСТА ===
+        const historyContext = getHistoryContext();
+        
+        // === ПРОМПТ С ИСТОРИЕЙ ===
+        const systemPrompt = `Ты — AI-помощник в MusicHub 3.0.0.
 
-ВАЖНО: Если пользователь просит управлять музыкой, ты МОЖЕШЬ использовать специальные коды в своём ответе.
-Коды вставляются прямо в текст и приложение их выполнит.
+${historyContext}
 
-Доступные коды:
-- 🎵[CMD:PLAY] - включить воспроизведение
-- 🎵[CMD:PAUSE] - поставить на паузу
-- 🎵[CMD:STOP] - полностью остановить
-- 🎵[CMD:NEXT] - следующий трек
-- 🎵[CMD:PREV] - предыдущий трек
-- 🎵[CMD:VOLUP] - увеличить громкость на 10%
-- 🎵[CMD:VOLDOWN] - уменьшить громкость на 10%
-- 🎵[CMD:VOLSET:50] - установить громкость 50% (можно любое число от 0 до 100)
-- 🎵[CMD:MUTE] - выключить звук
-- 🎵[CMD:UNMUTE] - включить звук
+=== ИНСТРУКЦИИ ===
+1. Используй историю диалога, чтобы понимать, о ком идёт речь.
+2. Если пользователь говорит "этот исполнитель", "его песни" — вспомни, о ком говорили ранее.
+3. Если пользователь спрашивает "а ты помнишь..." — ответь на основе истории.
 
-Примеры ответов:
-- "Включаю музыку! 🎵[CMD:PLAY]"
-- "Переключаю на следующий трек 🎵[CMD:NEXT]"
-- "Устанавливаю громкость 30% 🎵[CMD:VOLSET:30]"
+=== КОМАНДЫ ===
+- 📚[KNOWLEDGE:запрос] — когда спрашивают "кто такой ..."
+- 🔍[SEARCH:запрос] — когда просят найти песни
+- 🎵[CMD:PLAY] 🔍[SEARCH:запрос] — когда просят включить исполнителя
+- 🎵[CMD:PLAY] — просто включить/выключить
 
-Если пользователь просит что-то не связанное с музыкой, отвечай как обычно, без кодов.
+=== ПРИМЕРЫ ===
+Пользователь: "кто такой MORGENSHTERN?"
+Ты: 📚[KNOWLEDGE:MORGENSHTERN]
 
-Будь дружелюбным и кратким (2-3 предложения).`;
+Пользователь: "найди песни этого исполнителя"
+Ты: 🔍[SEARCH:MORGENSHTERN] (используя историю)
 
-        const response = await fetch('https://gigachat.devices.sberbank.ru/api/v1/chat/completions', {
+Пользователь: "включи его песни"
+Ты: 🎵[CMD:PLAY] 🔍[SEARCH:MORGENSHTERN] (используя историю)
+
+Пользователь: "а ты помнишь что я просил?"
+Ты: Да, ты спрашивал о MORGENSHTERN. Хочешь найти его песни?
+
+=== ПРАВИЛА ===
+1. Отвечай дружелюбно, используй эмодзи
+2. Используй историю для понимания контекста
+3. Если не знаешь ответа — честно скажи об этом`;
+
+        const aiResponse = await fetch('https://gigachat.devices.sberbank.ru/api/v1/chat/completions', {
             method: 'POST',
             headers: {
                 'Accept': 'application/json',
@@ -8628,16 +11366,13 @@ async function askGigaChat(question) {
             })
         });
         
-        const data = await response.json();
-        const answer = data.choices?.[0]?.message?.content || 'Не удалось получить ответ';
+        const data = await aiResponse.json();
+        let answer = data.choices?.[0]?.message?.content || 'Не удалось получить ответ';
         
-        // Обрабатываем ответ - ищем командные коды
-        const processed = handleAIResponse(answer);
+        console.log('📥 Ответ AI:', answer);
         
-        // Добавляем очищенный ответ в чат
-        addChatMessage(`🤖 ${processed.text}`, false, 'AI');
-        
-        // Если были команды - они уже выполнены в handleAIResponse
+        const processed = await processAIResponse(answer);
+        addChatMessage(`🤖 ${processed}`, false, 'AI');
         
         await incrementAICount();
         
@@ -8646,6 +11381,166 @@ async function askGigaChat(question) {
         addChatMessage(`❌ Ошибка: ${err.message}`, false, 'system');
     }
 }
+
+function clearContext() {
+    lastMentionedArtist = null;
+    chatHistory = [];
+    console.log('🧠 Контекст очищен');
+}
+
+async function processAIResponse(text) {
+    if (!text) return 'Не понял запрос';
+    
+    // === 1. ПОИСК В БАЗЕ ЗНАНИЙ ===
+    const knowledgeMatch = text.match(/📚\[KNOWLEDGE:(.+?)\]/);
+    if (knowledgeMatch) {
+        let query = knowledgeMatch[1].trim();
+        console.log(`📚 AI запросил базу знаний: "${query}"`);
+        
+        // Если запрос пустой или "этот" — пытаемся взять из истории
+        if (!query || query === 'этот' || query === 'этого') {
+            // Ищем последнего исполнителя в истории
+            for (let i = chatHistory.length - 1; i >= 0; i--) {
+                const msg = chatHistory[i];
+                // Ищем упоминание исполнителя в сообщениях пользователя
+                if (msg.role === 'user') {
+                    const match = msg.content.match(/кто такой\s+([^\s?]+)/i);
+                    if (match) {
+                        query = match[1];
+                        console.log(`🧠 Нашёл в истории: "${query}"`);
+                        break;
+                    }
+                }
+            }
+        }
+        
+        const result = await searchKnowledge(query);
+        if (result) {
+            lastMentionedArtist = query;
+            return result;
+        } else {
+            searchYoutubeMusic(query);
+            return `🔍 Ищу "${query}" в YouTube Music... (в базе ничего нет)`;
+        }
+    }
+    
+    // === 2. ПОИСК В YOUTUBE ===
+    const searchMatch = text.match(/🔍\[SEARCH:(.+?)\]/);
+    if (searchMatch) {
+        let query = searchMatch[1].trim();
+        console.log(`🔍 AI запросил поиск: "${query}"`);
+        
+        // Если "этого исполнителя" — берём из истории
+        if (query.toLowerCase().includes('этого исполнителя') || 
+            query === 'его' || 
+            query === 'него' ||
+            query === '') {
+            if (lastMentionedArtist) {
+                query = lastMentionedArtist;
+                console.log(`🧠 Использую контекст: "${query}"`);
+            } else {
+                // Ищем в истории
+                for (let i = chatHistory.length - 1; i >= 0; i--) {
+                    const msg = chatHistory[i];
+                    if (msg.role === 'user') {
+                        const match = msg.content.match(/кто такой\s+([^\s?]+)/i);
+                        if (match) {
+                            query = match[1];
+                            lastMentionedArtist = query;
+                            console.log(`🧠 Нашёл в истории: "${query}"`);
+                            break;
+                        }
+                    }
+                }
+                if (!lastMentionedArtist) {
+                    return '❌ Я не знаю, о ком речь. Скажи имя исполнителя.';
+                }
+            }
+        }
+        
+        const knowledgeResult = await searchKnowledge(query);
+        if (knowledgeResult) {
+            searchYoutubeMusic(query);
+            return `${knowledgeResult}\n\n🔍 Открываю поиск в YouTube Music...`;
+        }
+        
+        searchYoutubeMusic(query);
+        return `🔍 Ищу "${query}" в YouTube Music...`;
+    }
+    
+    // === 3. КОМАНДЫ УПРАВЛЕНИЯ ===
+    const cmdMatch = text.match(/🎵\[CMD:[^\]]+\]/);
+    if (cmdMatch) {
+        if (text.includes('включи') && lastMentionedArtist) {
+            searchYoutubeMusic(lastMentionedArtist);
+            return `🎵 Включаю "${lastMentionedArtist}" в YouTube Music...`;
+        }
+        const result = handleAIResponse(text);
+        return result.text || '✅ Команда выполнена!';
+    }
+    
+    // === 4. ОБЫЧНЫЙ ОТВЕТ ===
+    return text;
+}
+
+
+function searchYoutubeMusic(query) {
+    if (!query || query.trim() === '') {
+        showToast('❌ Введите запрос для поиска', 'error');
+        return;
+    }
+    
+    const encodedQuery = encodeURIComponent(query.trim());
+    const searchUrl = `https://music.youtube.com/search?q=${encodedQuery}`;
+    
+    console.log(`🔍 Открываю поиск: ${searchUrl}`);
+    
+    // Проверяем, есть ли YouTube Music в активных сервисах
+    const activeWv = document.querySelector('webview.active');
+    
+    if (activeWv && activeWv.id === 'youtube') {
+        // Уже на YouTube - просто грузим поиск
+        activeWv.loadURL(searchUrl);
+        showToast(`🔍 Поиск: "${query}"`, 'success');
+        return;
+    }
+    
+    // Ищем кнопку YouTube
+    const ytBtn = document.getElementById('btn-youtube');
+    if (ytBtn) {
+        // Переключаемся на YouTube
+        sw('youtube', ytBtn);
+        
+        // Через секунду грузим поиск
+        setTimeout(() => {
+            const wv = document.querySelector('webview.active');
+            if (wv && wv.id === 'youtube') {
+                wv.loadURL(searchUrl);
+                showToast(`🔍 Поиск: "${query}"`, 'success');
+            }
+        }, 500);
+    } else {
+        // Если YouTube не в сервисах - открываем через musichub://
+        const musichubUrl = `musichub://${searchUrl}`;
+        if (window.electronAPI && window.electronAPI.openExternalUrl) {
+            window.electronAPI.openExternalUrl(musichubUrl);
+            showToast(`🔍 Поиск: "${query}"`, 'success');
+        } else {
+            showToast('❌ YouTube Music не добавлен в сервисы', 'error');
+        }
+    }
+}
+
+// ============================================================
+// ДЕЛАЕМ ФУНКЦИИ ГЛОБАЛЬНЫМИ
+// ============================================================
+
+window.searchYoutubeMusic = searchYoutubeMusic;
+window.processAIResponse = processAIResponse;
+
+console.log('🎵 Поиск в YouTube Music через AI готов!');
+console.log('📝 Используйте: searchYoutubeMusic("Shape of You")');
+console.log('🧠 В чате: "найди Shape of You"');
 
 
 document.getElementById('startMinimized')?.addEventListener('change', (e) => {
@@ -8704,6 +11599,11 @@ async function handleCommand(command) {
                 addChatMessage('🤖 Использование: /ai [вопрос]', false, 'system');
             }
             break;
+
+            case '/clear_context':
+    clearContext();
+    addChatMessage('🧠 Контекст очищен', false, 'system');
+    break;
             
         case '/play':
             await handlePlayPause();
@@ -8746,6 +11646,7 @@ async function handleCommand(command) {
 /ai [вопрос] - Спросить у AI
 /clear - Очистить чат
 /coin - Орёл/решка
+/clear_context - Очищает историю для ии
 
 💡 Также можно писать AI обычным текстом:
 "включи музыку", "следующий трек", "сделай погромче"`, false, 'system');

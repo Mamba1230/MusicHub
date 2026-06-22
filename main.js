@@ -13,6 +13,9 @@ const AdmZip = require('adm-zip');
 const https = require('https');
 const { setVolume, getVolume } = require('easy-volume');
 const nircmdPath = path.join(__dirname, 'nircmd.exe');
+const DiscordRPC = require('discord-rpc');
+
+
 
 // Константы
 const CHROME_STORE_API = 'https://clients2.google.com/service/update2/crx';
@@ -31,6 +34,307 @@ let ext;
 let httpServer = null;
 let currentArtworkBase64 = null;
 let currentTrackInfo = { title: '', artist: '' };
+
+
+
+
+const express = require('express');
+const WebSocket = require('ws');
+const os = require('os');
+
+let mobileServer = null;
+let mobileWs = null;
+let currentMobileStatus = {
+    title: 'Не играет',
+    artist: '—',
+    album: '—',
+    artwork: '',
+    isPlaying: false,
+    volume: 0.5,
+    progress: 0,
+    duration: 0,
+    service: ''
+};
+
+// Получение локального IP
+function getLocalIP() {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name]) {
+            if (iface.family === 'IPv4' && !iface.internal) {
+                return iface.address;
+            }
+        }
+    }
+    return 'localhost';
+}
+
+// Функция отправки статуса всем подключённым клиентам
+function broadcastMobileStatus() {
+    if (mobileWs) {
+        const clients = mobileWs.clients;
+        const data = JSON.stringify({
+            type: 'status',
+            data: currentMobileStatus
+        });
+        clients.forEach(client => {
+            if (client.readyState === WebSocket.OPEN) {
+                client.send(data);
+            }
+        });
+    }
+}
+
+ipcMain.handle('get-local-ip', () => {
+    const interfaces = os.networkInterfaces();
+    
+    // Приоритет: 192.168.x.x > 10.x.x.x > 172.16.x.x
+    const priorities = [
+        (ip) => ip.startsWith('192.168.'),  // Домашние сети
+        (ip) => ip.startsWith('10.'),        // Корпоративные сети
+        (ip) => ip.startsWith('172.16.') || ip.startsWith('172.17.') || 
+                ip.startsWith('172.18.') || ip.startsWith('172.19.') ||
+                ip.startsWith('172.20.') || ip.startsWith('172.21.') ||
+                ip.startsWith('172.22.') || ip.startsWith('172.23.') ||
+                ip.startsWith('172.24.') || ip.startsWith('172.25.') ||
+                ip.startsWith('172.26.') || ip.startsWith('172.27.') ||
+                ip.startsWith('172.28.') || ip.startsWith('172.29.') ||
+                ip.startsWith('172.30.') || ip.startsWith('172.31.')   // Диапазон 172.16.0.0 - 172.31.255.255
+    ];
+    
+    let foundIP = null;
+    
+    for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name]) {
+            // Пропускаем IPv6 и внутренние
+            if (iface.family !== 'IPv4' || iface.internal) continue;
+            
+            const ip = iface.address;
+            
+            // Проверяем приоритеты
+            for (let i = 0; i < priorities.length; i++) {
+                if (priorities[i](ip)) {
+                    // Если нашли IP с более высоким приоритетом - сразу возвращаем
+                    if (i === 0) {
+                        return ip; // 192.168.x.x — сразу возвращаем
+                    }
+                    // Запоминаем, но продолжаем искать 192.168
+                    if (!foundIP) {
+                        foundIP = ip;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Если нашли 10.x.x.x или 172.16.x.x — возвращаем
+    if (foundIP) return foundIP;
+    
+    // Если ничего не нашли — возвращаем localhost
+    return 'localhost';
+});
+
+// Запуск мобильного сервера
+function startMobileServer() {
+    const app = express();
+    const server = http.createServer(app);
+    const ws = new WebSocket.Server({ server });
+    mobileWs = ws;
+    
+    // === СТАТИЧЕСКИЕ ФАЙЛЫ ===
+    app.use(express.static(path.join(__dirname, 'mobile')));
+    
+    // === API ===
+    app.get('/api/status', (req, res) => {
+        res.json(currentMobileStatus);
+    });
+    
+    app.post('/api/play', (req, res) => {
+        // Отправляем команду в renderer
+        if (win && !win.isDestroyed()) {
+            win.webContents.send('mobile-command', 'playpause');
+        }
+        res.json({ success: true });
+    });
+    
+    app.post('/api/next', (req, res) => {
+        if (win && !win.isDestroyed()) {
+            win.webContents.send('mobile-command', 'next');
+        }
+        res.json({ success: true });
+    });
+    
+    app.post('/api/prev', (req, res) => {
+        if (win && !win.isDestroyed()) {
+            win.webContents.send('mobile-command', 'prev');
+        }
+        res.json({ success: true });
+    });
+    
+    app.post('/api/volume', express.json(), (req, res) => {
+        const { volume } = req.body;
+        if (win && !win.isDestroyed()) {
+            win.webContents.send('mobile-volume', volume);
+        }
+        res.json({ success: true });
+    });
+    
+    // === WebSocket ===
+    ws.on('connection', (client) => {
+        console.log('📱 Мобильный клиент подключён');
+        
+        // Отправляем текущий статус
+        client.send(JSON.stringify({
+            type: 'status',
+            data: currentMobileStatus
+        }));
+        
+        client.on('close', () => {
+            console.log('📱 Мобильный клиент отключён');
+        });
+    });
+    
+    // Запуск сервера
+    const PORT = 3457;
+    server.listen(PORT, '0.0.0.0', () => {
+        const ip = getLocalIP();
+        console.log(`📱 Мобильный сервер запущен на порту ${PORT}`);
+        console.log(`🌐 Открой в телефоне: http://${ip}:${PORT}`);
+        
+        // Показываем QR-код или ссылку в приложении
+        if (win && !win.isDestroyed()) {
+            win.webContents.send('mobile-server-started', {
+                url: `http://${ip}:${PORT}`,
+                ip: ip,
+                port: PORT
+            });
+        }
+    });
+    
+    return server;
+}
+
+// Остановка сервера
+function stopMobileServer() {
+    if (mobileWs) {
+        mobileWs.clients.forEach(client => client.close());
+        mobileWs.close();
+        mobileWs = null;
+    }
+    if (mobileServer) {
+        mobileServer.close();
+        mobileServer = null;
+    }
+}
+
+// Обработчики из renderer для обновления статуса
+ipcMain.on('mobile-update-status', (event, status) => {
+    currentMobileStatus = { ...currentMobileStatus, ...status };
+    broadcastMobileStatus();
+});
+
+// Запускаем сервер при старте
+setTimeout(() => {
+    startMobileServer();
+}, 2000);
+
+
+ipcMain.on('mobile-update-status', (event, status) => {
+    currentMobileStatus = { ...currentMobileStatus, ...status };
+    broadcastMobileStatus();
+});
+
+ipcMain.on('mobile-command', (event, command) => {
+    // Пересылаем в renderer
+    if (win && !win.isDestroyed()) {
+        win.webContents.send('mobile-command', command);
+    }
+});
+
+ipcMain.on('mobile-volume', (event, volume) => {
+    if (win && !win.isDestroyed()) {
+        win.webContents.send('mobile-volume', volume);
+    }
+});
+
+function getArtworkFromFile() {
+    const appData = process.env.APPDATA;
+    const coverPath = path.join(appData, 'musichub', 'cover.jpg');
+    
+    if (fs.existsSync(coverPath)) {
+        try {
+            const coverBuffer = fs.readFileSync(coverPath);
+            const base64 = coverBuffer.toString('base64');
+            return `data:image/jpeg;base64,${base64}`;
+        } catch (err) {
+            return '';
+        }
+    }
+    return '';
+}
+
+// Функция получения информации о треке из файла
+function getTrackInfoFromFile() {
+    const appData = process.env.APPDATA;
+    const infoPath = path.join(appData, 'musichub', 'media_info.json');
+    
+    try {
+        if (fs.existsSync(infoPath)) {
+            let content = fs.readFileSync(infoPath, 'utf8');
+            // Удаляем BOM если есть
+            if (content.charCodeAt(0) === 0xFEFF || content.startsWith('я╗┐')) {
+                content = content.replace(/^[\uFEFFя╗┐]/, '');
+            }
+            const info = JSON.parse(content);
+            return {
+                title: info.title || 'Не играет',
+                artist: info.artist || '—',
+                album: info.album || '—'
+            };
+        }
+    } catch (err) {
+        console.log('Ошибка чтения media_info.json:', err.message);
+    }
+    return null;
+}
+
+// Обновлённая функция отправки статуса
+ipcMain.on('mobile-update-status', (event, status) => {
+    // Получаем актуальную обложку из файла
+    const artworkFromFile = getArtworkFromFile();
+    const trackInfo = getTrackInfoFromFile();
+    
+    // Обновляем статус
+    currentMobileStatus = {
+        ...currentMobileStatus,
+        ...status,
+        // Приоритет: данные из файла важнее
+        title: trackInfo?.title || status.title || 'Не играет',
+        artist: trackInfo?.artist || status.artist || '—',
+        artwork: artworkFromFile || status.artwork || '',
+        volume: status.volume || 0.5,
+        isPlaying: status.isPlaying || false,
+        service: status.service || 'unknown',
+        accentColor: status.accentColor || '#1DB954'
+    };
+    
+    broadcastMobileStatus();
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // Конфиг
 const configPath = path.join(app.getPath('userData'), 'config.json');
@@ -94,6 +398,682 @@ const saveConfig = () => {
         console.log('❌ Ошибка сохранения конфига:', e.message);
     }
 };
+
+// ========== DISCORD RPC ==========
+
+const clientId = '1518602342331842570';
+let rpc = null;
+let rpcEnabled = false;
+let rpcUpdateInterval = null;
+const discordSettingsPath = path.join(app.getPath('userData'), 'discord_settings.json');
+
+// Загрузка настроек Discord из файла
+function loadDiscordSettings() {
+    try {
+        if (fs.existsSync(discordSettingsPath)) {
+            const data = fs.readFileSync(discordSettingsPath, 'utf8');
+            return JSON.parse(data);
+        }
+    } catch (e) {
+        console.log('Ошибка загрузки настроек Discord:', e);
+    }
+    return {};
+}
+
+// Сохранение настроек Discord в файл
+function saveDiscordSettings(settings) {
+    try {
+        const current = loadDiscordSettings();
+        const updated = { ...current, ...settings };
+        fs.writeFileSync(discordSettingsPath, JSON.stringify(updated, null, 2));
+    } catch (e) {
+        console.log('Ошибка сохранения настроек Discord:', e);
+    }
+}
+
+// Функция для обновления статуса
+function updateDiscordPresence(trackInfo) {
+    console.log('🎵 updateDiscordPresence ВЫЗВАН');
+    console.log('📌 rpc:', !!rpc);
+    console.log('📌 rpcEnabled:', rpcEnabled);
+    console.log('📌 trackInfo:', trackInfo);
+    
+    if (!rpc) {
+        console.log('❌ RPC не инициализирован');
+        return;
+    }
+    
+    if (!rpcEnabled) {
+        console.log('❌ RPC выключен');
+        return;
+    }
+    
+    const title = trackInfo?.title || 'Не играет';
+    const artist = trackInfo?.artist || '';
+    
+const presence = {
+    details: title,
+    state: artist || 'Ожидание',
+    startTimestamp: Date.now(),
+    largeImageKey: 'musichub_icon',
+    largeImageText: 'MusicHub v3.0.0',
+    buttons: [
+        {
+            label: '🎵 MusicHub',
+            url: 'https://github.com/Mamba1230/MusicHub'
+        }
+    ]
+};
+    
+    console.log('📤 Отправляем в Discord:', JSON.stringify(presence, null, 2));
+    
+    rpc.setActivity(presence)
+        .then(() => {
+            console.log('✅ RPC УСПЕШНО УСТАНОВЛЕН!');
+        })
+        .catch(err => {
+            console.log('❌ ОШИБКА RPC:', err.message);
+            console.log('❌ Полная ошибка:', err);
+        });
+}
+
+// Инициализация RPC
+function initRPC() {
+    if (rpc) {
+        console.log('ℹ️ RPC уже инициализирован');
+        return;
+    }
+    
+    console.log('🔧 Начинаем инициализацию RPC...');
+    
+    try {
+        const DiscordRPC = require('discord-rpc');
+        console.log('✅ discord-rpc загружен');
+        
+        DiscordRPC.register(clientId);
+        console.log('✅ DiscordRPC.register() выполнен');
+        
+        rpc = new DiscordRPC.Client({ transport: 'ipc' });
+        console.log('✅ Клиент RPC создан');
+        
+        rpc.on('ready', () => {
+            console.log('✅ Discord RPC ГОТОВ!');
+            if (rpcEnabled) {
+                console.log('🔄 RPC включён, отправляем статус...');
+                updateDiscordPresence(global.currentTrackInfo);
+            }
+        });
+        
+        rpc.on('error', (err) => {
+            console.log('❌ RPC ошибка:', err);
+        });
+        
+        console.log('🔑 Логинимся в Discord...');
+        rpc.login({ clientId }).then(() => {
+            console.log('✅ RPC login успешен');
+        }).catch(err => {
+            console.log('❌ Ошибка входа:', err);
+            rpc = null;
+        });
+        
+    } catch (err) {
+        console.log('❌ Ошибка инициализации RPC:', err);
+    }
+}
+
+// Включение/выключение RPC
+function toggleDiscordRPC(enabled) {
+    console.log(`🔄 toggleDiscordRPC(${enabled})`);
+    rpcEnabled = enabled;
+    saveDiscordSettings({ discordRPCEnabled: enabled });
+    
+    if (enabled) {
+        if (!rpc) {
+            console.log('🔧 Инициализируем RPC...');
+            initRPC();
+        } else {
+            console.log('🔄 Обновляем RPC...');
+            updateDiscordPresence(global.currentTrackInfo);
+        }
+        if (rpcUpdateInterval) clearInterval(rpcUpdateInterval);
+        rpcUpdateInterval = setInterval(() => {
+            if (rpc && rpcEnabled) {
+                updateDiscordPresence(global.currentTrackInfo);
+            }
+        }, 15000);
+        console.log('✅ Discord RPC включён');
+    } else {
+        if (rpcUpdateInterval) {
+            clearInterval(rpcUpdateInterval);
+            rpcUpdateInterval = null;
+        }
+        if (rpc) {
+            try {
+                rpc.clearActivity();
+                rpc.destroy();
+            } catch (e) {}
+            rpc = null;
+        }
+        console.log('🔇 Discord RPC выключён');
+    }
+}
+
+// Делаем функции глобальными
+global.toggleDiscordRPC = toggleDiscordRPC;
+global.updateDiscordPresence = updateDiscordPresence;
+global.rpc = rpc;
+global.rpcEnabled = rpcEnabled;
+global.currentTrackInfo = { title: 'Не играет', artist: '' };
+
+// Обработчики IPC
+ipcMain.on('toggle-discord-rpc', (event, enabled) => {
+    console.log('📨 Получен toggle-discord-rpc:', enabled);
+    toggleDiscordRPC(enabled);
+});
+
+ipcMain.handle('get-discord-rpc-status', () => {
+    return rpcEnabled;
+});
+
+ipcMain.on('update-track-info', (event, trackInfo) => {
+    console.log('📨 Получен update-track-info:', trackInfo);
+    global.currentTrackInfo = trackInfo;
+    if (rpc && rpcEnabled) {
+        updateDiscordPresence(trackInfo);
+    }
+});
+
+
+
+
+
+
+
+// ============================================================
+// ГИБКИЕ ГОРЯЧИЕ КЛАВИШИ (MAIN.JS) - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// ============================================================
+
+// Глобальные переменные для клавиш
+let registeredHotkeys = {};
+let hotkeyListeners = {};
+
+// ============================================================
+// ОСНОВНЫЕ ФУНКЦИИ
+// ============================================================
+
+
+// ОБРАБОТКА КЛАВИШ ВНУТРИ ОКНА (РАБОТАЕТ СО ВСЕМИ КЛАВИШАМИ)
+function setupWindowHotkeys() {
+    if (!win || win.isDestroyed()) return;
+    
+    // Получаем webContents окна
+    const webContents = win.webContents;
+    
+    // Слушаем все клавиши в окне
+    webContents.on('before-input-event', (event, input) => {
+        // Игнорируем если ввод в поле
+        if (input.type === 'keyDown') {
+            // Собираем комбинацию
+            const keys = [];
+            if (input.control) keys.push('Control');
+            if (input.alt) keys.push('Alt');
+            if (input.shift) keys.push('Shift');
+            if (input.meta) keys.push('Meta');
+            
+            // Определяем основную клавишу
+            let mainKey = input.key;
+            
+            // Преобразуем специальные клавиши
+            if (mainKey === ' ') mainKey = 'Space';
+            if (mainKey === 'ArrowUp') mainKey = 'ArrowUp';
+            if (mainKey === 'ArrowDown') mainKey = 'ArrowDown';
+            if (mainKey === 'ArrowLeft') mainKey = 'ArrowLeft';
+            if (mainKey === 'ArrowRight') mainKey = 'ArrowRight';
+            if (mainKey === 'MediaPlayPause') mainKey = 'MediaPlayPause';
+            if (mainKey === 'MediaNextTrack') mainKey = 'MediaNextTrack';
+            if (mainKey === 'MediaPreviousTrack') mainKey = 'MediaPreviousTrack';
+            if (mainKey === 'VolumeUp') mainKey = 'VolumeUp';
+            if (mainKey === 'VolumeDown') mainKey = 'VolumeDown';
+            if (mainKey === 'VolumeMute') mainKey = 'VolumeMute';
+            
+            // Добавляем основную клавишу (если это не модификатор)
+            if (!['Control', 'Alt', 'Shift', 'Meta'].includes(mainKey)) {
+                keys.push(mainKey);
+            }
+            
+            // Если только модификаторы - пропускаем
+            if (keys.length <= 1 && ['Control', 'Alt', 'Shift', 'Meta'].includes(keys[0])) {
+                return;
+            }
+            
+            // Сортируем модификаторы
+            const order = { 'Control': 0, 'Alt': 1, 'Shift': 2, 'Meta': 3 };
+            keys.sort((a, b) => {
+                const aIsMod = order[a] !== undefined;
+                const bIsMod = order[b] !== undefined;
+                if (aIsMod && bIsMod) return order[a] - order[b];
+                if (aIsMod) return -1;
+                if (bIsMod) return 1;
+                return 0;
+            });
+            
+            const binding = keys.join('+');
+            
+            // Проверяем, есть ли такая комбинация в наших hotkeys
+            if (binding && registeredHotkeys) {
+                for (const [action, hotkeyBinding] of Object.entries(registeredHotkeys)) {
+                    if (hotkeyBinding === binding) {
+                        console.log(`🔔 Клавиша в окне: ${action} (${binding})`);
+                        event.preventDefault();
+                        
+                        // Отправляем в renderer
+                        webContents.send('hotkey-pressed', action);
+                        break;
+                    }
+                }
+            }
+        }
+    });
+    
+    console.log('✅ Обработка клавиш в окне настроена');
+}
+
+// Функция регистрации с поддержкой Numpad и специальных клавиш
+function registerHotkeyWithFallback(action, binding) {
+    console.log(`🔧 Регистрация: ${action} → ${binding}`);
+    
+    // Если binding пустой - пропускаем
+    if (!binding || binding === '' || binding === 'null' || binding === 'undefined') {
+        console.log(`⚠️ Пропуск ${action}: пустое значение`);
+        return false;
+    }
+    
+    // Пробуем зарегистрировать через globalShortcut
+    try {
+        const success = globalShortcut.register(binding, () => {
+            console.log(`🔔 КЛАВИША СРАБОТАЛА: ${action} (${binding})`);
+            if (win && !win.isDestroyed()) {
+                win.webContents.send('hotkey-pressed', action);
+            }
+        });
+        
+        if (success) {
+            console.log(`✅ Зарегистрирована (globalShortcut): ${action} → ${binding}`);
+            return true;
+        }
+    } catch (err) {
+        console.log(`❌ Ошибка регистрации ${action}:`, err.message);
+    }
+    
+    // === FALLBACK: ЧЕРЕЗ RENDERER ===
+    console.log(`🔄 Использую fallback для ${action} → ${binding}`);
+    
+    // Сохраняем для отправки в renderer
+    hotkeyListeners[action] = binding;
+    
+    // Регистрируем через renderer (отправляем событие)
+    if (win && !win.isDestroyed()) {
+        win.webContents.send('register-fallback-hotkey', { action, binding });
+    }
+    
+    return true;
+}
+
+// Основная функция регистрации всех клавиш
+function registerAllHotkeys(hotkeys) {
+    console.log('🔄 Регистрация горячих клавиш:', hotkeys);
+    
+    // Отключаем все старые globalShortcut
+    try {
+        globalShortcut.unregisterAll();
+    } catch (e) {
+        console.log('Ошибка отключения клавиш:', e);
+    }
+    
+    registeredHotkeys = {};
+    
+    if (!hotkeys) {
+        console.log('ℹ️ Нет клавиш для регистрации');
+        return 0;
+    }
+    
+    let registeredCount = 0;
+    
+    for (const [action, binding] of Object.entries(hotkeys)) {
+        if (!binding || binding === '' || binding === 'null' || binding === 'undefined') {
+            console.log(`⚠️ Пропуск ${action}: пустое значение`);
+            continue;
+        }
+        
+        // === СОХРАНЯЕМ ВСЕ КЛАВИШИ В registeredHotkeys ===
+        // Они будут обрабатываться через before-input-event
+        registeredHotkeys[action] = binding;
+        registeredCount++;
+        console.log(`✅ Сохранена: ${action} → ${binding}`);
+        
+        // === ДЛЯ ПРОСТЫХ КЛАВИШ (буквы, цифры) ПРОБУЕМ globalShortcut ===
+        // Это нужно чтобы клавиши работали даже когда окно не в фокусе
+        const simpleKeys = ['A','B','C','D','E','F','G','H','I','J','K','L','M',
+                           'N','O','P','Q','R','S','T','U','V','W','X','Y','Z',
+                           '0','1','2','3','4','5','6','7','8','9',
+                           'Space','Tab','Escape','Enter','Backspace',
+                           'F1','F2','F3','F4','F5','F6','F7','F8','F9','F10','F11','F12'];
+        
+        const parts = binding.split('+');
+        let isSimple = true;
+        for (const part of parts) {
+            if (!simpleKeys.includes(part) && !['Control','Alt','Shift','Meta'].includes(part)) {
+                isSimple = false;
+                break;
+            }
+        }
+        
+        if (isSimple) {
+            try {
+                const success = globalShortcut.register(binding, () => {
+                    console.log(`🔔 globalShortcut: ${action} (${binding})`);
+                    if (win && !win.isDestroyed()) {
+                        win.webContents.send('hotkey-pressed', action);
+                    }
+                });
+                if (success) {
+                    console.log(`✅ globalShortcut: ${action} → ${binding}`);
+                }
+            } catch (err) {
+                console.log(`❌ globalShortcut ошибка ${action}:`, err.message);
+            }
+        } else {
+            console.log(`🔄 Только внутри окна: ${action} → ${binding}`);
+        }
+    }
+    
+    console.log(`✅ Зарегистрировано ${registeredCount} горячих клавиш`);
+    return registeredCount;
+}
+
+// ============================================================
+// ЗАГРУЗКА ИЗ ФАЙЛА
+// ============================================================
+
+function loadHotkeysFromFile() {
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        const hotkeysPath = path.join(app.getPath('userData'), 'hotkeys.json');
+        
+        if (fs.existsSync(hotkeysPath)) {
+            const data = fs.readFileSync(hotkeysPath, 'utf8');
+            const hotkeys = JSON.parse(data);
+            console.log('📥 Загружены hotkeys из файла:', hotkeys);
+            return hotkeys;
+        }
+    } catch (err) {
+        console.error('❌ Ошибка загрузки hotkeys:', err);
+    }
+    return null;
+}
+
+function saveHotkeysToFile(hotkeys) {
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        const hotkeysPath = path.join(app.getPath('userData'), 'hotkeys.json');
+        fs.writeFileSync(hotkeysPath, JSON.stringify(hotkeys, null, 2));
+        console.log('💾 Hotkeys сохранены в файл');
+    } catch (err) {
+        console.error('❌ Ошибка сохранения hotkeys:', err);
+    }
+}
+
+function getDefaultHotkeys() {
+    return {
+        playpause: 'Control+Shift+Space',
+        next: 'Control+Shift+Right',
+        prev: 'Control+Shift+Left',
+        stop: 'Control+Shift+.',
+        volumeup: 'Control+Shift+Up',
+        volumedown: 'Control+Shift+Down'
+    };
+}
+
+// ============================================================
+// ИНИЦИАЛИЗАЦИЯ
+// ============================================================
+
+function initHotkeys() {
+    // Пробуем загрузить из файла
+    let hotkeys = loadHotkeysFromFile();
+    
+    // Если нет - создаём дефолтные
+    if (!hotkeys) {
+        hotkeys = getDefaultHotkeys();
+        saveHotkeysToFile(hotkeys);
+        console.log('📝 Созданы дефолтные hotkeys');
+    }
+    
+    // Регистрируем
+    registerAllHotkeys(hotkeys);
+    
+    // Отправляем в renderer
+    if (win && !win.isDestroyed()) {
+        win.webContents.send('load-hotkeys', hotkeys);
+    }
+    
+    return hotkeys;
+}
+
+// ============================================================
+// ОБРАБОТЧИКИ IPC
+// ============================================================
+
+ipcMain.on('update-hotkeys', (event, hotkeys) => {
+    console.log('📥 MAIN получил hotkeys:', hotkeys);
+    
+    // Сохраняем в файл
+    saveHotkeysToFile(hotkeys);
+    
+    // Регистрируем
+    registerAllHotkeys(hotkeys);
+});
+
+ipcMain.handle('get-hotkeys-from-storage', () => {
+    return loadHotkeysFromFile() || getDefaultHotkeys();
+});
+
+// Обработчик из renderer для fallback клавиш
+ipcMain.on('fallback-hotkey-pressed', (event, action) => {
+    console.log(`🔔 Fallback клавиша из renderer: ${action}`);
+    if (win && !win.isDestroyed()) {
+        win.webContents.send('hotkey-pressed', action);
+    }
+});
+
+// ============================================================
+// МЕДИА-КОМАНДЫ
+// ============================================================
+
+ipcMain.on('media-playpause', () => {
+    console.log('📨 media-playpause из renderer');
+    sendMediaCommand('playpause');
+});
+
+ipcMain.on('media-next', () => {
+    console.log('📨 media-next из renderer');
+    sendMediaCommand('next');
+});
+
+ipcMain.on('media-prev', () => {
+    console.log('📨 media-prev из renderer');
+    sendMediaCommand('previous');
+});
+
+ipcMain.on('media-stop', () => {
+    console.log('📨 media-stop из renderer');
+    sendMediaCommand('stop');
+});
+
+ipcMain.on('volume-up', () => {
+    console.log('📨 volume-up из renderer');
+});
+
+ipcMain.on('volume-down', () => {
+    console.log('📨 volume-down из renderer');
+});
+
+// ============================================================
+// ЗАПУСК ПРИ СТАРТЕ
+// ============================================================
+
+// Экспортируем для использования в других частях
+module.exports = { 
+    registerAllHotkeys, 
+    registerHotkeyWithFallback,
+    initHotkeys,
+    loadHotkeysFromFile,
+    saveHotkeysToFile
+};
+
+// Загружаем при старте (будет вызвано из app.whenReady)
+console.log('🎮 Модуль горячих клавиш загружен');
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ipcMain.on('open-external-url', (event, url) => {
+    console.log(`🔗 Открываем musichub:// URL: ${url}`);
+    
+    // Нормализуем URL
+    let cleanUrl = url.replace('musichub://', '');
+    
+    // Если это поиск YouTube Music
+    if (cleanUrl.includes('music.youtube.com/search')) {
+        console.log(`🎵 Поиск в YouTube Music: ${cleanUrl}`);
+    }
+    
+    // Отправляем в renderer
+    if (win && !win.isDestroyed()) {
+        win.webContents.send('open-external-url', cleanUrl);
+    }
+});
+
+
+
 
 
 
@@ -845,6 +1825,10 @@ function createWindow() {
             spellcheck: false
         }
     });
+    
+        setTimeout(() => {
+        setupWindowHotkeys();
+    }, 500);
 
     const ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
     session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
@@ -928,6 +1912,62 @@ win.on('close', (e) => {
         saveConfig();
     }
 });
+
+
+// ========== ПОЛУЧЕНИЕ УСТРОЙСТВ ДЛЯ C# ==========
+ipcMain.handle('get-audio-devices', async () => {
+    try {
+        const response = await fetch('http://localhost:9876/audio-devices', {
+            method: 'GET',
+            signal: AbortSignal.timeout(2000)
+        });
+        if (response.ok) {
+            return await response.json();
+        }
+        return [];
+    } catch (error) {
+        console.error('Ошибка получения устройств:', error);
+        return [];
+    }
+});
+
+// ========== СОХРАНЕНИЕ НАСТРОЕК АУДИО ==========
+ipcMain.handle('set-audio-config', async (event, config) => {
+    try {
+        const response = await fetch('http://localhost:9876/audio-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config),
+            signal: AbortSignal.timeout(2000)
+        });
+        if (response.ok) {
+            const result = await response.json();
+            return result.success || false;
+        }
+        return false;
+    } catch (error) {
+        console.error('Ошибка сохранения настроек:', error);
+        return false;
+    }
+});
+
+// ========== ПОЛУЧЕНИЕ НАСТРОЕК АУДИО ==========
+ipcMain.handle('get-audio-config', async () => {
+    try {
+        const response = await fetch('http://localhost:9876/audio-config', {
+            method: 'GET',
+            signal: AbortSignal.timeout(2000)
+        });
+        if (response.ok) {
+            return await response.json();
+        }
+        return { mode: 0, deviceId: '' };
+    } catch (error) {
+        return { mode: 0, deviceId: '' };
+    }
+});
+
+
 
 function loadConfig() {
     try {
@@ -1021,17 +2061,48 @@ app.whenReady().then(() => {
     startArtworkServer();
     createWindow();
     
+    // ========== ЗАПУСК DISCORD RPC (если включено в настройках) ==========
+    try {
+        const discordSettings = loadDiscordSettings();
+        if (discordSettings.discordRPCEnabled === true) {
+            console.log('🔄 Discord RPC включён по настройкам, запускаем...');
+            setTimeout(() => {
+                toggleDiscordRPC(true);
+                setTimeout(() => {
+                    if (rpc) {
+                        rpc.setActivity({
+                            details: 'MusicHub v3.0.0',
+                            state: 'Слушаю музыку 🎵',
+                            largeImageKey: 'spotify',
+                            largeImageText: 'MusicHub'
+                        }).then(() => {
+                            console.log('✅ Discord RPC активен!');
+                        }).catch(err => {
+                            console.log('❌ Ошибка RPC:', err);
+                        });
+                    }
+                }, 3000);
+            }, 3000);
+        } else {
+            console.log('ℹ️ Discord RPC отключён в настройках');
+        }
+    } catch (e) {
+        console.log('⚠️ Ошибка загрузки настроек Discord:', e);
+        // Если ошибка — запускаем принудительно для теста
+        console.log('🔄 Принудительный запуск RPC для теста...');
+        setTimeout(() => {
+            toggleDiscordRPC(true);
+        }, 5000);
+    }
+    
     // ========== ГЛОБАЛЬНЫЕ КЛАВИШИ ==========
     let currentBinding = null;
     let isEnabled = false;
     
     function registerShortcut() {
         try {
-            // ВАЖНО: сначала ОТКЛЮЧАЕМ ВСЕ возможные старые
-            // Это гарантирует, что никакая клавиша не останется
             globalShortcut.unregisterAll();
             
-            // Если есть бинд и он включен - регистрируем
             if (isEnabled && currentBinding && currentBinding !== '' && currentBinding !== 'null') {
                 const success = globalShortcut.register(currentBinding, () => {
                     console.log('🔔 КЛАВИША СРАБОТАЛА:', currentBinding);
@@ -1056,7 +2127,7 @@ app.whenReady().then(() => {
         console.log('📥 MAIN получил:', data);
         currentBinding = data.binding;
         isEnabled = data.enabled;
-        registerShortcut();  // Сразу применяем
+        registerShortcut();
     });
     
     registerShortcut();

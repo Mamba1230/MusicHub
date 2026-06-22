@@ -35,7 +35,6 @@ const api = {
     updateArtworkUrl: (url, trackInfo) => ipcRenderer.send('update-artwork-url', url, trackInfo),
     getWindowsMediaInfo: () => ipcRenderer.invoke('get-windows-media-info'),
     getMediaFromFiles: () => ipcRenderer.invoke('get-media-from-files'),
-    updateArtworkForTray: (imageData) => ipcRenderer.send('update-artwork-for-tray', imageData),
     getArtworkFromServer: () => ipcRenderer.invoke('get-artwork-from-server'),
     onOpenUrl: (callback) => ipcRenderer.on('open-url', callback),
     onOpenHomePage: (callback) => ipcRenderer.on('open-home-page', callback),
@@ -47,8 +46,6 @@ const api = {
     setAllWebviewsVolume: (volume) => ipcRenderer.send('set-all-webviews-volume', volume),
     onGlobalSetVolume: (callback) => ipcRenderer.on('global-set-volume', callback),
     setYandexVolume: (volumePercent) => ipcRenderer.send('set-yandex-volume', volumePercent),
-    setSystemVolume: (volume) => ipcRenderer.invoke('set-system-volume', volume),
-    getSystemVolume: () => ipcRenderer.invoke('get-system-volume'),
     getSystemMuted: () => ipcRenderer.invoke('get-system-muted'),
     setSystemMute: (muted) => ipcRenderer.invoke('set-system-mute', muted),
     mediaPlayPause: () => ipcRenderer.invoke('media-playpause'),
@@ -56,22 +53,31 @@ const api = {
     mediaNext: () => ipcRenderer.invoke('media-next'),
     mediaPrevious: () => ipcRenderer.invoke('media-previous'),
     mediaPing: () => ipcRenderer.invoke('media-ping'),
-        parseAICommand: (text) => {
-        // Передаём в renderer через ipc
-        return ipcRenderer.invoke('parse-ai-command', text);
-    },
-    executeAICommand: (command) => {
-        return ipcRenderer.invoke('execute-ai-command', command);
-    },
+    getAudioDevices: () => ipcRenderer.invoke('get-audio-devices'),
+    setAudioConfig: (config) => ipcRenderer.invoke('set-audio-config'),
+    getAudioConfig: () => ipcRenderer.invoke('get-audio-config'),
+    toggleDiscordRPC: (enabled) => ipcRenderer.send('toggle-discord-rpc', enabled),
+    getDiscordRPCStatus: () => ipcRenderer.invoke('get-discord-rpc-status'),
+    updateHotkeys: (hotkeys) => ipcRenderer.send('update-hotkeys', hotkeys),
+    onHotkeyPressed: (callback) => ipcRenderer.on('hotkey-pressed', callback),
+    getHotkeysFromStorage: () => ipcRenderer.invoke('get-hotkeys-from-storage'),
+    sendMobileStatus: (status) => ipcRenderer.send('mobile-update-status', status),
+    onMobileCommand: (callback) => ipcRenderer.on('mobile-command', callback),
+    onMobileVolume: (callback) => ipcRenderer.on('mobile-volume', callback),
+    onMobileServerStarted: (callback) => ipcRenderer.on('mobile-server-started', callback),
+    getLocalIP: () => ipcRenderer.invoke('get-local-ip'),
+    
+    // AI команды
+    parseAICommand: (text) => ipcRenderer.invoke('parse-ai-command', text),
+    executeAICommand: (command) => ipcRenderer.invoke('execute-ai-command', command),
 
+    // Страница запуска
     setStartupPage: (page) => ipcRenderer.send('set-startup-page', page),
     getStartupPage: () => ipcRenderer.invoke('get-startup-page'),
     onInitStartupPage: (callback) => ipcRenderer.on('init-startup-page', callback),
     
-    
-    // ========== НОВАЯ ФУНКЦИЯ ДЛЯ MUSICHUB И ELECTRON ==========
+    // Громкость MusicHub
     setMusicHubVolume: (volume) => {
-        // volume от 0 до 1 (0.5 = 50%)
         return fetch('http://localhost:9876/set-volume', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -80,7 +86,7 @@ const api = {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                console.log(`✅ Громкость MusicHub и Electron изменена на ${volume * 100}%`);
+                console.log(`✅ Громкость MusicHub изменена на ${volume * 100}%`);
             }
             return data.success;
         })
@@ -88,7 +94,27 @@ const api = {
             console.error('❌ Ошибка при изменении громкости:', error);
             return false;
         });
+    },
+
+    // ========== FALLBACK ДЛЯ ГОРЯЧИХ КЛАВИШ ==========
+    on: (channel, callback) => {
+        const validChannels = ['register-fallback-hotkey'];
+        if (validChannels.includes(channel)) {
+            ipcRenderer.on(channel, (event, ...args) => callback(event, ...args));
+        }
+    },
+    
+    send: (channel, ...args) => {
+        const validChannels = ['fallback-hotkey-pressed'];
+        if (validChannels.includes(channel)) {
+            ipcRenderer.send(channel, ...args);
+        }
+    },
+    
+    fallbackHotkeyPressed: (action) => {
+        ipcRenderer.send('fallback-hotkey-pressed', action);
     }
 };
 
+// ОДИН РАЗ экспортируем API
 contextBridge.exposeInMainWorld('electronAPI', api);

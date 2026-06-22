@@ -3232,3 +3232,56 @@ webview {
     border-color: var(--accent-color);
     box-shadow: 0 0 0 2px rgba(29, 185, 84, 0.2);
 }
+
+.hotkey-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.hotkey-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.hotkey-row label {
+    font-size: 13px;
+    min-width: 120px;
+}
+
+.hotkey-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.hotkey-controls input {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    width: 150px;
+    text-align: center;
+    font-family: monospace;
+}
+
+.hotkey-change-btn {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 11px;
+    cursor: pointer;
+    color: var(--text-primary);
+    transition: all 0.2s;
+}
+
+.hotkey-change-btn:hover {
+    background: var(--accent-color);
+    color: #000;
+}

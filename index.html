@@ -38,7 +38,7 @@
         <img id="splashGif" style="max-width: 200px; max-height: 200px; display: none; border-radius: 20px;">
     </div>
     <div class="splash-title" style="font-size: 28px; font-weight: 600; margin-bottom: 10px;">MusicHub</div>
-    <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v2.9.8</div>
+    <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v3.0.0</div>
     <div class="splash-tip" id="splashTip" style="font-size: 14px; color: var(--text-secondary); max-width: 400px; text-align: center; padding: 0 20px; margin-bottom: 20px;"></div>
     <div class="splash-progress" style="width: 300px; height: 3px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
         <div class="splash-progress-bar" style="width: 0%; height: 100%; background: var(--accent-color); transition: width 0.1s linear;"></div>
@@ -314,12 +314,49 @@
             </select>
         </div>
         
-        <div class="setting-item">
-            <label>Устройство захвата</label>
+<!-- Аудио - Секция в настройках -->
+<div class="settings-section">
+    <div class="section-title">🎤 Источник звука</div>
+    <div class="settings-grid">
+        
+        <!-- Режим захвата -->
+        <div class="setting-item full-width">
+            <label>Режим захвата</label>
+            <select id="audioCaptureMode">
+                <option value="0">Классический (микрофон)</option>
+                <option value="1">Системный звук (C# WASAPI)</option>
+            </select>
+            <div class="setting-hint">
+                Классический — через выбранный микрофон. Системный — захват всего звука с компьютера.
+            </div>
+        </div>
+        
+        <!-- Устройство для классического режима -->
+        <div class="setting-item" id="classicDeviceContainer">
+            <label>Устройство захвата (микрофон)</label>
             <select id="audio-device" onchange="selectAudioDevice(this.value)">
                 <option value="">🔇 Выключено</option>
             </select>
+            <div class="setting-hint">Выберите микрофон для классического режима</div>
         </div>
+        
+        <!-- Устройство для Modern режима -->
+        <div class="setting-item" id="modernDeviceContainer" style="display:none;">
+            <label>Устройство для системного звука</label>
+            <select id="audioCaptureDevice">
+                <option value="">Системное устройство по умолчанию</option>
+            </select>
+            <div class="setting-hint">Выберите аудио-устройство для захвата системного звука</div>
+        </div>
+        
+    </div>
+</div>
+
+<div class="setting-item full-width" id="audioStatusContainer">
+    <div id="audioStatus" style="padding: 8px 12px; border-radius: 6px; background: var(--bg-secondary); font-size: 13px;">
+        🎤 Классический режим (микрофон)
+    </div>
+</div>
 
         <!-- Адаптивная громкость (ОТДЕЛЬНЫЙ микрофон) -->
 <div class="settings-section">
@@ -404,6 +441,30 @@
 
 
 
+
+
+<!-- В секции настроек -->
+<div class="settings-section">
+    <div class="section-title">🎮 Discord Rich Presence</div>
+    <div class="settings-grid">
+        <div class="setting-item full-width">
+            <label class="checkbox-label">
+                <input type="checkbox" id="discordRPCEnabled"> 💬 Показывать статус в Discord
+            </label>
+            <div class="setting-hint">Отображает текущий трек и обложку в вашем профиле Discord</div>
+        </div>
+        <div class="setting-item full-width" id="discordRPCStatus" style="display: none;">
+            <div style="padding: 8px 12px; border-radius: 6px; background: var(--bg-secondary); font-size: 13px; color: #1DB954;">
+                ✅ Discord RPC активен
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
+
+
 <div class="settings-section">
     <div class="section-title">⌨️ Горячие клавиши</div>
     <div class="hotkey-settings">
@@ -421,6 +482,70 @@
 </div>
 
 <div class="settings-section">
+    <div class="section-title">⌨️ Гибкие горячие клавиши</div>
+    
+    <div class="hotkey-group">
+        <!-- Play/Pause -->
+        <div class="hotkey-row">
+            <label>🎮 Play/Pause</label>
+            <div class="hotkey-controls">
+                <input type="text" id="hotkeyPlayPause" value="Ctrl+Shift+Space" readonly>
+                <button class="hotkey-change-btn" data-action="playpause">Изменить</button>
+            </div>
+        </div>
+        
+        <!-- Next -->
+        <div class="hotkey-row">
+            <label>⏭ Next</label>
+            <div class="hotkey-controls">
+                <input type="text" id="hotkeyNext" value="Ctrl+Shift+Right" readonly>
+                <button class="hotkey-change-btn" data-action="next">Изменить</button>
+            </div>
+        </div>
+        
+        <!-- Previous -->
+        <div class="hotkey-row">
+            <label>⏮ Previous</label>
+            <div class="hotkey-controls">
+                <input type="text" id="hotkeyPrev" value="Ctrl+Shift+Left" readonly>
+                <button class="hotkey-change-btn" data-action="prev">Изменить</button>
+            </div>
+        </div>
+        
+        <!-- Stop -->
+        <div class="hotkey-row">
+            <label>⏹ Stop</label>
+            <div class="hotkey-controls">
+                <input type="text" id="hotkeyStop" value="Ctrl+Shift+." readonly>
+                <button class="hotkey-change-btn" data-action="stop">Изменить</button>
+            </div>
+        </div>
+        
+        <!-- Volume Up -->
+        <div class="hotkey-row">
+            <label>🔊 Volume Up</label>
+            <div class="hotkey-controls">
+                <input type="text" id="hotkeyVolumeup" value="Ctrl+Shift+Up" readonly>
+                <button class="hotkey-change-btn" data-action="volumeup">Изменить</button>
+            </div>
+        </div>
+        
+        <!-- Volume Down -->
+        <div class="hotkey-row">
+            <label>🔉 Volume Down</label>
+            <div class="hotkey-controls">
+                <input type="text" id="hotkeyVolumedown" value="Ctrl+Shift+Down" readonly>
+                <button class="hotkey-change-btn" data-action="volumedown">Изменить</button>
+            </div>
+        </div>
+    </div>
+
+    
+    
+    <button id="resetHotkeysBtn" class="btn-secondary" style="margin-top: 10px;">🔄 Сбросить все</button>
+</div>
+
+<div class="settings-section">
     <div class="section-title">🖼️ Обложка трека</div>
     <div class="setting-item full-width">
         <button id="openArtworkLinkBtn" class="btn-primary">🌐 Открыть обложку в браузере</button>
@@ -429,6 +554,43 @@
             <code id="artworkUrlDisplay">http://127.0.0.1:3456/</code>
         </div>
     </div>
+</div>
+
+<div class="setting-item" style="
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 12px;
+    border: 1px solid var(--border-color, #333);
+    margin-bottom: 10px;
+">
+    <div style="display: flex; align-items: center; gap: 12px;">
+        <span style="font-size: 22px;">📱</span>
+        <div>
+            <div style="font-size: 14px; font-weight: 600; color: var(--text-primary, #fff);">
+                Мобильное управление
+            </div>
+            <div style="font-size: 12px; color: var(--text-secondary, #999);">
+                Управляй музыкой с телефона через QR-код
+            </div>
+        </div>
+    </div>
+    <button id="qrSettingsBtn" style="
+        background: var(--accent-color, #1DB954);
+        color: #000;
+        border: none;
+        border-radius: 10px;
+        padding: 8px 18px;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 600;
+        transition: all 0.2s;
+        white-space: nowrap;
+    " onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+        📱 Показать QR
+    </button>
 </div>
 
         <!-- Запуск -->
@@ -451,7 +613,7 @@
 
 <div class="settings-footer">
     <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-        <div class="version-pill">MusicHub v2.9.8</div>
+        <div class="version-pill">MusicHub v3.0.0</div>
         <a href="#" id="githubFooterLink" style="color: var(--accent-color); text-decoration: none; font-size: 40px;">
             <i class="fa fa-github"></i>
         </a>
