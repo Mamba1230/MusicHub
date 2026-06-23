@@ -66,6 +66,17 @@ const api = {
     onMobileVolume: (callback) => ipcRenderer.on('mobile-volume', callback),
     onMobileServerStarted: (callback) => ipcRenderer.on('mobile-server-started', callback),
     getLocalIP: () => ipcRenderer.invoke('get-local-ip'),
+    getPlugins: () => ipcRenderer.invoke('get-plugins'),
+togglePlugin: (id, enabled) => ipcRenderer.invoke('toggle-plugin', id, enabled),
+installPlugin: (path) => ipcRenderer.invoke('install-plugin', path),
+uninstallPlugin: (id) => ipcRenderer.invoke('uninstall-plugin', id),
+openPluginPopup: (id) => ipcRenderer.invoke('open-plugin-popup', id),
+onLoadPluginRenderer: (callback) => ipcRenderer.on('load-plugin-renderer', callback),
+getPluginStore: () => ipcRenderer.invoke('get-plugin-store'),
+installPluginFromStore: (id, url) => ipcRenderer.invoke('install-plugin-from-store', id, url),
+sendPluginStatus: (status) => ipcRenderer.send('send-plugin-status', status),
+onPluginStatus: (callback) => ipcRenderer.on('plugin-status', callback),
+
     
     // AI команды
     parseAICommand: (text) => ipcRenderer.invoke('parse-ai-command', text),

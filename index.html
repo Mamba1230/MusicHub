@@ -38,7 +38,7 @@
         <img id="splashGif" style="max-width: 200px; max-height: 200px; display: none; border-radius: 20px;">
     </div>
     <div class="splash-title" style="font-size: 28px; font-weight: 600; margin-bottom: 10px;">MusicHub</div>
-    <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v3.0.0</div>
+    <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v3.0.5</div>
     <div class="splash-tip" id="splashTip" style="font-size: 14px; color: var(--text-secondary); max-width: 400px; text-align: center; padding: 0 20px; margin-bottom: 20px;"></div>
     <div class="splash-progress" style="width: 300px; height: 3px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
         <div class="splash-progress-bar" style="width: 0%; height: 100%; background: var(--accent-color); transition: width 0.1s linear;"></div>
@@ -86,27 +86,56 @@
         </div>
         
         <!-- Расширения: кнопка + выезжающая панель -->
-        <div class="extensions-bar">
-<div class="volume-control" id="volumeControl">
-    <div class="volume-icon" id="volumeIcon" title="Наведите для регулировки громкости">🔊</div>
-    <div class="volume-slider-container" id="volumeSliderContainer">
-        <div style="display: flex; align-items: center; gap: 8px; min-width: 120px;">
-            <input type="range" id="volumeSlider" min="0" max="100" value="100" class="volume-slider">
-            <span id="volumePercent" style="font-size: 11px; min-width: 35px; text-align: right; color: var(--text-secondary);">100%</span>
+<div class="extensions-bar">
+    <!-- Громкость -->
+    <div class="volume-control" id="volumeControl">
+        <div class="volume-icon" id="volumeIcon" title="Наведите для регулировки громкости">🔊</div>
+        <div class="volume-slider-container" id="volumeSliderContainer">
+            <div style="display: flex; align-items: center; gap: 8px; min-width: 120px;">
+                <input type="range" id="volumeSlider" min="0" max="100" value="100" class="volume-slider">
+                <span id="volumePercent" style="font-size: 11px; min-width: 35px; text-align: right; color: var(--text-secondary);">100%</span>
+            </div>
         </div>
     </div>
-</div>
-    <button class="ext-btn" id="extensionsPanelBtn">🎵</button>
-    <!-- Панель обложки -->
+    
+    <!-- Кнопка расширений -->
+    <button class="ext-btn" id="extensionsPanelBtn" title="Расширения и плагины">🔌</button>
+    
+    <!-- Панель расширений (обложка + плагины) -->
     <div id="extensionsPanel" style="display: none;">
         <div class="ext-panel-header">
             <span>🎵 Обложка трека</span>
             <button id="closeExtensionsPanelBtn">✕</button>
         </div>
+        
+        <!-- === ОБЛОЖКА ТРЕКА === -->
         <div id="nowPlayingPanel" class="now-playing-panel">
             <div class="panel-artwork-container">
                 <img id="panelArtwork" class="panel-artwork" src="">
             </div>
+            <div class="panel-track-info">
+                <div id="panelTrackTitle" class="panel-track-title">—</div>
+                <div id="panelTrackArtist" class="panel-track-artist">—</div>
+            </div>
+        </div>
+        
+        <!-- Разделитель -->
+        <div style="border-top: 1px solid var(--border-color); margin: 4px 12px;"></div>
+        
+        <!-- === ПЛАГИНЫ === -->
+        <div style="padding: 6px 12px 2px;">
+            <span style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">🔌 Плагины</span>
+        </div>
+        
+        <div id="extensionsList" class="extensions-list">
+            <div style="padding: 12px; text-align: center; opacity: 0.6; font-size: 13px;">Загрузка...</div>
+        </div>
+        
+        <!-- Кнопки действий -->
+        <div class="ext-panel-actions">
+            <button id="pluginStoreBtn" class="ext-action-btn store-btn">
+                🛒 Магазин плагинов
+            </button>
         </div>
     </div>
 </div>
@@ -440,6 +469,31 @@
         </div>
 
 
+<div class="settings-section">
+    <div class="section-title">🔌 Кастомные магазины плагинов</div>
+    <div class="settings-grid">
+        <div class="setting-item full-width">
+            <label>Дополнительные raw-ссылки на магазины плагинов</label>
+            <div id="customPluginStoresList" class="custom-stores-list" style="margin-bottom: 8px;">
+                <!-- Список будет генерироваться через JS -->
+            </div>
+            <div class="add-custom-store" style="display: flex; gap: 8px; margin-top: 8px;">
+                <input type="url" id="newStoreUrl" placeholder="https://raw.githubusercontent.com/..." style="flex: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary);">
+                <button id="addCustomStoreBtn" class="btn-primary" style="padding: 6px 16px;">➕ Добавить</button>
+            </div>
+            <div class="setting-hint" style="margin-top: 6px;">
+                💡 Добавьте ссылку на raw-файл plugins.json с вашими плагинами. 
+                Формат: https://raw.githubusercontent.com/пользователь/репозиторий/refs/heads/main/plugins.json
+            </div>
+        </div>
+        <div class="setting-item full-width">
+            <button id="refreshPluginStoresBtn" class="btn-secondary" style="width: 100%;">🔄 Обновить все магазины</button>
+        </div>
+    </div>
+</div>
+
+
+
 
 
 
@@ -613,7 +667,7 @@
 
 <div class="settings-footer">
     <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-        <div class="version-pill">MusicHub v3.0.0</div>
+        <div class="version-pill">MusicHub v3.0.5</div>
         <a href="#" id="githubFooterLink" style="color: var(--accent-color); text-decoration: none; font-size: 40px;">
             <i class="fa fa-github"></i>
         </a>

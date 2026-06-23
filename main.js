@@ -456,7 +456,7 @@ const presence = {
     state: artist || 'Ожидание',
     startTimestamp: Date.now(),
     largeImageKey: 'musichub_icon',
-    largeImageText: 'MusicHub v3.0.0',
+    largeImageText: 'MusicHub v3.0.5',
     buttons: [
         {
             label: '🎵 MusicHub',
@@ -966,6 +966,360 @@ console.log('🎮 Модуль горячих клавиш загружен');
 
 
 
+// ============================================================
+// СИСТЕМА ПЛАГИНОВ (main.js) — ИСПРАВЛЕННАЯ
+// ============================================================
+
+// === ПЕРЕМЕННЫЕ ===
+const PLUGINS_PATH = path.join(__dirname, 'plugins');
+const USER_PLUGINS_PATH = path.join(app.getPath('userData'), 'plugins');
+
+let loadedPlugins = [];
+let pluginWindows = []; // ← ОБЪЯВЛЯЕМ ПЕРЕМЕННУЮ!
+
+// === ЗАГРУЗКА ПЛАГИНОВ ===
+function loadPlugins() {
+    loadedPlugins = [];
+    
+    const pluginPaths = [PLUGINS_PATH, USER_PLUGINS_PATH];
+    
+    for (const basePath of pluginPaths) {
+        if (!fs.existsSync(basePath)) {
+            console.log(`⚠️ Папка плагинов не найдена: ${basePath}`);
+            continue;
+        }
+        
+        const folders = fs.readdirSync(basePath).filter(f => {
+            return fs.statSync(path.join(basePath, f)).isDirectory();
+        });
+        
+        for (const folder of folders) {
+            const pluginPath = path.join(basePath, folder);
+            const manifestPath = path.join(pluginPath, 'manifest.json');
+            
+            if (!fs.existsSync(manifestPath)) {
+                console.log(`⚠️ Нет manifest.json в ${folder}`);
+                continue;
+            }
+            
+            try {
+                const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+                
+                if (!manifest.id || !manifest.name) {
+                    console.log(`⚠️ В манифесте ${folder} нет id или name`);
+                    continue;
+                }
+                
+                const plugin = {
+                    id: manifest.id,
+                    name: manifest.name,
+                    version: manifest.version || '1.0.0',
+                    description: manifest.description || 'Нет описания',
+                    author: manifest.author || 'Неизвестен',
+                    path: pluginPath,
+                    manifest: manifest,
+                    icon: manifest.icon ? path.join(pluginPath, manifest.icon) : null,
+                    loaded: false,
+                    script: null,
+                    rendererCode: null
+                };
+                
+                // Загружаем main.js
+                if (manifest.main) {
+                    const mainPath = path.join(pluginPath, manifest.main);
+                    if (fs.existsSync(mainPath)) {
+                        try {
+                            const script = require(mainPath);
+                            if (typeof script.activate === 'function') {
+                                script.activate(plugin);
+                            }
+                            plugin.script = script;
+                        } catch (err) {
+                            console.error(`❌ Ошибка загрузки main.js плагина ${plugin.id}:`, err);
+                        }
+                    }
+                }
+                
+                // Загружаем renderer.js
+                if (manifest.renderer) {
+                    const rendererPath = path.join(pluginPath, manifest.renderer);
+                    if (fs.existsSync(rendererPath)) {
+                        plugin.rendererCode = fs.readFileSync(rendererPath, 'utf8');
+                        
+                        if (win && !win.isDestroyed()) {
+                            win.webContents.send('load-plugin-renderer', {
+                                id: plugin.id,
+                                code: plugin.rendererCode
+                            });
+                        }
+                    }
+                }
+                
+                plugin.loaded = true;
+                loadedPlugins.push(plugin);
+                console.log(`✅ Плагин загружен: ${plugin.name} (${plugin.id})`);
+                
+            } catch (err) {
+                console.error(`❌ Ошибка загрузки плагина ${folder}:`, err);
+            }
+        }
+    }
+    
+    console.log(`📦 Всего загружено плагинов: ${loadedPlugins.length}`);
+    return loadedPlugins;
+}
+
+// === УСТАНОВКА ПЛАГИНА ===
+async function installPlugin(pluginPath) {
+    const manifestPath = path.join(pluginPath, 'manifest.json');
+    if (!fs.existsSync(manifestPath)) {
+        throw new Error('Манифест не найден');
+    }
+    
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    if (!manifest.id) {
+        throw new Error('В манифесте нет id');
+    }
+    
+    const targetPath = path.join(USER_PLUGINS_PATH, manifest.id);
+    
+    // Проверяем, не установлен ли уже
+    if (fs.existsSync(targetPath)) {
+        throw new Error(`Плагин "${manifest.name}" уже установлен`);
+    }
+    
+    // Создаём папку если нет
+    if (!fs.existsSync(USER_PLUGINS_PATH)) {
+        fs.mkdirSync(USER_PLUGINS_PATH, { recursive: true });
+    }
+    
+    // Копируем плагин
+    await fs.promises.cp(pluginPath, targetPath, { recursive: true });
+    
+    console.log(`✅ Плагин "${manifest.name}" установлен`);
+    return manifest;
+}
+
+// === УДАЛЕНИЕ ПЛАГИНА ===
+async function uninstallPlugin(pluginId) {
+    const pluginPath = path.join(USER_PLUGINS_PATH, pluginId);
+    if (!fs.existsSync(pluginPath)) {
+        throw new Error('Плагин не найден');
+    }
+    
+    await fs.promises.rm(pluginPath, { recursive: true, force: true });
+    console.log(`🗑️ Плагин "${pluginId}" удалён`);
+}
+
+let activePluginPopups = new Map(); // pluginId → BrowserWindow
+
+async function openPluginPopup(pluginId) {
+    const plugin = loadedPlugins.find(p => p.id === pluginId);
+    if (!plugin) {
+        throw new Error('Плагин не найден');
+    }
+    
+    // === ПРОВЕРКА: УЖЕ ОТКРЫТ ===
+    if (activePluginPopups.has(pluginId)) {
+        const existingPopup = activePluginPopups.get(pluginId);
+        if (existingPopup && !existingPopup.isDestroyed()) {
+            // Фокусируем существующее окно
+            existingPopup.focus();
+            existingPopup.show();
+            console.log(`🔁 Плагин "${plugin.name}" уже открыт, фокусирую`);
+            return existingPopup;
+        } else {
+            // Окно уничтожено, удаляем из Map
+            activePluginPopups.delete(pluginId);
+        }
+    }
+    
+    const popupPath = path.join(plugin.path, 'popup.html');
+    
+    const popup = new BrowserWindow({
+        width: 400,
+        height: 500,
+        parent: win,
+        modal: false,
+        show: false,
+        frame: false,
+        resizable: true,
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            preload: path.join(__dirname, 'preload.js')
+        }
+    });
+    
+    // === СОХРАНЯЕМ В MAP ===
+    activePluginPopups.set(pluginId, popup);
+    
+    // Иконка плагина
+    if (plugin.icon && fs.existsSync(plugin.icon)) {
+        try {
+            const icon = require('electron').nativeImage.createFromPath(plugin.icon);
+            popup.setIcon(icon);
+        } catch (e) {}
+    }
+    
+    // Загружаем popup.html
+    if (fs.existsSync(popupPath)) {
+        await popup.loadFile(popupPath);
+    } else {
+        const html = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>${plugin.name}</title>
+                <style>
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                    body {
+                        background: #1a1a1a;
+                        color: #fff;
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        height: 100vh;
+                        margin: 0;
+                        padding: 0;
+                        overflow: hidden;
+                    }
+                    .custom-titlebar {
+                        position: fixed; top: 0; left: 0; right: 0; height: 38px;
+                        background: #141414; display: flex; align-items: center;
+                        padding: 0 12px; -webkit-app-region: drag;
+                        border-bottom: 1px solid #2a2a2a; z-index: 1000;
+                    }
+                    .custom-titlebar .icon {
+                        width: 20px; height: 20px; border-radius: 4px;
+                        margin-right: 10px; display: flex; align-items: center;
+                        justify-content: center; font-size: 14px;
+                        background: rgba(255,255,255,0.05); overflow: hidden;
+                    }
+                    .custom-titlebar .title {
+                        flex: 1; font-size: 13px; font-weight: 600; color: #ddd;
+                        -webkit-app-region: drag;
+                    }
+                    .custom-titlebar .controls {
+                        display: flex; gap: 8px; -webkit-app-region: no-drag;
+                    }
+                    .custom-titlebar .controls button {
+                        background: none; border: none; color: #666; font-size: 14px;
+                        cursor: pointer; padding: 2px 6px; border-radius: 4px;
+                        transition: all 0.2s; line-height: 1;
+                    }
+                    .custom-titlebar .controls .close-btn:hover {
+                        background: #ff4444; color: #fff;
+                    }
+                    .content {
+                        margin-top: 38px;
+                        width: 100%;
+                        height: calc(100% - 38px);
+                        overflow: auto;
+                        padding: 20px;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        flex-direction: column;
+                    }
+                    .placeholder-icon { font-size: 48px; margin-bottom: 12px; }
+                    .placeholder-name { font-size: 20px; font-weight: 700; margin-bottom: 4px; color: #fff; }
+                    .placeholder-version { font-size: 12px; color: #666; margin-bottom: 8px; }
+                    .placeholder-desc { font-size: 14px; color: #999; text-align: center; max-width: 280px; }
+                </style>
+            </head>
+            <body>
+                <div class="custom-titlebar">
+                    <div class="icon">${plugin.icon ? `<img src="file://${plugin.icon}" style="width:100%;height:100%;object-fit:cover;border-radius:4px;">` : '🔌'}</div>
+                    <span class="title">${plugin.name}</span>
+                    <div class="controls">
+                        <button class="close-btn" onclick="window.close()">✕</button>
+                    </div>
+                </div>
+                <div class="content">
+                    <div class="placeholder-icon">🎛️</div>
+                    <div class="placeholder-name">${plugin.name}</div>
+                    <div class="placeholder-version">v${plugin.version}</div>
+                    <div class="placeholder-desc">${plugin.description || 'Нет описания'}</div>
+                </div>
+            </body>
+            </html>
+        `;
+        await popup.loadURL(`data:text/html,${encodeURIComponent(html)}`);
+    }
+    
+    popup.once('ready-to-show', () => {
+        if (win && !win.isDestroyed()) {
+            const parentBounds = win.getBounds();
+            const x = parentBounds.x + (parentBounds.width - 400) / 2;
+            const y = parentBounds.y + (parentBounds.height - 500) / 2;
+            popup.setPosition(Math.round(x), Math.round(y));
+        }
+        popup.show();
+    });
+    
+    // === ПРИ ЗАКРЫТИИ УДАЛЯЕМ ИЗ MAP ===
+    popup.on('closed', () => {
+        activePluginPopups.delete(pluginId);
+        const index = pluginWindows.indexOf(popup);
+        if (index !== -1) {
+            pluginWindows.splice(index, 1);
+        }
+    });
+    
+    pluginWindows.push(popup);
+    return popup;
+}
+
+// === IPC ОБРАБОТЧИКИ ===
+ipcMain.handle('get-plugins', async () => {
+    loadPlugins();
+    return loadedPlugins.map(p => ({
+        id: p.id,
+        name: p.name,
+        version: p.version,
+        description: p.description,
+        author: p.author,
+        icon: p.icon,
+        loaded: p.loaded
+    }));
+});
+
+ipcMain.handle('install-plugin', async (event, pluginPath) => {
+    return await installPlugin(pluginPath);
+});
+
+ipcMain.handle('uninstall-plugin', async (event, pluginId) => {
+    return await uninstallPlugin(pluginId);
+});
+
+ipcMain.handle('open-plugin-popup', async (event, pluginId) => {
+    return await openPluginPopup(pluginId);
+});
+
+// === СОБЫТИЕ ДЛЯ ЗАГРУЗКИ В RENDERER ===
+ipcMain.on('load-plugin-renderer', (event, data) => {
+    // Пересылаем в renderer
+    if (win && !win.isDestroyed()) {
+        win.webContents.send('load-plugin-renderer', data);
+    }
+});
+
+// === ИНИЦИАЛИЗАЦИЯ ===
+function initPlugins() {
+    // Создаём папку для плагинов если нет
+    if (!fs.existsSync(USER_PLUGINS_PATH)) {
+        fs.mkdirSync(USER_PLUGINS_PATH, { recursive: true });
+    }
+    
+    loadPlugins();
+    console.log('🔌 Система плагинов инициализирована');
+}
+
+// Вызываем при старте
+setTimeout(initPlugins, 1000);
 
 
 
@@ -976,9 +1330,116 @@ console.log('🎮 Модуль горячих клавиш загружен');
 
 
 
+// ============================================================
+// МАГАЗИН ПЛАГИНОВ (main.js)
+// ============================================================
+
+// === КОНСТАНТЫ ===
+const PLUGIN_STORE_URL = 'https://raw.githubusercontent.com/Mamba1230/musichub-plugins/refs/heads/main/plugins.json';
 
 
+// === ПОЛУЧЕНИЕ СПИСКА ПЛАГИНОВ ===
+async function fetchPluginStore() {
+    return new Promise((resolve, reject) => {
+        https.get(PLUGIN_STORE_URL, (res) => {
+            let data = '';
+            res.on('data', (chunk) => data += chunk);
+            res.on('end', () => {
+                try {
+                    const json = JSON.parse(data);
+                    resolve(json);
+                } catch (e) {
+                    reject(e);
+                }
+            });
+        }).on('error', reject);
+    });
+}
 
+// ============================================================
+// ПЕРЕДАЧА СТАТУСА В ПЛАГИНЫ (ПРОСТОЙ МОСТ)
+// ============================================================
+
+let pluginStatus = {};
+
+ipcMain.on('send-plugin-status', (event, status) => {
+    pluginStatus = status;
+    
+    // Отправляем всем открытым попапам
+    for (const popup of pluginWindows) {
+        if (popup && !popup.isDestroyed()) {
+            popup.webContents.send('plugin-status', pluginStatus);
+        }
+    }
+});
+
+// === СКАЧИВАНИЕ И УСТАНОВКА ПЛАГИНА ===
+async function downloadAndInstallPlugin(pluginId, downloadUrl) {
+    return new Promise((resolve, reject) => {
+        const zipPath = path.join(USER_PLUGINS_PATH, `${pluginId}.zip`);
+        const extractPath = path.join(USER_PLUGINS_PATH, pluginId);
+        
+        // Создаём папку если нет
+        if (!fs.existsSync(USER_PLUGINS_PATH)) {
+            fs.mkdirSync(USER_PLUGINS_PATH, { recursive: true });
+        }
+        
+        // Скачиваем архив
+        const file = fs.createWriteStream(zipPath);
+        https.get(downloadUrl, (response) => {
+            response.pipe(file);
+            file.on('finish', () => {
+                file.close();
+                
+                // Распаковываем
+                try {
+                    const zip = new AdmZip(zipPath);
+                    zip.extractAllTo(extractPath, true);
+                    
+                    // Удаляем архив
+                    fs.unlinkSync(zipPath);
+                    
+                    // Проверяем манифест
+                    const manifestPath = path.join(extractPath, 'manifest.json');
+                    if (!fs.existsSync(manifestPath)) {
+                        reject(new Error('Манифест не найден'));
+                        return;
+                    }
+                    
+                    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+                    resolve(manifest);
+                } catch (e) {
+                    reject(e);
+                }
+            });
+        }).on('error', (e) => {
+            fs.unlinkSync(zipPath);
+            reject(e);
+        });
+    });
+}
+
+// === IPC ОБРАБОТЧИКИ ===
+ipcMain.handle('get-plugin-store', async () => {
+    try {
+        const store = await fetchPluginStore();
+        return store;
+    } catch (err) {
+        console.error('❌ Ошибка загрузки магазина:', err);
+        return { plugins: [], error: err.message };
+    }
+});
+
+ipcMain.handle('install-plugin-from-store', async (event, pluginId, downloadUrl) => {
+    try {
+        const manifest = await downloadAndInstallPlugin(pluginId, downloadUrl);
+        // Перезагружаем плагины
+        loadPlugins();
+        return { success: true, manifest };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
+});
 
 
 
@@ -2071,7 +2532,7 @@ app.whenReady().then(() => {
                 setTimeout(() => {
                     if (rpc) {
                         rpc.setActivity({
-                            details: 'MusicHub v3.0.0',
+                            details: 'MusicHub v3.0.5',
                             state: 'Слушаю музыку 🎵',
                             largeImageKey: 'spotify',
                             largeImageText: 'MusicHub'
