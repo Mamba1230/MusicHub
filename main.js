@@ -11,6 +11,8 @@ const { URL } = require('url');
 const url = require('url');
 const AdmZip = require('adm-zip');
 const https = require('https');
+const { promises: fsPromises } = require('fs');
+const { pipeline } = require('stream/promises');
 const { setVolume, getVolume } = require('easy-volume');
 const nircmdPath = path.join(__dirname, 'nircmd.exe');
 const DiscordRPC = require('discord-rpc');
@@ -1336,12 +1338,144 @@ setTimeout(initPlugins, 1000);
 
 // === КОНСТАНТЫ ===
 const PLUGIN_STORE_URL = 'https://raw.githubusercontent.com/Mamba1230/musichub-plugins/refs/heads/main/plugins.json';
+const DEFAULT_PLUGIN_STORE = 'https://raw.githubusercontent.com/Mamba1230/musichub-plugins/refs/heads/main/plugins.json';
+
+// Загрузка кастомных магазинов из localStorage
+function loadCustomPluginStores() {
+    try {
+        const saved = localStorage.getItem('customPluginStores');
+        if (saved) {
+            return JSON.parse(saved);
+        }
+    } catch (e) {}
+    return [];
+}
+
+function getCustomPluginStores() {
+    try {
+        const userDataPath = app.getPath('userData');
+        const storesPath = path.join(userDataPath, 'custom_plugin_stores.json');
+        if (fs.existsSync(storesPath)) {
+            const data = fs.readFileSync(storesPath, 'utf8');
+            return JSON.parse(data);
+        }
+    } catch (e) {
+        console.error('Ошибка загрузки кастомных магазинов:', e);
+    }
+    return [];
+}
+
+function saveCustomPluginStores(stores) {
+    localStorage.setItem('customPluginStores', JSON.stringify(stores));
+}
+
+function getAllPluginStores() {
+    const custom = loadCustomPluginStores();
+    return [DEFAULT_PLUGIN_STORE, ...custom];
+}
+
+
+
+async function fetchAllPluginStores(forceRefresh = false) {
+    const stores = [DEFAULT_PLUGIN_STORE, ...getCustomPluginStores()];
+    const allPlugins = [];
+    const errors = [];
+    
+    for (const storeUrl of stores) {
+        try {
+            console.log(`📥 Загрузка магазина: ${storeUrl}`);
+            const response = await fetchWithUserAgent(storeUrl);
+            const data = JSON.parse(response);
+            
+            if (data.plugins && Array.isArray(data.plugins)) {
+                // Добавляем источник к каждому плагину
+                data.plugins.forEach(p => {
+                    p.source = storeUrl;
+                });
+                allPlugins.push(...data.plugins);
+                console.log(`✅ Загружено ${data.plugins.length} плагинов из ${storeUrl}`);
+            }
+        } catch (err) {
+            errors.push(`❌ ${storeUrl}: ${err.message}`);
+            console.error(`Ошибка загрузки ${storeUrl}:`, err);
+        }
+    }
+    
+    // Убираем дубликаты по id
+    const uniquePlugins = [];
+    const seenIds = new Set();
+    for (const p of allPlugins) {
+        if (!seenIds.has(p.id)) {
+            seenIds.add(p.id);
+            uniquePlugins.push(p);
+        }
+    }
+    
+    return { plugins: uniquePlugins, errors };
+}
+
+async function fetchWithUserAgent(url) {
+    return new Promise((resolve, reject) => {
+        const options = {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Accept': 'application/json'
+            }
+        };
+        
+        https.get(url, options, (res) => {
+            let data = '';
+            res.on('data', (chunk) => data += chunk);
+            res.on('end', () => resolve(data));
+        }).on('error', reject);
+    });
+}
+
+// === IPC ОБРАБОТЧИКИ ===
+ipcMain.handle('get-plugin-store', async (event, forceRefresh = false) => {
+    try {
+        const result = await fetchAllPluginStores(forceRefresh);
+        return result;
+    } catch (err) {
+        console.error('❌ Ошибка загрузки магазинов:', err);
+        return { plugins: [], error: err.message };
+    }
+});
+
+ipcMain.handle('get-custom-stores', () => {
+    return getCustomPluginStores();
+});
+
+ipcMain.handle('add-custom-store', (event, url) => {
+    const stores = getCustomPluginStores();
+    if (!stores.includes(url)) {
+        stores.push(url);
+        saveCustomPluginStores(stores);
+    }
+    return stores;
+});
+
+ipcMain.handle('remove-custom-store', (event, index) => {
+    const stores = getCustomPluginStores();
+    if (index >= 0 && index < stores.length) {
+        stores.splice(index, 1);
+        saveCustomPluginStores(stores);
+    }
+    return stores;
+});
 
 
 // === ПОЛУЧЕНИЕ СПИСКА ПЛАГИНОВ ===
 async function fetchPluginStore() {
     return new Promise((resolve, reject) => {
-        https.get(PLUGIN_STORE_URL, (res) => {
+        const options = {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Accept': 'application/json'
+            }
+        };
+        
+        https.get(PLUGIN_STORE_URL, options, (res) => {
             let data = '';
             res.on('data', (chunk) => data += chunk);
             res.on('end', () => {
@@ -1354,6 +1488,40 @@ async function fetchPluginStore() {
             });
         }).on('error', reject);
     });
+}
+
+async function fetchPluginStoreWithCache(forceRefresh = false) {
+    const cacheKey = 'plugin_store_cache';
+    const cacheTimeKey = 'plugin_store_cache_time';
+    const CACHE_DURATION = 5 * 60 * 1000; // 5 минут
+    
+    // Если не принудительное обновление — проверяем кэш
+    if (!forceRefresh) {
+        try {
+            const cached = localStorage.getItem(cacheKey);
+            const cachedTime = localStorage.getItem(cacheTimeKey);
+            
+            if (cached && cachedTime) {
+                const age = Date.now() - parseInt(cachedTime);
+                if (age < CACHE_DURATION) {
+                    console.log('📦 Использую кэш магазина');
+                    return JSON.parse(cached);
+                }
+            }
+        } catch (e) {}
+    }
+    
+    // Загружаем свежие данные
+    console.log('🔄 Загрузка свежих данных магазина...');
+    const data = await fetchPluginStore();
+    
+    // Сохраняем в кэш
+    try {
+        localStorage.setItem(cacheKey, JSON.stringify(data));
+        localStorage.setItem(cacheTimeKey, String(Date.now()));
+    } catch (e) {}
+    
+    return data;
 }
 
 // ============================================================
@@ -1373,75 +1541,334 @@ ipcMain.on('send-plugin-status', (event, status) => {
     }
 });
 
-// === СКАЧИВАНИЕ И УСТАНОВКА ПЛАГИНА ===
-async function downloadAndInstallPlugin(pluginId, downloadUrl) {
+function downloadAndInstallPlugin(pluginId, downloadUrl) {
     return new Promise((resolve, reject) => {
-        const zipPath = path.join(USER_PLUGINS_PATH, `${pluginId}.zip`);
         const extractPath = path.join(USER_PLUGINS_PATH, pluginId);
+        const tempDir = os.tmpdir();
+        const tempZipPath = path.join(tempDir, `musichub_${pluginId}_${Date.now()}.zip`);
+
+        console.log(`📥 Установка плагина: ${pluginId}`);
+        console.log(`📥 URL: ${downloadUrl}`);
+        console.log(`📥 Сохраняем в: ${tempZipPath}`);
+
+        const downloadWin = new BrowserWindow({
+            width: 1,
+            height: 1,
+            show: false,
+            webPreferences: {
+                nodeIntegration: false,
+                contextIsolation: true,
+                webSecurity: false
+            }
+        });
+
+        const ses = downloadWin.webContents.session;
+
+        // Флаг, чтобы гарантировать однократную очистку
+        let settled = false;
+
+        // Функция очистки: удаляем свой обработчик и закрываем окно
+        const cleanup = () => {
+            if (settled) return;
+            settled = true;
+            // Удаляем именно этот обработчик (по ссылке)
+            ses.removeListener('will-download', onWillDownload);
+            if (!downloadWin.isDestroyed()) {
+                downloadWin.close();
+            }
+        };
+
+        // Именованная функция-обработчик (НЕ стрелочная, иначе removeListener не сработает)
+        function onWillDownload(event, item) {
+            console.log(`⬇️ Начинается скачивание: ${item.getFilename()}`);
+            item.setSavePath(tempZipPath);
+
+            item.on('updated', (event, state) => {
+                if (state === 'progressing') {
+                    const progress = item.getReceivedBytes() / item.getTotalBytes();
+                    console.log(`📊 Прогресс: ${Math.round(progress * 100)}%`);
+                }
+            });
+
+            item.once('done', (event, state) => {
+                console.log(`✅ Скачивание завершено: ${state}`);
+
+                if (state === 'completed') {
+                    cleanup(); // убираем обработчик и окно
+                    // Запускаем распаковку
+                    installPluginFromZip(pluginId, tempZipPath, extractPath)
+                        .then(resolve)
+                        .catch(reject);
+                } else {
+                    cleanup();
+                    reject(new Error(`Скачивание не удалось: ${state}`));
+                }
+            });
+        }
+
+        // Вешаем обработчик на сессию
+        ses.on('will-download', onWillDownload);
+
+        // Загружаем URL
+        downloadWin.loadURL(downloadUrl);
+
+        // Таймаут
+        setTimeout(() => {
+            if (!settled) {
+                cleanup();
+                reject(new Error('Таймаут скачивания'));
+            }
+        }, 60000);
+    });
+}
+
+
+async function installPluginFromZip(pluginId, zipPath, extractPath) {
+    try {
+        console.log(`📦 Распаковка архива: ${zipPath}`);
         
-        // Создаём папку если нет
+        // Проверяем что файл существует
+        if (!fs.existsSync(zipPath)) {
+            throw new Error('ZIP файл не найден');
+        }
+        
+        const stats = fs.statSync(zipPath);
+        if (stats.size === 0) {
+            throw new Error('ZIP файл пустой');
+        }
+        console.log(`📦 Размер ZIP: ${stats.size} байт`);
+        
+        // Создаём папку для плагинов если нет
         if (!fs.existsSync(USER_PLUGINS_PATH)) {
             fs.mkdirSync(USER_PLUGINS_PATH, { recursive: true });
         }
         
-        // Скачиваем архив
-        const file = fs.createWriteStream(zipPath);
-        https.get(downloadUrl, (response) => {
-            response.pipe(file);
-            file.on('finish', () => {
-                file.close();
+        // Если папка плагина уже существует - удаляем
+        if (fs.existsSync(extractPath)) {
+            console.log(`🗑️ Удаляем старую версию...`);
+            fs.rmSync(extractPath, { recursive: true, force: true });
+        }
+        
+        // Распаковываем
+        const zip = new AdmZip(zipPath);
+        zip.extractAllTo(extractPath, true);
+        console.log(`✅ Архив распакован в: ${extractPath}`);
+        
+        // Удаляем ZIP
+        try {
+            fs.unlinkSync(zipPath);
+            console.log(`🗑️ ZIP файл удалён`);
+        } catch (err) {
+            console.log(`⚠️ Не удалось удалить ZIP: ${err.message}`);
+        }
+        
+        // Проверяем манифест
+        let manifestPath = path.join(extractPath, 'manifest.json');
+        
+        // Если манифеста нет в корне, ищем во вложенных папках
+        if (!fs.existsSync(manifestPath)) {
+            console.log('🔍 Ищем манифест во вложенных папках...');
+            const entries = fs.readdirSync(extractPath, { withFileTypes: true });
+            const subFolders = entries.filter(e => e.isDirectory());
+            
+            let foundManifest = false;
+            for (const folder of subFolders) {
+                const subManifestPath = path.join(extractPath, folder.name, 'manifest.json');
+                if (fs.existsSync(subManifestPath)) {
+                    console.log(`✅ Найден манифест в: ${folder.name}`);
+                    // Перемещаем содержимое в корень
+                    const subPath = path.join(extractPath, folder.name);
+                    const files = fs.readdirSync(subPath);
+                    for (const file of files) {
+                        const src = path.join(subPath, file);
+                        const dest = path.join(extractPath, file);
+                        fs.renameSync(src, dest);
+                    }
+                    fs.rmdirSync(subPath);
+                    manifestPath = subManifestPath;
+                    foundManifest = true;
+                    break;
+                }
+            }
+            
+            if (!foundManifest) {
+                throw new Error('Манифест (manifest.json) не найден');
+            }
+        }
+        
+        // Читаем манифест
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+        console.log(`✅ Плагин "${manifest.name}" установлен!`);
+        
+        // Перезагружаем плагины
+        loadPlugins();
+        
+        return manifest;
+        
+    } catch (error) {
+        console.error('❌ Ошибка установки:', error);
+        // Очистка при ошибке
+        try {
+            if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
+        } catch (e) {}
+        try {
+            if (fs.existsSync(extractPath)) fs.rmSync(extractPath, { recursive: true, force: true });
+        } catch (e) {}
+        throw error;
+    }
+}
+
+async function downloadFileWithRetry(url, filePath, maxRetries = 3) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        console.log(`🔄 Попытка ${attempt}/${maxRetries} скачать: ${url}`);
+        
+        try {
+            await new Promise((resolve, reject) => {
+                const file = createWriteStream(filePath);
+                let finished = false;
                 
-                // Распаковываем
-                try {
-                    const zip = new AdmZip(zipPath);
-                    zip.extractAllTo(extractPath, true);
-                    
-                    // Удаляем архив
-                    fs.unlinkSync(zipPath);
-                    
-                    // Проверяем манифест
-                    const manifestPath = path.join(extractPath, 'manifest.json');
-                    if (!fs.existsSync(manifestPath)) {
-                        reject(new Error('Манифест не найден'));
+                const request = https.get(url, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                        'Accept': 'application/zip, application/octet-stream, */*',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'Connection': 'keep-alive'
+                    },
+                    timeout: 30000 // 30 секунд таймаут
+                }, (response) => {
+                    // Обработка редиректов
+                    if (response.statusCode === 301 || response.statusCode === 302) {
+                        const redirectUrl = response.headers.location;
+                        console.log(`🔄 Редирект на: ${redirectUrl}`);
+                        // Закрываем старый запрос и создаём новый
+                        request.destroy();
+                        https.get(redirectUrl, {
+                            headers: {
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                            },
+                            timeout: 30000
+                        }, (redirectResponse) => {
+                            redirectResponse.pipe(file);
+                            redirectResponse.on('end', () => {
+                                if (!finished) {
+                                    finished = true;
+                                    resolve();
+                                }
+                            });
+                            redirectResponse.on('error', reject);
+                        }).on('error', reject);
                         return;
                     }
                     
-                    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-                    resolve(manifest);
-                } catch (e) {
-                    reject(e);
-                }
+                    if (response.statusCode !== 200) {
+                        reject(new Error(`HTTP ${response.statusCode}: ${response.statusMessage}`));
+                        return;
+                    }
+                    
+                    const contentLength = response.headers['content-length'];
+                    if (contentLength) {
+                        console.log(`📦 Размер: ${(parseInt(contentLength) / 1024).toFixed(1)} KB`);
+                    }
+                    
+                    response.pipe(file);
+                    
+                    response.on('end', () => {
+                        if (!finished) {
+                            finished = true;
+                            resolve();
+                        }
+                    });
+                    
+                    response.on('error', (err) => {
+                        if (!finished) {
+                            finished = true;
+                            reject(err);
+                        }
+                    });
+                });
+                
+                request.on('timeout', () => {
+                    request.destroy();
+                    if (!finished) {
+                        finished = true;
+                        reject(new Error(`Таймаут загрузки (${url})`));
+                    }
+                });
+                
+                request.on('error', (err) => {
+                    if (!finished) {
+                        finished = true;
+                        reject(err);
+                    }
+                });
+                
+                file.on('error', (err) => {
+                    if (!finished) {
+                        finished = true;
+                        reject(err);
+                    }
+                });
             });
-        }).on('error', (e) => {
-            fs.unlinkSync(zipPath);
-            reject(e);
-        });
-    });
+            
+            // Проверяем, что файл создался
+            const stats = await fsPromises.stat(filePath);
+            if (stats.size === 0) {
+                throw new Error('Скачан пустой файл');
+            }
+            console.log(`✅ Файл сохранён: ${filePath} (${stats.size} байт)`);
+            return true;
+            
+        } catch (error) {
+            console.log(`❌ Попытка ${attempt} не удалась: ${error.message}`);
+            
+            // Удаляем битый файл
+            try {
+                if (fs.existsSync(filePath)) {
+                    await fsPromises.unlink(filePath);
+                }
+            } catch (e) {}
+            
+            if (attempt === maxRetries) {
+                throw error;
+            }
+            
+            // Ждём перед следующей попыткой (экспоненциальная задержка)
+            const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+            console.log(`⏳ Ожидание ${delay}ms перед повторной попыткой...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
 }
 
 // === IPC ОБРАБОТЧИКИ ===
-ipcMain.handle('get-plugin-store', async () => {
-    try {
-        const store = await fetchPluginStore();
-        return store;
-    } catch (err) {
-        console.error('❌ Ошибка загрузки магазина:', err);
-        return { plugins: [], error: err.message };
-    }
-});
+
 
 ipcMain.handle('install-plugin-from-store', async (event, pluginId, downloadUrl) => {
+    console.log(`📥 Запрос на установку: ${pluginId}`);
+    console.log(`📥 URL: ${downloadUrl}`);
+    
     try {
         const manifest = await downloadAndInstallPlugin(pluginId, downloadUrl);
-        // Перезагружаем плагины
-        loadPlugins();
+        
+        // Отправляем событие в renderer
+        if (win && !win.isDestroyed()) {
+            win.webContents.send('plugin-installed', { 
+                id: pluginId, 
+                manifest,
+                success: true 
+            });
+        }
+        
         return { success: true, manifest };
-    } catch (err) {
-        return { success: false, error: err.message };
+        
+    } catch (error) {
+        console.error('❌ Ошибка установки:', error);
+        return { 
+            success: false, 
+            error: error.message || 'Неизвестная ошибка' 
+        };
     }
 });
-
-
 
 
 
@@ -2057,6 +2484,9 @@ app.whenReady().then(() => {
     startVolumeController();
     startMediaWatcher();
     registerProtocol();
+        setTimeout(() => {
+        initPlugins();
+    }, 1500);
 });
 
 

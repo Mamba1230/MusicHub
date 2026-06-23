@@ -72,10 +72,13 @@ installPlugin: (path) => ipcRenderer.invoke('install-plugin', path),
 uninstallPlugin: (id) => ipcRenderer.invoke('uninstall-plugin', id),
 openPluginPopup: (id) => ipcRenderer.invoke('open-plugin-popup', id),
 onLoadPluginRenderer: (callback) => ipcRenderer.on('load-plugin-renderer', callback),
-getPluginStore: () => ipcRenderer.invoke('get-plugin-store'),
 installPluginFromStore: (id, url) => ipcRenderer.invoke('install-plugin-from-store', id, url),
 sendPluginStatus: (status) => ipcRenderer.send('send-plugin-status', status),
 onPluginStatus: (callback) => ipcRenderer.on('plugin-status', callback),
+getPluginStore: (forceRefresh) => ipcRenderer.invoke('get-plugin-store', forceRefresh),
+getCustomStores: () => ipcRenderer.invoke('get-custom-stores'),
+addCustomStore: (url) => ipcRenderer.invoke('add-custom-store', url),
+removeCustomStore: (index) => ipcRenderer.invoke('remove-custom-store', index),
 
     
     // AI команды

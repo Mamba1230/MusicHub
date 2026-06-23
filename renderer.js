@@ -4407,81 +4407,222 @@ console.log('📱 QR-код: showQR()');
 
 
 
-
-
-
 // ============================================================
-// МАГАЗИН ПЛАГИНОВ (RENDERER)
+// МАГАЗИН ПЛАГИНОВ (RENDERER) — ИСПРАВЛЕННАЯ ВЕРСИЯ
 // ============================================================
 
 let pluginsList = [];
 let pluginStoreModal = null;
+let pluginStoreData = null;
 
-document.addEventListener('DOMContentLoaded', () => {
-    // === КНОПКА ОТКРЫТИЯ ПАНЕЛИ ===
-    const extBtn = document.getElementById('extensionsPanelBtn');
-    const panel = document.getElementById('extensionsPanel');
-    const closeBtn = document.getElementById('closeExtensionsPanelBtn');
+// ============================================================
+// КАСТОМНЫЕ МАГАЗИНЫ
+// ============================================================
+
+const DEFAULT_PLUGIN_STORE = 'https://raw.githubusercontent.com/Mamba1230/musichub-plugins/refs/heads/main/plugins.json';
+
+function loadCustomPluginStores() {
+    try {
+        const saved = localStorage.getItem('customPluginStores');
+        if (saved) {
+            return JSON.parse(saved);
+        }
+    } catch (e) {}
+    return [];
+}
+
+function saveCustomPluginStores(stores) {
+    localStorage.setItem('customPluginStores', JSON.stringify(stores));
+}
+
+function getAllPluginStores() {
+    const custom = loadCustomPluginStores();
+    // ВАЖНО: официальный магазин ДОЛЖЕН быть первым
+    return [DEFAULT_PLUGIN_STORE, ...custom];
+}
+
+function renderCustomPluginStores() {
+    const container = document.getElementById('customPluginStoresList');
+    if (!container) return;
     
-    if (extBtn && panel) {
-        extBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            panel.classList.toggle('show');
-            if (panel.classList.contains('show')) {
-                panel.style.display = 'block';
-                loadPluginsList();
-            } else {
-                panel.style.display = 'none';
-            }
+    const stores = loadCustomPluginStores();
+    
+    if (stores.length === 0) {
+        container.innerHTML = `
+            <div style="padding: 8px 12px; color: var(--text-secondary); font-size: 13px; opacity: 0.6;">
+                Нет добавленных магазинов
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = stores.map((url, index) => `
+        <div class="custom-store-item" style="
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 6px;
+            margin-bottom: 4px;
+        ">
+            <span style="font-size: 12px; color: #666;">${index + 1}.</span>
+            <span style="font-size: 12px; color: var(--text-secondary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                ${url}
+            </span>
+            <button class="remove-store-btn" data-index="${index}" style="
+                background: none;
+                border: none;
+                color: #666;
+                cursor: pointer;
+                font-size: 14px;
+                padding: 2px 6px;
+                border-radius: 4px;
+                transition: all 0.2s;
+            " onmouseover="this.style.color='#ff4444'" onmouseout="this.style.color='#666'">
+                ✕
+            </button>
+        </div>
+    `).join('');
+    
+    container.querySelectorAll('.remove-store-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const index = parseInt(this.dataset.index);
+            const stores = loadCustomPluginStores();
+            stores.splice(index, 1);
+            saveCustomPluginStores(stores);
+            renderCustomPluginStores();
+            showToast('🗑️ Магазин удалён', 'info');
         });
-        
-        if (closeBtn) {
-            closeBtn.addEventListener('click', () => {
-                panel.classList.remove('show');
-                panel.style.display = 'none';
+    });
+}
+
+function addCustomPluginStore() {
+    const input = document.getElementById('newStoreUrl');
+    const url = input.value.trim();
+    
+    if (!url) {
+        showToast('❌ Введите ссылку', 'error');
+        return;
+    }
+    
+    if (!url.includes('raw.githubusercontent.com') && !url.includes('raw.')) {
+        showToast('❌ Используйте raw-ссылку на GitHub', 'error');
+        return;
+    }
+    
+    if (!url.endsWith('.json')) {
+        showToast('❌ Ссылка должна заканчиваться на .json', 'error');
+        return;
+    }
+    
+    const stores = loadCustomPluginStores();
+    if (stores.includes(url)) {
+        showToast('⚠️ Такой магазин уже добавлен', 'warning');
+        return;
+    }
+    
+    stores.push(url);
+    saveCustomPluginStores(stores);
+    renderCustomPluginStores();
+    input.value = '';
+    showToast('✅ Магазин добавлен!', 'success');
+}
+
+// ============================================================
+// ЗАГРУЗКА ПЛАГИНОВ ИЗ ВСЕХ МАГАЗИНОВ
+// ============================================================
+
+async function loadAllPluginStores() {
+    const stores = getAllPluginStores(); // ← ТУТ ВСЕ МАГАЗИНЫ + ОФИЦИАЛЬНЫЙ
+    const allPlugins = [];
+    const errors = [];
+    
+    for (const storeUrl of stores) {
+        try {
+            console.log(`📥 Загрузка магазина: ${storeUrl}`);
+            const response = await fetch(storeUrl, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+                }
             });
+            if (!response.ok) {
+                errors.push(`❌ ${storeUrl}: ${response.status}`);
+                continue;
+            }
+            const data = await response.json();
+            if (data.plugins && Array.isArray(data.plugins)) {
+                data.plugins.forEach(p => {
+                    p.source = storeUrl;
+                });
+                allPlugins.push(...data.plugins);
+                console.log(`✅ Загружено ${data.plugins.length} плагинов из ${storeUrl}`);
+            }
+        } catch (err) {
+            errors.push(`❌ ${storeUrl}: ${err.message}`);
+            console.error(`Ошибка загрузки ${storeUrl}:`, err);
+        }
+    }
+    
+    if (errors.length > 0) {
+        console.warn('Ошибки загрузки магазинов:', errors);
+    }
+    
+    // Убираем дубликаты по id (оставляем первый попавшийся)
+    const uniquePlugins = [];
+    const seenIds = new Set();
+    for (const p of allPlugins) {
+        if (!seenIds.has(p.id)) {
+            seenIds.add(p.id);
+            uniquePlugins.push(p);
+        }
+    }
+    
+    console.log(`📦 Всего уникальных плагинов: ${uniquePlugins.length}`);
+    return { plugins: uniquePlugins, errors };
+}
+
+// ============================================================
+// ОСНОВНЫЕ ФУНКЦИИ МАГАЗИНА
+// ============================================================
+
+async function loadPluginStore(forceRefresh = false) {
+    try {
+        showToast(forceRefresh ? '🔄 Обновление магазинов...' : '🔄 Загрузка магазинов...', 'info');
+        
+        if (forceRefresh) {
+            localStorage.removeItem('pluginStoreCache');
+            localStorage.removeItem('pluginStoreCacheTime');
         }
         
-        document.addEventListener('click', (e) => {
-            if (panel.classList.contains('show') && 
-                !panel.contains(e.target) && 
-                e.target !== extBtn) {
-                panel.classList.remove('show');
-                panel.style.display = 'none';
-            }
-        });
-    }
-    
-    // === КНОПКА МАГАЗИНА ===
-    const storeBtn = document.getElementById('pluginStoreBtn');
-    if (storeBtn) {
-        storeBtn.addEventListener('click', () => {
-            if (panel) {
-                panel.classList.remove('show');
-                panel.style.display = 'none';
-            }
-            openPluginStore();
-        });
-    }
-});
-
-async function loadPluginStore() {
-    try {
-        showToast('🔄 Загрузка магазина плагинов...', 'info');
-        const data = await window.electronAPI.getPluginStore();
+        const data = await loadAllPluginStores();
         
-        if (data.error) {
-            showToast('❌ ' + data.error, 'error');
-            return null;
+        if (data.errors.length > 0 && data.plugins.length === 0) {
+            showToast('❌ Не удалось загрузить плагины', 'error');
+            return { plugins: [], error: data.errors.join('\n') };
+        }
+        
+        // Добавляем кеш-бастер для иконок
+        if (data.plugins) {
+            data.plugins.forEach(p => {
+                if (p.icon && p.icon.includes('raw.githubusercontent.com')) {
+                    p.icon = p.icon + '?t=' + Date.now();
+                }
+            });
         }
         
         pluginStoreData = data;
         renderPluginStore(data);
+        
+        if (forceRefresh) {
+            showToast(`✅ Магазины обновлены! ${data.plugins?.length || 0} плагинов`, 'success');
+        }
+        
         return data;
     } catch (err) {
-        console.error('❌ Ошибка загрузки магазина:', err);
-        showToast('❌ Не удалось загрузить магазин', 'error');
-        return null;
+        console.error('❌ Ошибка загрузки магазинов:', err);
+        showToast('❌ Не удалось загрузить магазины', 'error');
+        return { plugins: [], error: err.message };
     }
 }
 
@@ -4500,7 +4641,6 @@ function renderPluginStore(data) {
         return;
     }
     
-    // Группируем по категориям
     const categories = {};
     data.plugins.forEach(plugin => {
         const cat = plugin.category || 'other';
@@ -4540,9 +4680,9 @@ function renderPluginStore(data) {
                     border: 1px solid ${isInstalled ? 'var(--accent-color, #1DB954)' : 'rgba(255,255,255,0.05)'};
                     transition: all 0.2s;
                     cursor: ${isInstalled ? 'default' : 'pointer'};
-                " onmouseover="if (!this.classList.contains('installed')) this.style.background='rgba(255,255,255,0.06)'" onmouseout="if (!this.classList.contains('installed')) this.style.background='rgba(255,255,255,0.03)'">
+                ">
                     
-                    <!-- Иконка -->
+                    <!-- Иконка с обработкой ошибок -->
                     <div style="
                         width: 40px;
                         height: 40px;
@@ -4555,7 +4695,10 @@ function renderPluginStore(data) {
                         justify-content: center;
                         font-size: 20px;
                     ">
-                        ${plugin.icon ? `<img src="${plugin.icon}" style="width:100%;height:100%;object-fit:cover;">` : '🧩'}
+                        ${plugin.icon ? 
+                            `<img src="${plugin.icon}" style="width:100%;height:100%;object-fit:cover;" 
+                                 onerror="this.style.display='none';this.parentElement.textContent='🧩'">` 
+                            : '🧩'}
                     </div>
                     
                     <!-- Информация -->
@@ -4566,6 +4709,7 @@ function renderPluginStore(data) {
                             </span>
                             <span style="font-size: 10px; color: #666;">v${plugin.version}</span>
                             ${isInstalled ? `<span style="font-size: 10px; color: var(--accent-color, #1DB954); font-weight: 600;">✅ Установлен</span>` : ''}
+                            ${plugin.source ? `<span style="font-size: 9px; color: #444;">📦 ${plugin.source.replace(/^https?:\/\/[^\/]+/, '')}</span>` : ''}
                         </div>
                         <div style="font-size: 12px; color: var(--text-secondary, #999); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                             ${plugin.description || 'Нет описания'} 
@@ -4613,7 +4757,6 @@ function renderPluginStore(data) {
     
     container.innerHTML = html;
     
-    // Обработчики кнопок установки
     container.querySelectorAll('.install-plugin-btn').forEach(btn => {
         btn.addEventListener('click', async (e) => {
             e.stopPropagation();
@@ -4628,8 +4771,7 @@ function renderPluginStore(data) {
                 const result = await window.electronAPI.installPluginFromStore(id, url);
                 if (result.success) {
                     showToast(`✅ Плагин "${result.manifest.name}" установлен!`, 'success');
-                    // Обновляем список
-                    await loadPluginStore();
+                    await loadPluginStore(true);
                     await loadPluginsList();
                 } else {
                     showToast('❌ ' + result.error, 'error');
@@ -4648,18 +4790,21 @@ function renderPluginStore(data) {
 }
 
 function checkPluginInstalled(pluginId) {
-    // Проверяем, установлен ли плагин
-    // Можно проверить через loadedPlugins или через fs
-    return false; // Пока заглушка
+    if (!pluginsList || pluginsList.length === 0) return false;
+    return pluginsList.some(p => p.id === pluginId);
 }
 
-// === ЗАГРУЗКА СПИСКА ПЛАГИНОВ ===
+// ============================================================
+// ЗАГРУЗКА СПИСКА УСТАНОВЛЕННЫХ ПЛАГИНОВ
+// ============================================================
+
 async function loadPluginsList() {
     const container = document.getElementById('extensionsList');
     if (!container) return;
     
     try {
         const plugins = await window.electronAPI.getPlugins();
+        pluginsList = plugins || [];
         
         if (!plugins || plugins.length === 0) {
             container.innerHTML = `
@@ -4686,7 +4831,6 @@ async function loadPluginsList() {
             </div>
         `).join('');
         
-        // Удаление плагина
         container.querySelectorAll('.extension-delete').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
@@ -4704,7 +4848,6 @@ async function loadPluginsList() {
             });
         });
         
-        // Открытие попапа плагина
         container.querySelectorAll('.extension-item').forEach(item => {
             item.addEventListener('click', async (e) => {
                 if (e.target.closest('.extension-delete')) return;
@@ -4712,7 +4855,7 @@ async function loadPluginsList() {
                 try {
                     await window.electronAPI.openPluginPopup(id);
                 } catch (err) {
-                    showToast('❌ ' + err.message, 'error');
+                    ('❌ ' + err.message, 'error');
                 }
             });
         });
@@ -4729,154 +4872,15 @@ async function loadPluginsList() {
     }
 }
 
-// === ОТОБРАЖЕНИЕ ПЛАГИНОВ ===
-function renderPluginsList() {
-    const container = document.getElementById('pluginsList');
-    if (!container) return;
-    
-    if (pluginsList.length === 0) {
-        container.innerHTML = `
-            <div style="text-align: center; padding: 40px 20px; color: #666;">
-                <div style="font-size: 48px; margin-bottom: 12px;">🔌</div>
-                <div style="font-size: 16px; font-weight: 600; margin-bottom: 4px;">Нет установленных плагинов</div>
-                <div style="font-size: 13px; color: #888;">Нажмите "Установить плагин" чтобы добавить</div>
-            </div>
-        `;
-        return;
-    }
-    
-    container.innerHTML = pluginsList.map(plugin => `
-        <div class="plugin-item" data-id="${plugin.id}" style="
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 12px 16px;
-            background: rgba(255,255,255,0.03);
-            border-radius: 10px;
-            margin-bottom: 8px;
-            border: 1px solid rgba(255,255,255,0.05);
-            transition: all 0.2s;
-        " onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">
-            <div style="display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0;">
-                ${plugin.icon ? `<img src="file://${plugin.icon}" style="width: 32px; height: 32px; border-radius: 6px; object-fit: cover;">` : 
-                `<div style="width: 32px; height: 32px; border-radius: 6px; background: var(--accent-color, #1DB954); display: flex; align-items: center; justify-content: center; font-size: 16px;">🔌</div>`}
-                <div style="flex: 1; min-width: 0;">
-                    <div style="font-size: 14px; font-weight: 600; color: var(--text-primary, #fff);">
-                        ${plugin.name} <span style="font-size: 11px; color: #666; font-weight: 400;">v${plugin.version}</span>
-                    </div>
-                    <div style="font-size: 12px; color: var(--text-secondary, #999); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                        ${plugin.description || 'Нет описания'} ${plugin.author ? `• ${plugin.author}` : ''}
-                    </div>
-                </div>
-            </div>
-            <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
-                <button onclick="togglePlugin('${plugin.id}')" style="
-                    background: ${plugin.status === 'loaded' ? 'var(--accent-color, #1DB954)' : '#444'};
-                    color: ${plugin.status === 'loaded' ? '#000' : '#888'};
-                    border: none;
-                    border-radius: 6px;
-                    padding: 4px 12px;
-                    cursor: pointer;
-                    font-size: 11px;
-                    font-weight: 600;
-                    transition: all 0.2s;
-                ">
-                    ${plugin.status === 'loaded' ? '✅ Вкл' : '⏹ Выкл'}
-                </button>
-                <button onclick="openPluginPopup('${plugin.id}')" style="
-                    background: none;
-                    border: 1px solid #444;
-                    color: #888;
-                    border-radius: 6px;
-                    padding: 4px 10px;
-                    cursor: pointer;
-                    font-size: 11px;
-                    transition: all 0.2s;
-                " onmouseover="this.style.borderColor='#666';this.style.color='#fff'" onmouseout="this.style.borderColor='#444';this.style.color='#888'">
-                    📂
-                </button>
-                <button onclick="uninstallPlugin('${plugin.id}')" style="
-                    background: none;
-                    border: none;
-                    color: #666;
-                    cursor: pointer;
-                    font-size: 16px;
-                    transition: all 0.2s;
-                " onmouseover="this.style.color='#ff4444'" onmouseout="this.style.color='#666'">
-                    ✕
-                </button>
-            </div>
-        </div>
-    `).join('');
-}
+// ============================================================
+// ОТКРЫТИЕ МАГАЗИНА ПЛАГИНОВ
+// ============================================================
 
-// === ВКЛЮЧЕНИЕ/ВЫКЛЮЧЕНИЕ ПЛАГИНА ===
-async function togglePlugin(pluginId) {
-    const plugin = pluginsList.find(p => p.id === pluginId);
-    if (!plugin) return;
-    
-    const newStatus = plugin.status === 'loaded' ? 'disabled' : 'loaded';
-    await window.electronAPI.togglePlugin(pluginId, newStatus === 'loaded');
-    
-    // Перезагружаем список
-    await loadPluginsList();
-    showToast(plugin.status === 'loaded' ? `🔌 Плагин "${plugin.name}" выключен` : `🔌 Плагин "${plugin.name}" включён`, 'info');
-}
-
-// === ОТКРЫТИЕ ПОПАПА ===
-async function openPluginPopup(pluginId) {
-    try {
-        await window.electronAPI.openPluginPopup(pluginId);
-    } catch (err) {
-        showToast(`❌ Ошибка: ${err.message}`, 'error');
-    }
-}
-
-// === УСТАНОВКА ПЛАГИНА ===
-async function installPlugin() {
-    // Открываем диалог выбора папки
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.webkitdirectory = true;
-    
-    input.onchange = async (e) => {
-        const path = e.target.files[0]?.path;
-        if (!path) return;
-        
-        try {
-            showToast('⏳ Установка плагина...', 'info');
-            const result = await window.electronAPI.installPlugin(path);
-            await loadPluginsList();
-            showToast(`✅ Плагин "${result.name}" установлен!`, 'success');
-        } catch (err) {
-            showToast(`❌ ${err.message}`, 'error');
-        }
-    };
-    
-    input.click();
-}
-
-// === УДАЛЕНИЕ ПЛАГИНА ===
-async function uninstallPlugin(pluginId) {
-    const plugin = pluginsList.find(p => p.id === pluginId);
-    if (!plugin) return;
-    
-    if (!confirm(`Удалить плагин "${plugin.name}"?`)) return;
-    
-    try {
-        await window.electronAPI.uninstallPlugin(pluginId);
-        await loadPluginsList();
-        showToast(`🗑️ Плагин "${plugin.name}" удалён`, 'info');
-    } catch (err) {
-        showToast(`❌ ${err.message}`, 'error');
-    }
-}
-
-// Функция открытия магазина плагинов
-// === МАГАЗИН ПЛАГИНОВ ===
 function openPluginStore() {
     if (document.getElementById('pluginStoreModal')) {
-        document.getElementById('pluginStoreModal').style.display = 'flex';
+        const modal = document.getElementById('pluginStoreModal');
+        modal.style.display = 'flex';
+        loadPluginStore(true);
         return;
     }
     
@@ -4964,358 +4968,242 @@ function openPluginStore() {
     `;
     
     document.body.appendChild(modal);
+    pluginStoreModal = modal;
     
-    // === ОБРАБОТЧИКИ ===
-    document.getElementById('pluginStoreClose').addEventListener('click', () => modal.remove());
-    document.getElementById('pluginStoreCloseBtn').addEventListener('click', () => modal.remove());
+    document.getElementById('pluginStoreClose').addEventListener('click', () => {
+        modal.style.display = 'none';
+    });
     
-    document.getElementById('refreshStoreBtn').addEventListener('click', () => {
-        loadPluginStore();
+    document.getElementById('pluginStoreCloseBtn').addEventListener('click', () => {
+        modal.style.display = 'none';
+    });
+    
+    document.getElementById('refreshStoreBtn').addEventListener('click', async () => {
+        const btn = document.getElementById('refreshStoreBtn');
+        const originalText = btn.textContent;
+        btn.textContent = '⏳ ...';
+        btn.disabled = true;
+        btn.style.opacity = '0.6';
+        
+        await loadPluginStore(true);
+        if (typeof loadPluginsList === 'function') {
+            await loadPluginsList();
+        }
+        
+        btn.textContent = originalText;
+        btn.disabled = false;
+        btn.style.opacity = '1';
     });
     
     modal.addEventListener('click', (e) => {
-        if (e.target === modal) modal.remove();
+        if (e.target === modal) {
+            modal.style.display = 'none';
+        }
     });
     
-    // Загружаем магазин
-    loadPluginStore();
+    loadPluginStore(true);
 }
-window.openPluginStore = openPluginStore;
-
-console.log('🛒 Магазин плагинов готов! Команда: openPluginStore()');
-
-document.addEventListener('DOMContentLoaded', () => {
-    const storeBtn = document.getElementById('pluginStoreBtn');
-    if (storeBtn) {
-        storeBtn.addEventListener('click', openPluginStore);
-    }
-});
-
-
-
-window.openPluginStore = openPluginStore;
-window.loadPluginsList = loadPluginsList;
-
-console.log('🔌 Система плагинов готова!');
-console.log('📋 Команды: loadPluginsList(), openPluginStore()');
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ============================================================
-// ПЕРЕДАЧА СТАТУСА В ПЛАГИНЫ (ИСПОЛЬЗУЕМ ГОТОВЫЕ ПЕРЕМЕННЫЕ)
+// ПЕРЕДАЧА СТАТУСА В ПЛАГИНЫ
 // ============================================================
 
 let lastSentStatusToPlugins = '';
 
 function broadcastStatusToPlugins() {
-    // Получаем акцентный цвет
     const accentColor = getComputedStyle(document.documentElement)
         .getPropertyValue('--accent-color').trim() || '#1DB954';
     
-    // Получаем название трека
     const titleEl = document.getElementById('homeTrackTitle');
     const artistEl = document.getElementById('homeTrackArtist');
     const artworkEl = document.getElementById('homeArtwork');
     
     const status = {
-        isPlaying: isMediaPlaying,      // ← готовая переменная
-        volume: currentMediaVolume,      // ← готовая переменная
+        isPlaying: isMediaPlaying || false,
+        volume: currentMediaVolume || 0,
         title: titleEl?.textContent || 'Не играет',
         artist: artistEl?.textContent || '—',
         artwork: artworkEl?.src || '',
         accentColor: accentColor
     };
     
-    // Отправляем только если изменилось
     const statusStr = JSON.stringify(status);
     if (statusStr !== lastSentStatusToPlugins) {
         lastSentStatusToPlugins = statusStr;
-        
-        // Отправляем всем попапам плагинов через main
         if (window.electronAPI && window.electronAPI.sendPluginStatus) {
             window.electronAPI.sendPluginStatus(status);
         }
     }
 }
 
-async function openPluginPopup(pluginId) {
-    try {
-        // Показываем индикатор загрузки
-        showToast('⏳ Открытие плагина...', 'info');
-        
-        const result = await window.electronAPI.openPluginPopup(pluginId);
-        
-        if (result && result.alreadyOpen) {
-            showToast(`🔁 Плагин уже открыт`, 'info');
-        } else {
-            showToast(`✅ Плагин открыт`, 'success');
-        }
-    } catch (err) {
-        showToast(`❌ Ошибка: ${err.message}`, 'error');
-    }
-}
-
-// Запускаем отправку
-setInterval(broadcastStatusToPlugins, 1000);
-
-// Отправляем сразу после изменения Play/Pause
-const originalUpdatePlayButton = updatePlayButton;
-updatePlayButton = function(isPlayingState) {
-    originalUpdatePlayButton(isPlayingState);
-    setTimeout(broadcastStatusToPlugins, 100);
-};
-
-// Отправляем при смене цвета
-const originalChangeAccentColor = changeAccentColor;
-changeAccentColor = function(color) {
-    originalChangeAccentColor(color);
-    setTimeout(broadcastStatusToPlugins, 100);
-};
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-const DEFAULT_PLUGIN_STORE = 'https://raw.githubusercontent.com/Mamba1230/musichub-plugins/refs/heads/main/plugins.json';
-
-// Загрузка кастомных магазинов из localStorage
-function loadCustomPluginStores() {
-    try {
-        const saved = localStorage.getItem('customPluginStores');
-        if (saved) {
-            return JSON.parse(saved);
-        }
-    } catch (e) {}
-    return [];
-}
-
-// Сохранение кастомных магазинов
-function saveCustomPluginStores(stores) {
-    localStorage.setItem('customPluginStores', JSON.stringify(stores));
-}
-
-// Получение всех магазинов (дефолтный + кастомные)
-function getAllPluginStores() {
-    const custom = loadCustomPluginStores();
-    return [DEFAULT_PLUGIN_STORE, ...custom];
-}
-
-// Рендер списка кастомных магазинов
-function renderCustomPluginStores() {
-    const container = document.getElementById('customPluginStoresList');
-    if (!container) return;
-    
-    const stores = loadCustomPluginStores();
-    
-    if (stores.length === 0) {
-        container.innerHTML = `
-            <div style="padding: 8px 12px; color: var(--text-secondary); font-size: 13px; opacity: 0.6;">
-                Нет добавленных магазинов
-            </div>
-        `;
-        return;
-    }
-    
-    container.innerHTML = stores.map((url, index) => `
-        <div class="custom-store-item" style="
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 6px 10px;
-            background: rgba(255,255,255,0.03);
-            border-radius: 6px;
-            margin-bottom: 4px;
-        ">
-            <span style="font-size: 12px; color: #666;">${index + 1}.</span>
-            <span style="font-size: 12px; color: var(--text-secondary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                ${url}
-            </span>
-            <button class="remove-store-btn" data-index="${index}" style="
-                background: none;
-                border: none;
-                color: #666;
-                cursor: pointer;
-                font-size: 14px;
-                padding: 2px 6px;
-                border-radius: 4px;
-                transition: all 0.2s;
-            " onmouseover="this.style.color='#ff4444'" onmouseout="this.style.color='#666'">
-                ✕
-            </button>
-        </div>
-    `).join('');
-    
-    // Обработчики удаления
-    container.querySelectorAll('.remove-store-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const index = parseInt(this.dataset.index);
-            const stores = loadCustomPluginStores();
-            stores.splice(index, 1);
-            saveCustomPluginStores(stores);
-            renderCustomPluginStores();
-            showToast('🗑️ Магазин удалён', 'info');
-        });
-    });
-}
-
-// Добавление кастомного магазина
-function addCustomPluginStore() {
-    const input = document.getElementById('newStoreUrl');
-    const url = input.value.trim();
-    
-    if (!url) {
-        showToast('❌ Введите ссылку', 'error');
-        return;
-    }
-    
-    // Проверяем, что это raw-ссылка
-    if (!url.includes('raw.githubusercontent.com') && !url.includes('raw.')) {
-        showToast('❌ Используйте raw-ссылку на GitHub', 'error');
-        return;
-    }
-    
-    // Проверяем, что заканчивается на .json
-    if (!url.endsWith('.json')) {
-        showToast('❌ Ссылка должна заканчиваться на .json', 'error');
-        return;
-    }
-    
-    const stores = loadCustomPluginStores();
-    
-    // Проверяем, есть ли уже такая
-    if (stores.includes(url)) {
-        showToast('⚠️ Такой магазин уже добавлен', 'warning');
-        return;
-    }
-    
-    stores.push(url);
-    saveCustomPluginStores(stores);
-    renderCustomPluginStores();
-    input.value = '';
-    showToast('✅ Магазин добавлен!', 'success');
-}
-
-// Загрузка плагинов из ВСЕХ магазинов
-async function loadAllPluginStores() {
-    const stores = getAllPluginStores();
-    const allPlugins = [];
-    let errors = [];
-    
-    showToast('🔄 Загрузка магазинов плагинов...', 'info');
-    
-    for (const storeUrl of stores) {
-        try {
-            console.log(`📥 Загрузка магазина: ${storeUrl}`);
-            const response = await fetch(storeUrl);
-            if (!response.ok) {
-                errors.push(`❌ ${storeUrl}: ${response.status}`);
-                continue;
-            }
-            const data = await response.json();
-            if (data.plugins && Array.isArray(data.plugins)) {
-                // Добавляем источник к каждому плагину
-                data.plugins.forEach(p => {
-                    p.source = storeUrl;
-                });
-                allPlugins.push(...data.plugins);
-                console.log(`✅ Загружено ${data.plugins.length} плагинов из ${storeUrl}`);
-            }
-        } catch (err) {
-            errors.push(`❌ ${storeUrl}: ${err.message}`);
-            console.error(`Ошибка загрузки ${storeUrl}:`, err);
-        }
-    }
-    
-    if (errors.length > 0) {
-        console.warn('Ошибки загрузки магазинов:', errors);
-    }
-    
-    return { plugins: allPlugins, errors };
-}
-
-// Обновлённая функция loadPluginStore
-async function loadPluginStore() {
-    try {
-        const result = await loadAllPluginStores();
-        
-        if (result.plugins.length === 0) {
-            showToast('❌ Не удалось загрузить плагины из магазинов', 'error');
-            return { plugins: [], error: 'Нет доступных плагинов' };
-        }
-        
-        // Объединяем плагины по id (если дублируются — оставляем первый)
-        const uniquePlugins = [];
-        const seenIds = new Set();
-        for (const p of result.plugins) {
-            if (!seenIds.has(p.id)) {
-                seenIds.add(p.id);
-                uniquePlugins.push(p);
-            }
-        }
-        
-        const data = { plugins: uniquePlugins };
-        pluginStoreData = data;
-        renderPluginStore(data);
-        return data;
-    } catch (err) {
-        console.error('❌ Ошибка загрузки магазинов:', err);
-        showToast('❌ Не удалось загрузить магазины', 'error');
-        return { plugins: [], error: err.message };
-    }
-}
-
-
-
-
+// ============================================================
+// ИНИЦИАЛИЗАЦИЯ
+// ============================================================
 
 document.addEventListener('DOMContentLoaded', () => {
+    // === КНОПКА ОТКРЫТИЯ ПАНЕЛИ ===
+    const extBtn = document.getElementById('extensionsPanelBtn');
+    const panel = document.getElementById('extensionsPanel');
+    const closeBtn = document.getElementById('closeExtensionsPanelBtn');
+    
+    if (extBtn && panel) {
+        extBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            panel.classList.toggle('show');
+            if (panel.classList.contains('show')) {
+                panel.style.display = 'block';
+                loadPluginsList();
+            } else {
+                panel.style.display = 'none';
+            }
+        });
+        
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                panel.classList.remove('show');
+                panel.style.display = 'none';
+            });
+        }
+        
+        document.addEventListener('click', (e) => {
+            if (panel.classList.contains('show') && 
+                !panel.contains(e.target) && 
+                e.target !== extBtn) {
+                panel.classList.remove('show');
+                panel.style.display = 'none';
+            }
+        });
+    }
+    
+    // === КНОПКА МАГАЗИНА ===
+    const storeBtn = document.getElementById('pluginStoreBtn');
+    if (storeBtn) {
+        storeBtn.addEventListener('click', () => {
+            if (panel) {
+                panel.classList.remove('show');
+                panel.style.display = 'none';
+            }
+            openPluginStore();
+        });
+    }
+    
     // === КАСТОМНЫЕ МАГАЗИНЫ ===
-    // Рендерим список
     renderCustomPluginStores();
     
-    // Добавление магазина
     document.getElementById('addCustomStoreBtn')?.addEventListener('click', addCustomPluginStore);
     
-    // Добавление по Enter
     document.getElementById('newStoreUrl')?.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') addCustomPluginStore();
     });
     
-    // Обновление всех магазинов
     document.getElementById('refreshPluginStoresBtn')?.addEventListener('click', async () => {
-        await loadPluginStore();
+        await loadPluginStore(true);
         if (typeof loadPluginsList === 'function') {
             await loadPluginsList();
         }
         showToast('🔄 Магазины обновлены!', 'success');
     });
 });
+
+// === ЗАПУСК ОТПРАВКИ СТАТУСА ===
+setInterval(broadcastStatusToPlugins, 1000);
+
+// Перехват изменения Play/Pause
+const originalUpdatePlayButton = window.updatePlayButton;
+if (originalUpdatePlayButton) {
+    window.updatePlayButton = function(isPlayingState) {
+        originalUpdatePlayButton(isPlayingState);
+        setTimeout(broadcastStatusToPlugins, 100);
+    };
+}
+
+// Перехват изменения цвета
+const originalChangeAccentColor = window.changeAccentColor;
+if (originalChangeAccentColor) {
+    window.changeAccentColor = function(color) {
+        originalChangeAccentColor(color);
+        setTimeout(broadcastStatusToPlugins, 100);
+    };
+}
+
+// === ГЛОБАЛЬНЫЕ ФУНКЦИИ ДЛЯ КОНСОЛИ ===
+window.openPluginStore = openPluginStore;
+window.loadPluginsList = loadPluginsList;
+window.loadPluginStore = loadPluginStore;
+
+console.log('🔌 Система плагинов готова!');
+console.log('📋 Команды: loadPluginsList(), openPluginStore(), loadPluginStore(true)');
+console.log('🛒 Магазин плагинов готов! Команда: openPluginStore()');
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
