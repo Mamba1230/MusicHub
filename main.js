@@ -458,7 +458,7 @@ const presence = {
     state: artist || 'Ожидание',
     startTimestamp: Date.now(),
     largeImageKey: 'musichub_icon',
-    largeImageText: 'MusicHub v3.0.5',
+    largeImageText: 'MusicHub v3.1.0',
     buttons: [
         {
             label: '🎵 MusicHub',
@@ -2962,7 +2962,7 @@ app.whenReady().then(() => {
                 setTimeout(() => {
                     if (rpc) {
                         rpc.setActivity({
-                            details: 'MusicHub v3.0.5',
+                            details: 'MusicHub v3.1.0',
                             state: 'Слушаю музыку 🎵',
                             largeImageKey: 'spotify',
                             largeImageText: 'MusicHub'

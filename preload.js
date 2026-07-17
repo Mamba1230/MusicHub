@@ -130,5 +130,7 @@ removeCustomStore: (index) => ipcRenderer.invoke('remove-custom-store', index),
     }
 };
 
+
+
 // ОДИН РАЗ экспортируем API
 contextBridge.exposeInMainWorld('electronAPI', api);

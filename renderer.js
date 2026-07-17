@@ -5219,7 +5219,7 @@ console.log('🛒 Магазин плагинов готов! Команда: op
 
          
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 MusicHub v3.0.5');
+    console.log('🚀 MusicHub v3.1.0');
     particleBackground = new ParticleBackground();
     loadSettings();
     loadCustomSites();  
@@ -5235,7 +5235,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initTitlebarEqualizer();
     await checkPremiumStatus();
     document.body.addEventListener('click', createGlobalRipple);
-    showToast('🎵 Добро пожаловать в MusicHub !3.0.5', 'success');
+    showToast('🎵 Добро пожаловать в MusicHub! 3.1.0', 'success');
     
     const chatBtn = document.getElementById('chatBtn');
     if (chatBtn) {
@@ -8755,54 +8755,53 @@ console.log('🎮 Поддерживаются: стрелки, Numpad, меди
 
 
 // ============================================================
-// ПРОВЕРКА ОБНОВЛЕНИЙ
+// ПРОВЕРКА ОБНОВЛЕНИЙ (С УМНЫМ ИГНОРИРОВАНИЕМ)
 // ============================================================
 
 const WORKER_URL_1 = 'https://tips-proxy.170610maksim.workers.dev';
-const APP_VERSION = '3.0.5'; // ← ТЕКУЩАЯ ВЕРСИЯ ПРИЛОЖЕНИЯ
+const APP_VERSION = '3.1.0'; // Текущая версия
 
-let updateCheckDone = false;
-let dontShowUpdateAgain = false;
-
-// ============================================================
-// РУЧНОЙ ВЫЗОВ ОКНА ОБНОВЛЕНИЙ (БЕЗ ПРОВЕРКИ)
-// ============================================================
-
-function showUpdateModalManually() {
-    const data = {
-        latestVersion: '9.9.9',
-        releaseDate: '2026-06-22',
-        releaseNotes: [
-            '🚀 Добавлен CarPlay-интерфейс для телефона',
-            '🧠 AI научился искать в YouTube Music',
-            '⌨️ Гибкие горячие клавиши (можно менять)',
-            '🎵 Управление музыкой с главной страницы',
-            '📱 QR-код для быстрого подключения телефона'
-        ],
-        downloadUrl: 'https://github.com/Mamba1230/MusicHub/releases/latest'
-    };
-    
-    showUpdateModal(data);
+// Функция получения игнорируемой версии
+function getIgnoredUpdateVersion() {
+    return localStorage.getItem('ignoredUpdateVersion') || null;
 }
 
-// === КОМАНДА ДЛЯ КОНСОЛИ ===
-window.showUpdate = showUpdateModalManually;
+// Функция сохранения игнорируемой версии
+function setIgnoredUpdateVersion(version) {
+    if (version) {
+        localStorage.setItem('ignoredUpdateVersion', version);
+    } else {
+        localStorage.removeItem('ignoredUpdateVersion');
+    }
+}
 
-console.log('📱 Для показа окна обновлений введи: showUpdate()');
+// Функция проверки, нужно ли игнорировать это обновление
+function shouldIgnoreUpdate(latestVersion) {
+    const ignoredVersion = getIgnoredUpdateVersion();
+    if (!ignoredVersion) return false;
+    
+    // Игнорируем ТОЛЬКО если версия совпадает с той, которую пользователь проигнорировал
+    return ignoredVersion === latestVersion;
+}
 
 async function checkForUpdates() {
-    // Проверяем, не отключил ли пользователь уведомления
-    if (localStorage.getItem('dontShowUpdateAgain') === 'true') {
-        console.log('🔇 Уведомления об обновлениях отключены');
-        return;
-    }
+    // Проверяем наличие игнорируемой версии
+    const ignoredVersion = getIgnoredUpdateVersion();
     
     try {
         const response = await fetch(`${WORKER_URL_1}/check-update?version=${APP_VERSION}`);
         const data = await response.json();
         
         if (data.updateAvailable) {
-            console.log(`🆕 Доступна новая версия: ${data.latestVersion} (текущая: ${APP_VERSION})`);
+            const latestVersion = data.latestVersion;
+            
+            // Если пользователь проигнорировал ЭТУ конкретную версию — не показываем
+            if (shouldIgnoreUpdate(latestVersion)) {
+                console.log(`🔇 Версия ${latestVersion} проигнорирована пользователем`);
+                return;
+            }
+            
+            console.log(`🆕 Доступна новая версия: ${latestVersion} (текущая: ${APP_VERSION})`);
             showUpdateModal(data);
         } else {
             console.log(`✅ У вас актуальная версия (${APP_VERSION})`);
@@ -8812,7 +8811,7 @@ async function checkForUpdates() {
     }
 }
 
-// === МОДАЛЬНОЕ ОКНО ОБ ОБНОВЛЕНИИ ===
+// === МОДАЛЬНОЕ ОКНО (ИСПРАВЛЕННОЕ) ===
 function showUpdateModal(data) {
     if (document.getElementById('updateModal')) return;
     
@@ -8898,7 +8897,6 @@ function showUpdateModal(data) {
             </div>
             
             <div style="display: flex; flex-direction: column; gap: 10px;">
-                <!-- === ИСПРАВЛЕННАЯ КНОПКА === -->
                 <button id="updateDownloadBtn" style="
                     display: block;
                     width: 100%;
@@ -8925,7 +8923,7 @@ function showUpdateModal(data) {
                     padding: 8px;
                     transition: color 0.2s;
                 " onmouseover="this.style.color='#999'" onmouseout="this.style.color='#666'">
-                    🔕 Больше не напоминать
+                    🔕 Не напоминать об этой версии
                 </button>
             </div>
         </div>
@@ -8933,27 +8931,26 @@ function showUpdateModal(data) {
     
     document.body.appendChild(modal);
     
-    // === ОБРАБОТЧИКИ ===
+    // Обработчики
     document.getElementById('updateModalClose').addEventListener('click', () => {
         modal.remove();
     });
     
-    // === ОТКРЫТИЕ В БРАУЗЕРЕ ЧЕРЕЗ ELECTRON API ===
     document.getElementById('updateDownloadBtn').addEventListener('click', () => {
-        // Используем electronAPI.openExternal для открытия в браузере
         if (window.electronAPI && window.electronAPI.openExternal) {
             window.electronAPI.openExternal(data.downloadUrl);
         } else {
-            // Fallback: window.open
             window.open(data.downloadUrl, '_blank');
         }
         modal.remove();
     });
     
+    // === ИСПРАВЛЕННАЯ КНОПКА "НЕ НАПОМИНАТЬ" ===
     document.getElementById('updateDontShowBtn').addEventListener('click', () => {
-        localStorage.setItem('dontShowUpdateAgain', 'true');
+        // Сохраняем КОНКРЕТНУЮ версию, которую пользователь проигнорировал
+        setIgnoredUpdateVersion(data.latestVersion);
         modal.remove();
-        showToast('🔕 Уведомления об обновлениях отключены', 'info');
+        showToast(`🔕 Уведомления о версии ${data.latestVersion} отключены`, 'info');
     });
     
     modal.addEventListener('click', (e) => {
@@ -8961,25 +8958,10 @@ function showUpdateModal(data) {
     });
 }
 
-// === ФУНКЦИЯ СРАВНЕНИЯ ВЕРСИЙ (дубль, на случай если воркер не ответит) ===
-function compareVersions(v1, v2) {
-    const parts1 = v1.split('.').map(Number);
-    const parts2 = v2.split('.').map(Number);
-    
-    for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
-        const num1 = parts1[i] || 0;
-        const num2 = parts2[i] || 0;
-        if (num1 !== num2) {
-            return num1 - num2;
-        }
-    }
-    return 0;
-}
-
 // === ЗАПУСК ПРОВЕРКИ ===
 setTimeout(() => {
     checkForUpdates();
-}, 3000); // Через 3 секунды после загрузки
+}, 3000);
 
 // Для консоли
 window.checkForUpdates = checkForUpdates;
@@ -8989,11 +8971,12 @@ console.log('📱 Для проверки обновлений: checkForUpdates(
 
 
 
-
-
-
-
-
+// Принудительная проверка (сбрасываем игнор, если пользователь хочет проверить вручную)
+window.forceCheckUpdates = function() {
+    // Если пользователь проверяет вручную — сбрасываем игнор, чтобы он увидел, если что-то вышло
+    setIgnoredUpdateVersion(null);
+    checkForUpdates();
+};
 
 
 
@@ -9655,7 +9638,7 @@ async function forceTestRPC() {
         setTimeout(async () => {
             console.log('🔄 Повторная отправка статуса...');
             window.electronAPI.updateTrackInfo({
-                title: '🎵 MusicHub v3.0.5',
+                title: '🎵 MusicHub v3.1.0',
                 artist: 'Слушаю музыку'
             });
         }, 5000);
@@ -10894,6 +10877,19 @@ MusicHub — это десктопный музыкальный плеер с в
 - Пользователь: "поищи расслабляющую музыку"
   Ты: 🔍[SEARCH:relaxing music]
 
+Команды:
+        '🎵[CMD:PLAY]': 'Включить воспроизведение',
+        '🎵[CMD:PAUSE]': 'Поставить на паузу',
+        '🎵[CMD:STOP]': 'Полностью остановить',
+        '🎵[CMD:NEXT]': 'Следующий трек',
+        '🎵[CMD:PREV]': 'Предыдущий трек',
+        '🎵[CMD:VOLUP]': 'Увеличить громкость на 10%',
+        '🎵[CMD:VOLDOWN]': 'Уменьшить громкость на 10%',
+        '🎵[CMD:VOLSET:X]': 'Установить громкость X% (где X от 0 до 100)',
+        '🎵[CMD:MUTE]': 'Выключить звук',
+        '🎵[CMD:UNMUTE]': 'Включить звук',
+        '🎵[CMD:TOGGLE]': 'Переключить Play/Pause'
+
 ПРАВИЛА:
 1. ВСЕГДА используй 🔍[SEARCH:запрос] когда просят найти музыку
 2. НЕ пиши лишнего текста, только команду
@@ -12062,7 +12058,7 @@ async function askGigaChat(question) {
         const historyContext = getHistoryContext();
         
         // === ПРОМПТ С ИСТОРИЕЙ ===
-        const systemPrompt = `Ты — AI-помощник в MusicHub 3.0.5.
+        const systemPrompt = `Ты — AI-помощник в MusicHub 3.1.0.
 
 ${historyContext}
 
@@ -12074,9 +12070,17 @@ ${historyContext}
 === КОМАНДЫ ===
 - 📚[KNOWLEDGE:запрос] — когда спрашивают "кто такой ..."
 - 🔍[SEARCH:запрос] — когда просят найти песни
-- 🎵[CMD:PLAY] 🔍[SEARCH:запрос] — когда просят включить исполнителя
-- 🎵[CMD:PLAY] — просто включить/выключить
-
+        '🎵[CMD:PLAY]': 'Включить воспроизведение',
+        '🎵[CMD:PAUSE]': 'Поставить на паузу',
+        '🎵[CMD:STOP]': 'Полностью остановить',
+        '🎵[CMD:NEXT]': 'Следующий трек', 'дальше', 'вперед'
+        '🎵[CMD:PREV]': 'Предыдущий трек', 'назад', 'прошлое значит включить прошлый трек'
+        '🎵[CMD:VOLUP]': 'Увеличить громкость на 10%',
+        '🎵[CMD:VOLDOWN]': 'Уменьшить громкость на 10%',
+        '🎵[CMD:VOLSET:X]': 'Установить громкость X% (где X от 0 до 100)',
+        '🎵[CMD:MUTE]': 'Выключить звук',
+        '🎵[CMD:UNMUTE]': 'Включить звук',
+        '🎵[CMD:TOGGLE]': 'Переключить Play/Pause'
 === ПРИМЕРЫ ===
 Пользователь: "кто такой MORGENSHTERN?"
 Ты: 📚[KNOWLEDGE:MORGENSHTERN]
