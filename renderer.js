@@ -5219,7 +5219,7 @@ console.log('🛒 Магазин плагинов готов! Команда: op
 
          
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 MusicHub v3.1.0');
+    console.log('🚀 MusicHub v3.1.5');
     particleBackground = new ParticleBackground();
     loadSettings();
     loadCustomSites();  
@@ -5235,7 +5235,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initTitlebarEqualizer();
     await checkPremiumStatus();
     document.body.addEventListener('click', createGlobalRipple);
-    showToast('🎵 Добро пожаловать в MusicHub! 3.1.0', 'success');
+    showToast('🎵 Добро пожаловать в MusicHub! 3.1.5', 'success');
     
     const chatBtn = document.getElementById('chatBtn');
     if (chatBtn) {
@@ -8200,11 +8200,118 @@ if (window.electronAPI && window.electronAPI.on) {
 
 
 
+// ============================================================
+// ТАЙМЕР ПРОГРЕССА ТРЕКА
+// ============================================================
 
+let trackProgressSeconds = 0;
+let trackProgressTimer = null;
+let currentTrackTitle = '';
+let currentTrackArtist = '';
 
+// Запуск/остановка таймера
+function updateTrackTimer(isPlaying) {
+    if (isPlaying) {
+        if (!trackProgressTimer) {
+            trackProgressTimer = setInterval(() => {
+                trackProgressSeconds++;
+                sendProgressToMain();
+            }, 1000);
+            console.log('⏱️ Таймер прогресса запущен');
+        }
+    } else {
+        if (trackProgressTimer) {
+            clearInterval(trackProgressTimer);
+            trackProgressTimer = null;
+            console.log('⏱️ Таймер прогресса остановлен');
+        }
+    }
+}
 
+// Сброс прогресса
+function resetTrackProgress() {
+    trackProgressSeconds = 0;
+    if (trackProgressTimer) {
+        clearInterval(trackProgressTimer);
+        trackProgressTimer = null;
+    }
+    sendProgressToMain();
+    console.log('🔄 Прогресс сброшен');
+}
 
+// Отправка прогресса в main
+function sendProgressToMain() {
+    if (window.electronAPI && window.electronAPI.sendMobileStatus) {
+        window.electronAPI.sendMobileStatus({
+            progress: trackProgressSeconds,
+            isPlaying: isMediaPlaying || false
+        });
+    }
+}
 
+// ============================================================
+// ПЕРЕХВАТ СОБЫТИЙ
+// ============================================================
+
+// Перехват смены трека
+const originalSaveTrack = window.saveTrackToHistory;
+if (originalSaveTrack) {
+    window.saveTrackToHistory = function(title, artist, service) {
+        originalSaveTrack(title, artist, service);
+        
+        // Сбрасываем прогресс
+        resetTrackProgress();
+        currentTrackTitle = title || 'Не играет';
+        currentTrackArtist = artist || '—';
+        
+        // === ОТПРАВЛЯЕМ ПОЛНЫЙ СТАТУС ===
+        if (window.electronAPI && window.electronAPI.sendMobileStatus) {
+            // Получаем акцентный цвет
+            const accentColor = getComputedStyle(document.documentElement)
+                .getPropertyValue('--accent-color').trim() || '#1DB954';
+            
+            // Получаем обложку
+            const artworkEl = document.getElementById('homeArtwork') || document.getElementById('panelArtwork');
+            const artwork = artworkEl?.src || '';
+            
+            window.electronAPI.sendMobileStatus({
+                title: title || 'Не играет',
+                artist: artist || '—',
+                artwork: artwork,
+                service: service || 'unknown',
+                accentColor: accentColor,
+                isPlaying: isMediaPlaying || false,
+                progress: 0 // Сбрасываем прогресс
+            });
+        }
+        
+        // Если трек играет — запускаем таймер
+        if (isMediaPlaying) {
+            updateTrackTimer(true);
+        }
+    };
+}
+
+// Перехват Play/Pause
+const originalUpdatePlay = window.updatePlayButton;
+if (originalUpdatePlay) {
+    window.updatePlayButton = function(isPlayingState) {
+        originalUpdatePlay(isPlayingState);
+        updateTrackTimer(isPlayingState);
+    };
+}
+
+// Получение прогресса из вне (для отладки)
+window.getTrackProgress = function() {
+    return {
+        seconds: trackProgressSeconds,
+        isPlaying: isMediaPlaying || false,
+        title: currentTrackTitle,
+        artist: currentTrackArtist
+    };
+};
+
+console.log('⏱️ Таймер прогресса инициализирован');
 
 
 
@@ -8759,7 +8866,7 @@ console.log('🎮 Поддерживаются: стрелки, Numpad, меди
 // ============================================================
 
 const WORKER_URL_1 = 'https://tips-proxy.170610maksim.workers.dev';
-const APP_VERSION = '3.1.0'; // Текущая версия
+const APP_VERSION = '3.1.5'; // Текущая версия
 
 // Функция получения игнорируемой версии
 function getIgnoredUpdateVersion() {
@@ -9375,6 +9482,27 @@ let mobileStatusInterval = null;
 let lastSentStatus = '';
 
 
+
+
+function sendMobileStatusUpdate() {
+    if (window.electronAPI && window.electronAPI.sendMobileStatus) {
+        // Отправляем ТОЛЬКО обновления, а не всё
+        const status = {
+            // Только если есть название
+            ...(currentTrackTitle && currentTrackTitle !== 'Не играет' && { title: currentTrackTitle }),
+            ...(currentTrackArtist && currentTrackArtist !== '—' && { artist: currentTrackArtist }),
+            ...(currentArtwork && { artwork: currentArtwork }),
+            isPlaying: isMediaPlaying || false,
+            volume: currentMediaVolume / 100 || 0.5,
+            progress: trackProgressSeconds || 0,
+            service: document.querySelector('webview.active')?.id || 'unknown',
+            accentColor: getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim() || '#1DB954'
+        };
+        
+        window.electronAPI.sendMobileStatus(status);
+    }
+}
+
 function sendMobileStatus() {
     // Получаем информацию из DOM домашней страницы
     const titleEl = document.getElementById('homeTrackTitle');
@@ -9638,7 +9766,7 @@ async function forceTestRPC() {
         setTimeout(async () => {
             console.log('🔄 Повторная отправка статуса...');
             window.electronAPI.updateTrackInfo({
-                title: '🎵 MusicHub v3.1.0',
+                title: '🎵 MusicHub v3.1.5',
                 artist: 'Слушаю музыку'
             });
         }, 5000);
@@ -12058,7 +12186,7 @@ async function askGigaChat(question) {
         const historyContext = getHistoryContext();
         
         // === ПРОМПТ С ИСТОРИЕЙ ===
-        const systemPrompt = `Ты — AI-помощник в MusicHub 3.1.0.
+        const systemPrompt = `Ты — AI-помощник в MusicHub 3.1.5.
 
 ${historyContext}
 

@@ -1,4 +1,3 @@
-<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -42,7 +41,6 @@
             gap: 8px;
         }
         
-        /* === ОБЩИЕ СТИЛИ ДЛЯ ИКОНОК === */
         .icon-btn {
             background: none;
             border: none;
@@ -68,7 +66,6 @@
             transition: fill 0.3s;
         }
         
-        /* === ВЕРХ === */
         .header {
             text-align: center;
             padding: 2px 0;
@@ -87,7 +84,6 @@
             transition: color 0.3s;
         }
         
-        /* === ОБЛОЖКА === */
         .artwork-container {
             display: flex;
             justify-content: center;
@@ -120,7 +116,6 @@
             content: '🎵';
         }
         
-        /* === ТРЕК === */
         .track-info {
             text-align: center;
             padding: 4px 0;
@@ -146,7 +141,6 @@
             text-overflow: ellipsis;
         }
         
-        /* === КНОПКИ УПРАВЛЕНИЯ === */
         .controls {
             display: flex;
             justify-content: center;
@@ -169,13 +163,13 @@
             height: 24px;
         }
         
-.controls .play-btn {
-    width: 72px;
-    height: 72px;
-    background: var(--accent, #1DB954);
-    padding: 18px;
-    box-shadow: 0 0 30px var(--accent-glow, rgba(29, 185, 84, 0.15));
-}
+        .controls .play-btn {
+            width: 72px;
+            height: 72px;
+            background: var(--accent, #1DB954);
+            padding: 18px;
+            box-shadow: 0 0 30px var(--accent-glow, rgba(29, 185, 84, 0.15));
+        }
         
         .controls .play-btn svg {
             width: 32px;
@@ -183,11 +177,10 @@
             fill: #000;
         }
         
-.controls .play-btn.playing {
-    box-shadow: 0 0 40px var(--accent-glow-strong, rgba(29, 185, 84, 0.3));
-}
+        .controls .play-btn.playing {
+            box-shadow: 0 0 40px var(--accent-glow-strong, rgba(29, 185, 84, 0.3));
+        }
         
-        /* === ГРОМКОСТЬ (горизонтальная) === */
         .volume-container {
             display: flex;
             align-items: center;
@@ -237,7 +230,6 @@
             flex-shrink: 0;
         }
         
-        /* === НИЗ === */
         .footer {
             text-align: center;
             padding: 2px 0;
@@ -249,7 +241,6 @@
             color: #444;
         }
         
-        /* === АНИМАЦИЯ ПУЛЬСАЦИИ === */
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.7; }
@@ -259,9 +250,35 @@
             animation: pulse 2s ease-in-out infinite;
         }
         
-        /* ============================================================ */
-        /* === ГОРИЗОНТАЛЬНЫЙ РЕЖИМ (LANDSCAPE) === */
-        /* ============================================================ */
+        .progress-container {
+            width: 100%;
+            padding: 8px 0;
+            flex-shrink: 0;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: #333;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: var(--accent, #1DB954);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .progress-time {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #888;
+            margin-top: 4px;
+        }
+        
         @media (orientation: landscape) and (max-height: 500px),
                (orientation: landscape) and (max-width: 800px) {
             
@@ -274,7 +291,6 @@
                 justify-content: center;
             }
             
-            /* Левая колонка — обложка */
             .artwork-container {
                 flex: 0 0 auto;
                 padding: 0;
@@ -293,7 +309,6 @@
                 min-height: 100px;
             }
             
-            /* Правая колонка — центрированная */
             .right-panel {
                 flex: 1;
                 display: flex;
@@ -362,7 +377,6 @@
                 height: 28px;
             }
             
-            /* === ВЕРТИКАЛЬНЫЙ ПОЛЗУНОК ГРОМКОСТИ === */
             .volume-container {
                 display: flex;
                 flex-direction: row;
@@ -397,9 +411,6 @@
             .footer .ip { font-size: 10px; }
         }
         
-        /* ============================================================ */
-        /* === ОЧЕНЬ МАЛЕНЬКИЕ ЭКРАНЫ === */
-        /* ============================================================ */
         @media (max-width: 380px) {
             .artwork { width: 200px; height: 200px; }
             .controls .icon-btn { width: 44px; height: 44px; padding: 10px; }
@@ -420,9 +431,6 @@
             .track-artist { font-size: 11px; }
         }
         
-        /* ============================================================ */
-        /* === ПЛАНШЕТЫ === */
-        /* ============================================================ */
         @media (min-width: 600px) and (orientation: portrait) {
             .artwork { width: 340px; height: 340px; }
             .track-title { font-size: 28px; }
@@ -446,42 +454,34 @@
 </head>
 <body>
     <div class="container" id="app">
-        <!-- Левая часть: обложка -->
         <div class="artwork-container">
             <img id="artwork" class="artwork placeholder" src="" alt="Обложка">
         </div>
         
-        <!-- Правая часть (всё остальное) -->
         <div class="right-panel">
-            <!-- Верх -->
             <div class="header">
                 <div class="status">🎵 MusicHub Mobile</div>
                 <div class="service" id="service">—</div>
             </div>
             
-            <!-- Трек -->
             <div class="track-info">
-                <div class="track-title" id="title">Не играет</div>
+                <div class="track-title" id="title">—</div>
                 <div class="track-artist" id="artist">—</div>
             </div>
             
-            <!-- Кнопки управления с иконками -->
             <div class="controls">
-                <!-- Предыдущий трек -->
                 <button id="prevBtn" class="icon-btn" aria-label="Предыдущий">
                     <svg viewBox="0 0 24 24">
                         <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
                     </svg>
                 </button>
                 
-                <!-- Play/Pause -->
                 <button id="playBtn" class="icon-btn play-btn" aria-label="Воспроизвести">
                     <svg viewBox="0 0 24 24" id="playIcon">
                         <path d="M8 5v14l11-7z"/>
                     </svg>
                 </button>
                 
-                <!-- Следующий трек -->
                 <button id="nextBtn" class="icon-btn" aria-label="Следующий">
                     <svg viewBox="0 0 24 24">
                         <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
@@ -489,14 +489,22 @@
                 </button>
             </div>
             
-            <!-- Громкость -->
             <div class="volume-container">
                 <span class="volume-icon" id="volumeIcon">🔊</span>
                 <input type="range" id="volumeSlider" class="volume-slider" min="0" max="100" value="50">
                 <span class="volume-percent" id="volumePercent">50%</span>
             </div>
+
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill" style="width: 0%;"></div>
+                </div>
+                <div class="progress-time">
+                    <span id="currentTime">0:00</span>
+                    <span id="totalTime">0:00</span>
+                </div>
+            </div>
             
-            <!-- Низ -->
             <div class="footer">
                 <div class="ip" id="ipDisplay">Подключение...</div>
             </div>
@@ -504,12 +512,88 @@
     </div>
     
     <script>
-    // === НАСТРОЙКИ ===
+// === НАСТРОЙКИ ===
 let ws = null;
 let isConnected = false;
 let currentVolume = 50;
 let isPlayingState = false;
 let currentAccentColor = '#1DB954';
+let isFirstLoad = true;
+
+// === КЛЮЧ ДЛЯ localStorage ===
+const STORAGE_KEY = 'musichub_mobile_track_data';
+
+// === ЗАГРУЗКА СОХРАНЁННЫХ ДАННЫХ ===
+function loadSavedTrackData() {
+    try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+            const data = JSON.parse(saved);
+            if (data.title && data.title !== '—') {
+                lastTrackData.title = data.title;
+                document.getElementById('title').textContent = data.title;
+            }
+            if (data.artist && data.artist !== '—') {
+                lastTrackData.artist = data.artist;
+                document.getElementById('artist').textContent = data.artist;
+            }
+            if (data.artwork) {
+                lastTrackData.artwork = data.artwork;
+                document.getElementById('artwork').src = data.artwork;
+                document.getElementById('artwork').classList.remove('placeholder');
+                document.getElementById('artwork').style.display = 'block';
+            }
+            if (data.service) {
+                lastTrackData.service = data.service;
+                const serviceNames = {
+                    'yandex': 'Яндекс Музыка',
+                    'youtube': 'YouTube Music',
+                    'soundcloud': 'SoundCloud',
+                    'spotify': 'Spotify',
+                    'vk': 'VK Music'
+                };
+                document.getElementById('service').textContent = serviceNames[data.service] || data.service;
+            }
+            if (data.accentColor) {
+                lastTrackData.accentColor = data.accentColor;
+                currentAccentColor = data.accentColor;
+                document.documentElement.style.setProperty('--accent', currentAccentColor);
+                updatePlayButtonGlow(currentAccentColor);
+            }
+            console.log('💾 Загружены сохранённые данные:', data.title, '-', data.artist);
+            return true;
+        }
+    } catch (e) {
+        console.log('⚠️ Ошибка загрузки сохранённых данных:', e);
+    }
+    return false;
+}
+
+// === СОХРАНЕНИЕ ДАННЫХ ===
+function saveTrackData() {
+    try {
+        const data = {
+            title: lastTrackData.title,
+            artist: lastTrackData.artist,
+            artwork: lastTrackData.artwork,
+            service: lastTrackData.service,
+            accentColor: lastTrackData.accentColor
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch (e) {
+        console.log('⚠️ Ошибка сохранения данных:', e);
+    }
+}
+
+// === СОХРАНЕНИЕ ПОСЛЕДНИХ ДАННЫХ ===
+let lastTrackData = {
+    title: '—',
+    artist: '—',
+    artwork: '',
+    service: '',
+    accentColor: '#1DB954',
+    isPlaying: false
+};
 
 // === ЗАЩИТА ОТ МИГАНИЯ ===
 let lastStatus = {};
@@ -542,9 +626,10 @@ function hexToRgba(hex, alpha) {
 // === ОБНОВЛЕНИЕ GLOW КНОПКИ ===
 function updatePlayButtonGlow(color) {
     if (!playBtn) return;
-    currentAccentColor = color || '#1DB954';
-    const rgba = hexToRgba(currentAccentColor, 0.3);
-    const rgbaLight = hexToRgba(currentAccentColor, 0.15);
+    const useColor = color || lastTrackData.accentColor || '#1DB954';
+    currentAccentColor = useColor;
+    const rgba = hexToRgba(useColor, 0.3);
+    const rgbaLight = hexToRgba(useColor, 0.15);
     
     if (playBtn.classList.contains('playing')) {
         playBtn.style.boxShadow = `0 0 40px ${rgba}`;
@@ -580,13 +665,16 @@ function connect() {
                     ipDisplay.style.opacity = '1';
                 }, 500);
             }, 2000);
+            
+            // === ПРИ ПОДКЛЮЧЕНИИ ЗАПРАШИВАЕМ АКТУАЛЬНЫЙ СТАТУС ===
+            sendSyncRequest();
         };
         
         ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
+                
                 if (data.type === 'status') {
-                    // === ЗАЩИТА ОТ МИГАНИЯ ===
                     const statusKey = JSON.stringify(data.data);
                     if (statusKey !== lastStatus.key) {
                         lastStatus.key = statusKey;
@@ -595,6 +683,10 @@ function connect() {
                             updateUI(data.data);
                         }, 50);
                     }
+                } else if (data.type === 'track_progress') {
+                    updateProgressOnly(data);
+                } else if (data.type === 'track_changed') {
+                    updateTrackOnly(data.data);
                 }
             } catch (e) {
                 console.error('Ошибка:', e);
@@ -617,29 +709,108 @@ function connect() {
     }
 }
 
-// === ОБНОВЛЕНИЕ UI ===
-function updateUI(data) {
-    // === СОХРАНЯЕМ АКЦЕНТНЫЙ ЦВЕТ (НЕ СБРАСЫВАЕМ ЕСЛИ НЕТ) ===
-    if (data.accentColor && data.accentColor !== 'null' && data.accentColor !== 'undefined') {
-        currentAccentColor = data.accentColor;
+// === ОТПРАВКА ЗАПРОСА НА СИНХРОНИЗАЦИЮ ===
+function sendSyncRequest() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ command: 'sync_status' }));
+        console.log('📤 Отправлен запрос синхронизации');
+    }
+}
+
+// === ОБНОВЛЕНИЕ ТОЛЬКО ПРОГРЕССА ===
+function updateProgressOnly(data) {
+    const seconds = data.progress || 0;
+    const minutes = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    document.getElementById('currentTime').textContent = `${minutes}:${secs.toString().padStart(2, '0')}`;
+    
+    const duration = data.duration || 180;
+    const totalMinutes = Math.floor(duration / 60);
+    const totalSecs = Math.floor(duration % 60);
+    document.getElementById('totalTime').textContent = `${totalMinutes}:${totalSecs.toString().padStart(2, '0')}`;
+    
+    const percent = duration > 0 ? Math.min(100, (seconds / duration) * 100) : 0;
+    document.getElementById('progressFill').style.width = `${percent}%`;
+    
+    restoreTrackData();
+}
+
+// === ВОССТАНОВЛЕНИЕ ДАННЫХ ===
+function restoreTrackData() {
+    if (lastTrackData.title && lastTrackData.title !== '—') {
+        title.textContent = lastTrackData.title;
+    }
+    if (lastTrackData.artist && lastTrackData.artist !== '—') {
+        artist.textContent = lastTrackData.artist;
+    }
+    if (lastTrackData.accentColor) {
+        currentAccentColor = lastTrackData.accentColor;
         document.documentElement.style.setProperty('--accent', currentAccentColor);
-        document.body.style.background = `#0a0a0a`;
-        document.body.style.backgroundImage = `
-            radial-gradient(circle at 50% 0%, ${currentAccentColor}22 0%, transparent 70%)
-        `;
         updatePlayButtonGlow(currentAccentColor);
     }
-    
-    // === ОБНОВЛЯЕМ ТРЕК (ТОЛЬКО ЕСЛИ ЕСТЬ ДАННЫЕ) ===
-    if (data.title && data.title !== 'null' && data.title !== 'undefined') {
+    if (lastTrackData.service) {
+        const serviceNames = {
+            'yandex': 'Яндекс Музыка',
+            'youtube': 'YouTube Music',
+            'soundcloud': 'SoundCloud',
+            'spotify': 'Spotify',
+            'vk': 'VK Music'
+        };
+        service.textContent = serviceNames[lastTrackData.service] || lastTrackData.service;
+    }
+    if (lastTrackData.artwork && lastTrackData.artwork !== '') {
+        artwork.src = lastTrackData.artwork;
+        artwork.classList.remove('placeholder');
+        artwork.style.display = 'block';
+    }
+}
+
+// === ОБНОВЛЕНИЕ ТОЛЬКО ТРЕКА ===
+function updateTrackOnly(data) {
+    if (data.title && data.title !== 'null' && data.title !== 'undefined' && data.title !== '' && data.title !== '—' && data.title !== '-') {
+        lastTrackData.title = data.title;
         title.textContent = data.title;
-    }
-    if (data.artist && data.artist !== 'null' && data.artist !== 'undefined') {
-        artist.textContent = data.artist;
+        saveTrackData();
+        console.log(`📝 Название обновлено: ${data.title}`);
     }
     
-    // === ОБНОВЛЯЕМ СЕРВИС ===
+    if (data.artist && data.artist !== 'null' && data.artist !== 'undefined' && data.artist !== '' && data.artist !== '—' && data.artist !== '-') {
+        lastTrackData.artist = data.artist;
+        artist.textContent = data.artist;
+        saveTrackData();
+        console.log(`📝 Исполнитель обновлён: ${data.artist}`);
+    }
+    
+    if (!data.title || data.title === '' || data.title === 'null' || data.title === '-' || data.title === '—') {
+        if (lastTrackData.title && lastTrackData.title !== '—') {
+            title.textContent = lastTrackData.title;
+        }
+    }
+    if (!data.artist || data.artist === '' || data.artist === 'null' || data.artist === '-' || data.artist === '—') {
+        if (lastTrackData.artist && lastTrackData.artist !== '—') {
+            artist.textContent = lastTrackData.artist;
+        }
+    }
+    
+    if (data.artwork !== undefined) {
+        if (data.artwork && data.artwork !== '' && data.artwork !== 'null' && data.artwork !== 'undefined') {
+            lastTrackData.artwork = data.artwork;
+            artwork.src = data.artwork;
+            artwork.classList.remove('placeholder');
+            artwork.style.display = 'block';
+            saveTrackData();
+            console.log(`🖼️ Обложка обновлена`);
+        } else {
+            if (!lastTrackData.artwork || lastTrackData.artwork === '') {
+                artwork.src = '';
+                artwork.classList.add('placeholder');
+                artwork.style.display = 'flex';
+            }
+        }
+    }
+    
     if (data.service) {
+        lastTrackData.service = data.service;
         const serviceNames = {
             'yandex': 'Яндекс Музыка',
             'youtube': 'YouTube Music',
@@ -648,35 +819,110 @@ function updateUI(data) {
             'vk': 'VK Music'
         };
         service.textContent = serviceNames[data.service] || data.service;
+        saveTrackData();
     }
     
-    // === ОБЛОЖКА ===
-    if (data.artwork && data.artwork !== '' && data.artwork !== 'null' && data.artwork !== 'undefined') {
-        artwork.src = data.artwork;
-        artwork.classList.remove('placeholder');
-        artwork.style.display = 'block';
-    } else {
-        // НЕ СБРАСЫВАЕМ ОБЛОЖКУ ЕСЛИ ОНА УЖЕ ЕСТЬ
-        if (!artwork.src || artwork.src === '') {
-            artwork.src = '';
-            artwork.classList.add('placeholder');
-            artwork.style.display = 'flex';
-        }
+    if (data.accentColor && data.accentColor !== 'null' && data.accentColor !== 'undefined') {
+        lastTrackData.accentColor = data.accentColor;
+        currentAccentColor = data.accentColor;
+        document.documentElement.style.setProperty('--accent', currentAccentColor);
+        document.body.style.backgroundImage = `
+            radial-gradient(circle at 50% 0%, ${currentAccentColor}22 0%, transparent 70%)
+        `;
+        updatePlayButtonGlow(currentAccentColor);
+        saveTrackData();
     }
     
-    // === PLAY/PAUSE ===
     if (data.isPlaying !== undefined && data.isPlaying !== null) {
+        lastTrackData.isPlaying = data.isPlaying;
         isPlayingState = data.isPlaying;
         updatePlayButton(isPlayingState);
     }
     
-    // === ГРОМКОСТЬ (С ЗАЩИТОЙ ОТ СБРОСА) ===
+    document.getElementById('progressFill').style.width = '0%';
+    document.getElementById('currentTime').textContent = '0:00';
+    
+    console.log(`🔄 Трек обновлён: ${lastTrackData.title} - ${lastTrackData.artist}`);
+}
+
+// === ПОЛНОЕ ОБНОВЛЕНИЕ UI ===
+function updateUI(data) {
+    if (data.title && data.title !== 'null' && data.title !== 'undefined' && data.title !== '' && data.title !== '—' && data.title !== '-') {
+        lastTrackData.title = data.title;
+        title.textContent = data.title;
+        saveTrackData();
+        console.log(`📝 Название обновлено: ${data.title}`);
+    }
+    
+    if (data.artist && data.artist !== 'null' && data.artist !== 'undefined' && data.artist !== '' && data.artist !== '—' && data.artist !== '-') {
+        lastTrackData.artist = data.artist;
+        artist.textContent = data.artist;
+        saveTrackData();
+        console.log(`📝 Исполнитель обновлён: ${data.artist}`);
+    }
+    
+    if (!data.title || data.title === '' || data.title === 'null' || data.title === '-' || data.title === '—') {
+        if (lastTrackData.title && lastTrackData.title !== '—') {
+            title.textContent = lastTrackData.title;
+        }
+    }
+    if (!data.artist || data.artist === '' || data.artist === 'null' || data.artist === '-' || data.artist === '—') {
+        if (lastTrackData.artist && lastTrackData.artist !== '—') {
+            artist.textContent = lastTrackData.artist;
+        }
+    }
+    
+    if (data.artwork !== undefined) {
+        if (data.artwork && data.artwork !== '' && data.artwork !== 'null' && data.artwork !== 'undefined') {
+            lastTrackData.artwork = data.artwork;
+            artwork.src = data.artwork;
+            artwork.classList.remove('placeholder');
+            artwork.style.display = 'block';
+            saveTrackData();
+            console.log(`🖼️ Обложка обновлена`);
+        } else {
+            if (!lastTrackData.artwork || lastTrackData.artwork === '') {
+                artwork.src = '';
+                artwork.classList.add('placeholder');
+                artwork.style.display = 'flex';
+            }
+        }
+    }
+    
+    if (data.service) {
+        lastTrackData.service = data.service;
+        const serviceNames = {
+            'yandex': 'Яндекс Музыка',
+            'youtube': 'YouTube Music',
+            'soundcloud': 'SoundCloud',
+            'spotify': 'Spotify',
+            'vk': 'VK Music'
+        };
+        service.textContent = serviceNames[data.service] || data.service;
+        saveTrackData();
+    }
+    
+    if (data.accentColor && data.accentColor !== 'null' && data.accentColor !== 'undefined') {
+        lastTrackData.accentColor = data.accentColor;
+        currentAccentColor = data.accentColor;
+        document.documentElement.style.setProperty('--accent', currentAccentColor);
+        document.body.style.background = `#0a0a0a`;
+        document.body.style.backgroundImage = `
+            radial-gradient(circle at 50% 0%, ${currentAccentColor}22 0%, transparent 70%)
+        `;
+        updatePlayButtonGlow(currentAccentColor);
+        saveTrackData();
+    }
+    
+    if (data.isPlaying !== undefined && data.isPlaying !== null) {
+        lastTrackData.isPlaying = data.isPlaying;
+        isPlayingState = data.isPlaying;
+        updatePlayButton(isPlayingState);
+    }
+    
     if (data.volume !== undefined && data.volume !== null) {
         let vol = Math.round(data.volume * 100);
-        // Ограничиваем от 1 до 100
         vol = Math.max(1, Math.min(100, vol));
-        
-        // Если громкость сильно отличается от текущей — обновляем
         if (Math.abs(vol - currentVolume) > 0.5) {
             currentVolume = vol;
             volumeSlider.value = vol;
@@ -684,6 +930,12 @@ function updateUI(data) {
             updateVolumeIcon(vol);
         }
     }
+    
+    if (data.progress !== undefined) {
+        updateProgressOnly(data);
+    }
+    
+    restoreTrackData();
 }
 
 // === ОБНОВЛЕНИЕ PLAY BUTTON ===
@@ -731,7 +983,6 @@ async function sendCommand(endpoint, data = {}) {
 // === ОБРАБОТЧИКИ ===
 playBtn.addEventListener('click', () => {
     sendCommand('/api/play');
-    // Оптимистичное обновление
     updatePlayButton(!isPlayingState);
 });
 
@@ -743,10 +994,8 @@ nextBtn.addEventListener('click', () => {
     sendCommand('/api/next');
 });
 
-// === ГРОМКОСТЬ С ОГРАНИЧЕНИЕМ ===
 volumeSlider.addEventListener('input', (e) => {
     let vol = parseInt(e.target.value);
-    // Ограничение: минимум 1%
     if (vol < 1) {
         vol = 1;
         e.target.value = 1;
@@ -758,15 +1007,43 @@ volumeSlider.addEventListener('input', (e) => {
 });
 
 // === ЗАПУСК ===
+
+// 1. Сначала загружаем сохранённые данные
+loadSavedTrackData();
+
+// 2. Подключаемся к WebSocket
 connect();
 
-fetch('/api/status')
-    .then(res => res.json())
-    .then(data => updateUI(data))
-    .catch(() => {});
+// 3. Запрашиваем актуальный статус через HTTP (на случай, если WebSocket ещё не готов)
+setTimeout(() => {
+    fetch('/api/status')
+        .then(res => res.json())
+        .then(data => {
+            if (data && data.title && data.title !== '—') {
+                updateUI(data);
+            }
+        })
+        .catch(() => {});
+}, 1000);
 
-console.log('📱 MusicHub Mobile v3.3 загружен');
-console.log('📱 Исправлены баги с громкостью и миганием!');
+// 4. Повторный запрос статуса через 3 секунды (для надежности)
+setTimeout(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        sendSyncRequest();
+    } else {
+        fetch('/api/status')
+            .then(res => res.json())
+            .then(data => {
+                if (data && data.title && data.title !== '—') {
+                    updateUI(data);
+                }
+            })
+            .catch(() => {});
+    }
+}, 3000);
+
+console.log('📱 MusicHub Mobile v4.1 загружен');
+console.log('📱 Данные сохраняются в localStorage при обновлении страницы!');
     </script>
 </body>
 </html>

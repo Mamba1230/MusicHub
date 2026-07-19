@@ -44,6 +44,8 @@ const express = require('express');
 const WebSocket = require('ws');
 const os = require('os');
 
+
+let mainWindow = null;
 let mobileServer = null;
 let mobileWs = null;
 let currentMobileStatus = {
@@ -72,20 +74,7 @@ function getLocalIP() {
 }
 
 // Функция отправки статуса всем подключённым клиентам
-function broadcastMobileStatus() {
-    if (mobileWs) {
-        const clients = mobileWs.clients;
-        const data = JSON.stringify({
-            type: 'status',
-            data: currentMobileStatus
-        });
-        clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN) {
-                client.send(data);
-            }
-        });
-    }
-}
+
 
 ipcMain.handle('get-local-ip', () => {
     const interfaces = os.networkInterfaces();
@@ -136,85 +125,6 @@ ipcMain.handle('get-local-ip', () => {
     return 'localhost';
 });
 
-// Запуск мобильного сервера
-function startMobileServer() {
-    const app = express();
-    const server = http.createServer(app);
-    const ws = new WebSocket.Server({ server });
-    mobileWs = ws;
-    
-    // === СТАТИЧЕСКИЕ ФАЙЛЫ ===
-    app.use(express.static(path.join(__dirname, 'mobile')));
-    
-    // === API ===
-    app.get('/api/status', (req, res) => {
-        res.json(currentMobileStatus);
-    });
-    
-    app.post('/api/play', (req, res) => {
-        // Отправляем команду в renderer
-        if (win && !win.isDestroyed()) {
-            win.webContents.send('mobile-command', 'playpause');
-        }
-        res.json({ success: true });
-    });
-    
-    app.post('/api/next', (req, res) => {
-        if (win && !win.isDestroyed()) {
-            win.webContents.send('mobile-command', 'next');
-        }
-        res.json({ success: true });
-    });
-    
-    app.post('/api/prev', (req, res) => {
-        if (win && !win.isDestroyed()) {
-            win.webContents.send('mobile-command', 'prev');
-        }
-        res.json({ success: true });
-    });
-    
-    app.post('/api/volume', express.json(), (req, res) => {
-        const { volume } = req.body;
-        if (win && !win.isDestroyed()) {
-            win.webContents.send('mobile-volume', volume);
-        }
-        res.json({ success: true });
-    });
-    
-    // === WebSocket ===
-    ws.on('connection', (client) => {
-        console.log('📱 Мобильный клиент подключён');
-        
-        // Отправляем текущий статус
-        client.send(JSON.stringify({
-            type: 'status',
-            data: currentMobileStatus
-        }));
-        
-        client.on('close', () => {
-            console.log('📱 Мобильный клиент отключён');
-        });
-    });
-    
-    // Запуск сервера
-    const PORT = 3457;
-    server.listen(PORT, '0.0.0.0', () => {
-        const ip = getLocalIP();
-        console.log(`📱 Мобильный сервер запущен на порту ${PORT}`);
-        console.log(`🌐 Открой в телефоне: http://${ip}:${PORT}`);
-        
-        // Показываем QR-код или ссылку в приложении
-        if (win && !win.isDestroyed()) {
-            win.webContents.send('mobile-server-started', {
-                url: `http://${ip}:${PORT}`,
-                ip: ip,
-                port: PORT
-            });
-        }
-    });
-    
-    return server;
-}
 
 // Остановка сервера
 function stopMobileServer() {
@@ -230,34 +140,13 @@ function stopMobileServer() {
 }
 
 // Обработчики из renderer для обновления статуса
-ipcMain.on('mobile-update-status', (event, status) => {
-    currentMobileStatus = { ...currentMobileStatus, ...status };
-    broadcastMobileStatus();
-});
+
 
 // Запускаем сервер при старте
 setTimeout(() => {
     startMobileServer();
 }, 2000);
 
-
-ipcMain.on('mobile-update-status', (event, status) => {
-    currentMobileStatus = { ...currentMobileStatus, ...status };
-    broadcastMobileStatus();
-});
-
-ipcMain.on('mobile-command', (event, command) => {
-    // Пересылаем в renderer
-    if (win && !win.isDestroyed()) {
-        win.webContents.send('mobile-command', command);
-    }
-});
-
-ipcMain.on('mobile-volume', (event, volume) => {
-    if (win && !win.isDestroyed()) {
-        win.webContents.send('mobile-volume', volume);
-    }
-});
 
 function getArtworkFromFile() {
     const appData = process.env.APPDATA;
@@ -300,28 +189,32 @@ function getTrackInfoFromFile() {
     return null;
 }
 
-// Обновлённая функция отправки статуса
-ipcMain.on('mobile-update-status', (event, status) => {
-    // Получаем актуальную обложку из файла
-    const artworkFromFile = getArtworkFromFile();
-    const trackInfo = getTrackInfoFromFile();
-    
-    // Обновляем статус
-    currentMobileStatus = {
-        ...currentMobileStatus,
-        ...status,
-        // Приоритет: данные из файла важнее
-        title: trackInfo?.title || status.title || 'Не играет',
-        artist: trackInfo?.artist || status.artist || '—',
-        artwork: artworkFromFile || status.artwork || '',
-        volume: status.volume || 0.5,
-        isPlaying: status.isPlaying || false,
-        service: status.service || 'unknown',
-        accentColor: status.accentColor || '#1DB954'
-    };
-    
-    broadcastMobileStatus();
-});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -458,7 +351,7 @@ const presence = {
     state: artist || 'Ожидание',
     startTimestamp: Date.now(),
     largeImageKey: 'musichub_icon',
-    largeImageText: 'MusicHub v3.1.0',
+    largeImageText: 'MusicHub v3.1.5',
     buttons: [
         {
             label: '🎵 MusicHub',
@@ -937,6 +830,448 @@ module.exports = {
 
 // Загружаем при старте (будет вызвано из app.whenReady)
 console.log('🎮 Модуль горячих клавиш загружен');
+
+
+
+
+
+
+
+
+
+
+
+
+// ============================================================
+// МОБИЛЬНЫЙ СЕРВЕР (WebSocket + HTTP)
+// ============================================================
+
+// Текущий статус для мобильного интерфейса
+
+
+// Получение локального IP
+function getLocalIP() {
+    const os = require('os');
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name]) {
+            if (iface.family === 'IPv4' && !iface.internal) {
+                if (iface.address.startsWith('192.168.')) {
+                    return iface.address;
+                }
+            }
+        }
+    }
+    return 'localhost';
+}
+
+// ============================================================
+// ЗАПУСК МОБИЛЬНОГО СЕРВЕРА
+// ============================================================
+
+function startMobileServer() {
+    if (mobileServer) {
+        console.log('📱 Мобильный сервер уже запущен');
+        return mobileServer;
+    }
+
+    try {
+        const app = express();
+        const server = http.createServer(app);
+        const ws = new WebSocket.Server({ server });
+        mobileWs = ws;
+
+        app.use(express.static(path.join(__dirname, 'mobile')));
+
+        app.get('/api/status', (req, res) => {
+            res.json(currentMobileStatus);
+        });
+
+        // 🔥 ИСПРАВЛЕНО: используем win вместо mainWindow
+        app.post('/api/play', (req, res) => {
+            if (win && !win.isDestroyed()) {
+                win.webContents.send('mobile-command', 'playpause');
+                console.log('📱 Команда play/pause отправлена в renderer');
+            } else {
+                console.log('⚠️ Окно не активно, команда не отправлена');
+            }
+            res.json({ success: true });
+        });
+
+        app.post('/api/next', (req, res) => {
+            if (win && !win.isDestroyed()) {
+                win.webContents.send('mobile-command', 'next');
+                console.log('📱 Команда next отправлена в renderer');
+            }
+            res.json({ success: true });
+        });
+
+        app.post('/api/prev', (req, res) => {
+            if (win && !win.isDestroyed()) {
+                win.webContents.send('mobile-command', 'prev');
+                console.log('📱 Команда prev отправлена в renderer');
+            }
+            res.json({ success: true });
+        });
+
+        app.post('/api/volume', express.json(), (req, res) => {
+            const { volume } = req.body;
+            if (win && !win.isDestroyed()) {
+                win.webContents.send('mobile-volume', volume);
+                console.log(`📱 Громкость ${volume} отправлена в renderer`);
+            }
+            res.json({ success: true });
+        });
+
+        // ============================================================
+        // WEBSOCKET ОБРАБОТКА
+        // ============================================================
+
+        ws.on('connection', (client) => {
+            console.log('📱 Мобильный клиент подключён');
+            client.send(JSON.stringify({
+                type: 'status',
+                data: currentMobileStatus
+            }));
+
+            client.on('close', () => {
+                console.log('📱 Мобильный клиент отключён');
+            });
+        });
+
+        const PORT = 3457;
+        server.listen(PORT, '0.0.0.0', () => {
+            const ip = getLocalIP();
+            console.log(`📱 Мобильный сервер: http://${ip}:${PORT}`);
+            console.log(`📱 Локально: http://localhost:${PORT}`);
+        });
+
+        mobileServer = server;
+        return server;
+
+    } catch (error) {
+        if (error.code === 'EADDRINUSE') {
+            console.log('⚠️ Порт 3457 уже занят, пробуем перезапустить...');
+            if (mobileServer) {
+                try { mobileServer.close(); } catch(e) {}
+                mobileServer = null;
+            }
+            setTimeout(() => {
+                startMobileServer();
+            }, 1000);
+        } else {
+            console.error('❌ Ошибка запуска мобильного сервера:', error);
+        }
+        return null;
+    }
+}
+
+// ============================================================
+// ОТПРАВКА СТАТУСА ВСЕМ КЛИЕНТАМ (WebSocket)
+// ============================================================
+
+function broadcastMobileStatus() {
+    if (!mobileWs) return;
+
+    // === НЕ ОТПРАВЛЯЕМ ПУСТЫЕ ДАННЫЕ ===
+    // Если нет названия — пропускаем отправку
+    if (!currentMobileStatus.title || currentMobileStatus.title === 'Не играет' || currentMobileStatus.title === 'null') {
+        // Можно пропустить, чтобы не затирать
+        return;
+    }
+
+    const data = JSON.stringify({
+        type: 'status',
+        data: currentMobileStatus
+    });
+
+    mobileWs.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(data);
+        }
+    });
+}
+
+function broadcastTrackChanged(status) {
+    if (!mobileWs) return;
+
+    // === НЕ ОТПРАВЛЯЕМ ПУСТЫЕ ДАННЫЕ ===
+    const data = {
+        type: 'track_changed',
+        data: {
+            title: status.title || 'Не играет',
+            artist: status.artist || '—',
+            artwork: status.artwork || '',
+            service: status.service || '',
+            accentColor: status.accentColor || '#1DB954',
+            isPlaying: status.isPlaying || false
+        }
+    };
+
+    // === ПРОВЕРКА: ЕСЛИ НЕТ НАЗВАНИЯ — НЕ ОТПРАВЛЯЕМ ===
+    if (!data.data.title || data.data.title === 'Не играет' || data.data.title === 'null') {
+        // Если нет названия — не отправляем, чтобы не затереть
+        return;
+    }
+
+    const json = JSON.stringify(data);
+    mobileWs.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(json);
+        }
+    });
+    
+    console.log(`📤 Отправлено обновление трека: ${status.title} - ${status.artist}`);
+}
+
+// ============================================================
+// ОТПРАВКА ТОЛЬКО ПРОГРЕССА (отдельное сообщение)
+// ============================================================
+
+function broadcastProgressToMobile(progress) {
+    if (!mobileWs) return;
+
+    const data = JSON.stringify({
+        type: 'track_progress',
+        progress: progress || 0,
+        duration: currentMobileStatus.duration || 180,
+        isPlaying: currentMobileStatus.isPlaying || false
+    });
+
+    mobileWs.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(data);
+        }
+    });
+}
+// ============================================================
+// ОБРАБОТКА КОМАНД С МОБИЛЬНОГО
+// ============================================================
+
+ipcMain.on('mobile-command', (event, command) => {
+    console.log(`📱 Команда с мобильного: ${command}`);
+    
+    if (!win || win.isDestroyed()) return;
+    
+    // Отправляем команду в renderer как горячую клавишу
+    win.webContents.send('hotkey-pressed', command);
+    console.log(`📤 Отправлено в renderer: ${command}`);
+});
+
+ipcMain.on('mobile-volume', (event, volume) => {
+    console.log(`📱 Громкость с мобильного: ${volume}`);
+    
+    if (!win || win.isDestroyed()) return;
+    
+    // Отправляем в renderer для установки громкости
+    win.webContents.send('mobile-volume-set', volume);
+});
+
+// ============================================================
+// ОБНОВЛЕНИЕ СТАТУСА ИЗ RENDERER (через IPC)
+// ============================================================
+
+ipcMain.on('mobile-update-status', (event, status) => {
+    let trackChanged = false;
+    
+    // === СОХРАНЯЕМ ВСЕ ДАННЫЕ, НЕ ЗАТИРАЯ ДРУГ ДРУГА ===
+    
+    // Название
+    if (status.title !== undefined && status.title !== 'null' && status.title !== '') {
+        if (currentMobileStatus.title !== status.title) trackChanged = true;
+        currentMobileStatus.title = status.title;
+    }
+    
+    // Исполнитель
+    if (status.artist !== undefined && status.artist !== 'null' && status.artist !== '') {
+        if (currentMobileStatus.artist !== status.artist) trackChanged = true;
+        currentMobileStatus.artist = status.artist;
+    }
+    
+    // Обложка (НЕ ЗАТИРАЕТ НАЗВАНИЕ И АВТОРА)
+    if (status.artwork !== undefined) {
+        currentMobileStatus.artwork = status.artwork;
+    }
+    
+    // Play/Pause
+    if (status.isPlaying !== undefined) {
+        currentMobileStatus.isPlaying = status.isPlaying;
+    }
+    
+    // Громкость
+    if (status.volume !== undefined) {
+        currentMobileStatus.volume = status.volume;
+    }
+    
+    // Прогресс
+    if (status.progress !== undefined) {
+        currentMobileStatus.progress = status.progress;
+    }
+    
+    // Длительность
+    if (status.duration !== undefined) {
+        currentMobileStatus.duration = status.duration;
+    }
+    
+    // Сервис
+    if (status.service !== undefined) {
+        currentMobileStatus.service = status.service;
+    }
+    
+    // Акцентный цвет
+    if (status.accentColor !== undefined && status.accentColor !== 'null' && status.accentColor !== '') {
+        currentMobileStatus.accentColor = status.accentColor;
+    }
+
+    // === ОТПРАВЛЯЕМ ПОЛНЫЙ СТАТУС ===
+    broadcastMobileStatus();
+
+    // Если сменился трек — отправляем отдельное сообщение
+    if (trackChanged) {
+        broadcastTrackChanged(currentMobileStatus);
+        setTimeout(() => {
+            broadcastMobileStatus();
+        }, 100);
+    }
+
+    // Если обновился прогресс — отправляем отдельное сообщение
+    if (status.progress !== undefined) {
+        broadcastProgressToMobile(status.progress);
+    }
+});
+
+// ============================================================
+// ОБНОВЛЕНИЕ СТАТУСА ИЗ RENDERER (через другой канал)
+// ============================================================
+
+ipcMain.on('send-mobile-status', (event, status) => {
+    // То же самое, что и mobile-update-status
+    if (status.title !== undefined && status.title !== 'null' && status.title !== '') {
+        currentMobileStatus.title = status.title;
+    }
+    if (status.artist !== undefined && status.artist !== 'null' && status.artist !== '') {
+        currentMobileStatus.artist = status.artist;
+    }
+    if (status.artwork !== undefined) {
+        currentMobileStatus.artwork = status.artwork;
+    }
+    if (status.isPlaying !== undefined) {
+        currentMobileStatus.isPlaying = status.isPlaying;
+    }
+    if (status.volume !== undefined) {
+        currentMobileStatus.volume = status.volume;
+    }
+    if (status.progress !== undefined) {
+        currentMobileStatus.progress = status.progress;
+    }
+    if (status.duration !== undefined) {
+        currentMobileStatus.duration = status.duration;
+    }
+    if (status.service !== undefined) {
+        currentMobileStatus.service = status.service;
+    }
+    if (status.accentColor !== undefined && status.accentColor !== 'null' && status.accentColor !== '') {
+        currentMobileStatus.accentColor = status.accentColor;
+    }
+    
+    broadcastMobileStatus();
+    
+    if (status.progress !== undefined) {
+        broadcastProgressToMobile(status.progress);
+    }
+});
+
+// ============================================================
+// КОМАНДЫ С МОБИЛЬНОГО (через WebSocket)
+// ============================================================
+
+if (mobileWs) {
+    mobileWs.on('connection', (client) => {
+        client.on('message', (message) => {
+            try {
+                const data = JSON.parse(message);
+                if (data.command === 'sync_status') {
+                    // Клиент запросил синхронизацию
+                    client.send(JSON.stringify({
+                        type: 'status',
+                        data: currentMobileStatus
+                    }));
+                }
+            } catch (e) {
+                console.error('Ошибка обработки сообщения от мобильного клиента:', e);
+            }
+        });
+    });
+}
+
+// ============================================================
+// ЗАПУСК СЕРВЕРА ПРИ СТАРТЕ
+// ============================================================
+
+// Вызови эту функцию при старте приложения
+startMobileServer();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2962,7 +3297,7 @@ app.whenReady().then(() => {
                 setTimeout(() => {
                     if (rpc) {
                         rpc.setActivity({
-                            details: 'MusicHub v3.1.0',
+                            details: 'MusicHub v3.1.5',
                             state: 'Слушаю музыку 🎵',
                             largeImageKey: 'spotify',
                             largeImageText: 'MusicHub'
