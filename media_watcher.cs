@@ -1,11 +1,11 @@
 using System;
+using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
 using Windows.Media.Control;
 using Windows.Storage.Streams;
 
@@ -26,18 +26,21 @@ namespace MediaInfoWatcher
         static string coverFile;
 
         static string lastTrackKey = "";
+        static string coverSavedForKey = "";
 
-        // SemaphoreSlim вместо CancellationTokenSource для очереди обложек — гарантирует порядок
         static readonly SemaphoreSlim coverLock = new SemaphoreSlim(1, 1);
         static CancellationTokenSource coverCts;
 
         static GlobalSystemMediaTransportControlsSessionManager sessionManager;
         static GlobalSystemMediaTransportControlsSession currentSession;
 
-        // Объект синхронизации для работы с currentSession из разных потоков
         static readonly object sessionLock = new object();
-
         static readonly CancellationTokenSource appCts = new CancellationTokenSource();
+
+        // Счетчик попыток для текущего трека
+        static int coverRetryCount = 0;
+        const int MAX_COVER_RETRIES = 8;
+        static DateTime lastCoverAttemptTime = DateTime.MinValue;
 
         static async Task Main(string[] args)
         {
@@ -64,7 +67,6 @@ namespace MediaInfoWatcher
             }
 
             sessionManager.CurrentSessionChanged += OnCurrentSessionChanged;
-            // Инициализируем сессию вручную при старте
             await RefreshCurrentSessionAsync();
 
             _ = MonitorMusicHubProcessAsync(appCts.Token);
@@ -78,7 +80,6 @@ namespace MediaInfoWatcher
             {
                 sessionManager.CurrentSessionChanged -= OnCurrentSessionChanged;
                 UnsubscribeCurrentSession();
-                // Отменяем текущую загрузку обложки
                 coverCts?.Cancel();
                 CleanupFiles();
             }
@@ -109,7 +110,6 @@ namespace MediaInfoWatcher
             GlobalSystemMediaTransportControlsSessionManager sender,
             CurrentSessionChangedEventArgs args)
         {
-            // Запускаем асинхронно, не блокируя event-поток WinRT
             _ = RefreshCurrentSessionAsync();
         }
 
@@ -142,7 +142,6 @@ namespace MediaInfoWatcher
 
         static void UnsubscribeCurrentSession()
         {
-            // Вызывается только внутри lock(sessionLock)
             if (currentSession != null)
             {
                 currentSession.MediaPropertiesChanged -= OnMediaPropertiesChanged;
@@ -159,81 +158,117 @@ namespace MediaInfoWatcher
 
         static async Task HandleMediaPropertiesAsync()
         {
-            // Отменяем предыдущую загрузку обложки
+            GlobalSystemMediaTransportControlsSession session;
+            lock (sessionLock) { session = currentSession; }
+            if (session == null) return;
+
+            GlobalSystemMediaTransportControlsSessionMediaProperties props;
+            try
+            {
+                props = await session.TryGetMediaPropertiesAsync();
+            }
+            catch
+            {
+                ClearCurrentTrack();
+                return;
+            }
+
+            if (props == null || string.IsNullOrEmpty(props.Title))
+            {
+                ClearCurrentTrack();
+                return;
+            }
+
+            string trackKey = $"{props.Artist ?? ""}|{props.Title ?? ""}";
+
+            // Проверяем смену трека
+            bool isTrackChanged = trackKey != lastTrackKey;
+
+            if (isTrackChanged)
+            {
+                // Сброс состояния при смене трека
+                coverRetryCount = 0;
+                coverSavedForKey = "";
+
+                // Останавливаем старую загрузку
+                lock (sessionLock)
+                {
+                    coverCts?.Cancel();
+                    coverCts?.Dispose();
+                    coverCts = new CancellationTokenSource();
+                }
+
+                // Удаляем старую обложку ПРИНУДИТЕЛЬНО
+                TryDeleteFile(coverFile);
+                TryDeleteFile(coverFile + ".tmp");
+
+                Debug.WriteLine($"[MediaInfo] Track changed: {trackKey}");
+            }
+
             CancellationToken token;
             lock (sessionLock)
             {
-                coverCts?.Cancel();
-                coverCts?.Dispose();
-                coverCts = new CancellationTokenSource();
+                if (coverCts == null || coverCts.IsCancellationRequested)
+                {
+                    coverCts?.Dispose();
+                    coverCts = new CancellationTokenSource();
+                }
                 token = coverCts.Token;
             }
 
             try
             {
-                GlobalSystemMediaTransportControlsSession session;
-                lock (sessionLock) { session = currentSession; }
-
-                if (session == null) return;
-
-                GlobalSystemMediaTransportControlsSessionMediaProperties props;
-                try
-                {
-                    props = await session.TryGetMediaPropertiesAsync();
-                }
-                catch
-                {
-                    // Сессия стала недействительной
-                    ClearCurrentTrack();
-                    return;
-                }
-
-                if (props == null || string.IsNullOrEmpty(props.Title))
-                {
-                    ClearCurrentTrack();
-                    return;
-                }
-
-                token.ThrowIfCancellationRequested();
-
-                string trackKey = $"{props.Artist ?? ""}|{props.Title ?? ""}";
-
+                // Записываем JSON всегда
                 bool isPlaying = false;
                 try
                 {
-                    var playbackInfo = session.GetPlaybackInfo();
-                    isPlaying = playbackInfo?.PlaybackStatus ==
-                                GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+                    isPlaying = session.GetPlaybackInfo()?.PlaybackStatus
+                                == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
                 }
                 catch { }
 
-                // Сначала пишем JSON, потом обложку — читатель всегда видит актуальные данные
                 var info = new
                 {
-                    title  = props.Title       ?? "",
-                    artist = props.Artist      ?? "",
-                    album  = props.AlbumTitle  ?? "",
+                    title = props.Title ?? "",
+                    artist = props.Artist ?? "",
+                    album = props.AlbumTitle ?? "",
                     is_playing = isPlaying
                 };
 
-                string json = JsonSerializer.Serialize(info);
-                await WriteFileAtomicAsync(infoFile, Encoding.UTF8.GetBytes(json), token);
-
+                await WriteFileAtomicAsync(infoFile, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(info)), token);
                 lastTrackKey = trackKey;
 
-                await SaveCoverAtomicAsync(props.Thumbnail, token);
+                // Обложку сохраняем, если трек изменился или ещё не сохранена
+                if (isTrackChanged || coverSavedForKey != trackKey)
+                {
+                    Debug.WriteLine($"[MediaInfo] Attempting cover save for: {trackKey}");
+
+                    bool ok = await SaveCoverAtomicAsync(props.Thumbnail, token);
+
+                    if (ok)
+                    {
+                        coverSavedForKey = trackKey;
+                        coverRetryCount = 0;
+                        Debug.WriteLine($"[MediaInfo] Cover saved successfully");
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"[MediaInfo] Cover save failed, starting retry");
+                        // Запускаем агрессивный ретрай
+                        _ = AggressiveRetryCoverAsync(trackKey);
+                    }
+                }
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException)
+            {
+                Debug.WriteLine($"[MediaInfo] Operation cancelled");
+            }
             catch (Exception ex)
             {
                 Debug.WriteLine($"HandleMediaProperties error: {ex}");
             }
         }
 
-        /// <summary>
-        /// Атомарная запись любого файла через temp → Move.
-        /// Исключает ситуацию, когда читатель видит частично записанный файл.
-        /// </summary>
         static async Task WriteFileAtomicAsync(string targetPath, byte[] data, CancellationToken token)
         {
             string tmp = targetPath + ".tmp";
@@ -255,17 +290,16 @@ namespace MediaInfoWatcher
             }
         }
 
-        static async Task SaveCoverAtomicAsync(
+        static async Task<bool> SaveCoverAtomicAsync(
             IRandomAccessStreamReference thumbnail,
             CancellationToken token)
         {
             if (thumbnail == null)
             {
-                TryDeleteFile(coverFile);
-                return;
+                Debug.WriteLine($"[Cover] Thumbnail is null");
+                return false;
             }
 
-            // coverLock гарантирует, что одновременно пишется только одна обложка
             await coverLock.WaitAsync(token);
             try
             {
@@ -276,45 +310,43 @@ namespace MediaInfoWatcher
                 {
                     stream = await thumbnail.OpenReadAsync();
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Thumbnail недоступен — не трогаем старую обложку
-                    return;
+                    Debug.WriteLine($"[Cover] OpenRead failed: {ex.Message}");
+                    return false;
                 }
 
                 using (stream)
                 {
                     if (stream == null || stream.Size == 0)
                     {
-                        TryDeleteFile(coverFile);
-                        return;
+                        Debug.WriteLine($"[Cover] Stream is empty");
+                        return false;
                     }
 
-                    // Читаем весь поток за один раз
                     byte[] buffer = new byte[stream.Size];
                     using (var reader = new DataReader(stream))
                     {
                         uint loaded = await reader.LoadAsync((uint)stream.Size);
                         if (loaded != stream.Size)
                         {
-                            // Неполное чтение — не сохраняем мусор
-                            TryDeleteFile(coverFile);
-                            return;
+                            Debug.WriteLine($"[Cover] Incomplete read: {loaded}/{stream.Size}");
+                            return false;
                         }
                         reader.ReadBytes(buffer);
                     }
 
                     token.ThrowIfCancellationRequested();
 
-                    // Минимальная валидация: JPEG начинается с FF D8, PNG с 89 50
-                    if (buffer.Length < 4 ||
-                        !IsValidImageHeader(buffer))
+                    if (buffer.Length < 4 || !IsValidImageHeader(buffer))
                     {
-                        TryDeleteFile(coverFile);
-                        return;
+                        Debug.WriteLine($"[Cover] Invalid image header");
+                        return false;
                     }
 
                     await WriteFileAtomicAsync(coverFile, buffer, token);
+                    Debug.WriteLine($"[Cover] Cover saved, size: {buffer.Length} bytes");
+                    return true;
                 }
             }
             catch (OperationCanceledException)
@@ -324,6 +356,7 @@ namespace MediaInfoWatcher
             catch (Exception ex)
             {
                 Debug.WriteLine($"Cover save error: {ex.Message}");
+                return false;
             }
             finally
             {
@@ -331,22 +364,105 @@ namespace MediaInfoWatcher
             }
         }
 
-        /// <summary>
-        /// Проверяет сигнатуру файла: JPEG (FF D8 FF) или PNG (89 50 4E 47).
-        /// </summary>
         static bool IsValidImageHeader(byte[] data)
         {
             if (data.Length < 4) return false;
-            // JPEG
             if (data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF) return true;
-            // PNG
             if (data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47) return true;
             return false;
+        }
+
+        // Агрессивный ретрай с увеличивающимися интервалами
+        static async Task AggressiveRetryCoverAsync(string trackKey)
+        {
+            int[] delays = { 300, 500, 800, 1200, 2000, 3000, 5000 };
+
+            for (int i = 0; i < delays.Length && coverRetryCount < MAX_COVER_RETRIES; i++)
+            {
+                // Проверяем, не изменился ли трек
+                if (trackKey != lastTrackKey)
+                {
+                    Debug.WriteLine($"[Retry] Track changed, stopping retry");
+                    return;
+                }
+
+                // Проверяем, не сохранена ли уже обложка
+                if (coverSavedForKey == trackKey)
+                {
+                    Debug.WriteLine($"[Retry] Cover already saved");
+                    return;
+                }
+
+                coverRetryCount++;
+                Debug.WriteLine($"[Retry] Attempt {coverRetryCount}/{MAX_COVER_RETRIES}, waiting {delays[i]}ms");
+
+                try
+                {
+                    await Task.Delay(delays[i]);
+                }
+                catch
+                {
+                    return;
+                }
+
+                // Повторно проверяем трек после задержки
+                if (trackKey != lastTrackKey || coverSavedForKey == trackKey)
+                    return;
+
+                GlobalSystemMediaTransportControlsSession s;
+                lock (sessionLock) { s = currentSession; }
+                if (s == null)
+                {
+                    Debug.WriteLine($"[Retry] Session lost");
+                    return;
+                }
+
+                GlobalSystemMediaTransportControlsSessionMediaProperties p;
+                try
+                {
+                    p = await s.TryGetMediaPropertiesAsync();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[Retry] Get props failed: {ex.Message}");
+                    continue;
+                }
+
+                if (p == null)
+                {
+                    Debug.WriteLine($"[Retry] Props is null");
+                    continue;
+                }
+
+                CancellationToken token;
+                lock (sessionLock)
+                {
+                    if (coverCts == null || coverCts.IsCancellationRequested)
+                    {
+                        coverCts?.Dispose();
+                        coverCts = new CancellationTokenSource();
+                    }
+                    token = coverCts.Token;
+                }
+
+                Debug.WriteLine($"[Retry] Attempting to save cover (attempt {coverRetryCount})");
+                if (await SaveCoverAtomicAsync(p.Thumbnail, token))
+                {
+                    coverSavedForKey = trackKey;
+                    coverRetryCount = 0;
+                    Debug.WriteLine($"[Retry] Cover saved successfully on attempt {coverRetryCount}");
+                    return;
+                }
+            }
+
+            Debug.WriteLine($"[Retry] All retry attempts exhausted for: {trackKey}");
         }
 
         static void ClearCurrentTrack()
         {
             lastTrackKey = "";
+            coverSavedForKey = "";
+            coverRetryCount = 0;
             TryDeleteFile(infoFile);
             TryDeleteFile(coverFile);
         }
@@ -366,8 +482,8 @@ namespace MediaInfoWatcher
                     try
                     {
                         string name = proc.ProcessName;
-                        if (name.IndexOf("musichub",  StringComparison.OrdinalIgnoreCase) >= 0 ||
-                            name.IndexOf("electron",  StringComparison.OrdinalIgnoreCase) >= 0)
+                        if (name.IndexOf("musichub", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            name.IndexOf("electron", StringComparison.OrdinalIgnoreCase) >= 0)
                         {
                             proc.Dispose();
                             return true;
@@ -386,7 +502,7 @@ namespace MediaInfoWatcher
             TryDeleteFile(infoFile);
             TryDeleteFile(coverFile);
             TryDeleteFile(coverFile + ".tmp");
-            TryDeleteFile(infoFile  + ".tmp");
+            TryDeleteFile(infoFile + ".tmp");
         }
     }
 }
