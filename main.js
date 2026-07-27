@@ -16,7 +16,7 @@ const { pipeline } = require('stream/promises');
 const { setVolume, getVolume } = require('easy-volume');
 const nircmdPath = path.join(__dirname, 'nircmd.exe');
 const DiscordRPC = require('discord-rpc');
-
+const net = require('net');
 
 
 // Константы
@@ -351,7 +351,7 @@ const presence = {
     state: artist || 'Ожидание',
     startTimestamp: Date.now(),
     largeImageKey: 'musichub_icon',
-    largeImageText: 'MusicHub v3.1.5',
+    largeImageText: 'MusicHub v3.2.0',
     buttons: [
         {
             label: '🎵 MusicHub',
@@ -869,101 +869,103 @@ function getLocalIP() {
 // ЗАПУСК МОБИЛЬНОГО СЕРВЕРА
 // ============================================================
 
+let isMobilePortBusy = false;
+
+// А это — исправленная функция startMobileServer
 function startMobileServer() {
+    // Если сервер уже запущен в этом процессе — выходим
     if (mobileServer) {
         console.log('📱 Мобильный сервер уже запущен');
         return mobileServer;
     }
 
-    try {
-        const app = express();
-        const server = http.createServer(app);
-        const ws = new WebSocket.Server({ server });
-        mobileWs = ws;
-
-        app.use(express.static(path.join(__dirname, 'mobile')));
-
-        app.get('/api/status', (req, res) => {
-            res.json(currentMobileStatus);
-        });
-
-        // 🔥 ИСПРАВЛЕНО: используем win вместо mainWindow
-        app.post('/api/play', (req, res) => {
-            if (win && !win.isDestroyed()) {
-                win.webContents.send('mobile-command', 'playpause');
-                console.log('📱 Команда play/pause отправлена в renderer');
+    // Проверяем, занят ли порт 3457
+    const tester = net.createServer()
+        .once('error', (err) => {
+            if (err.code === 'EADDRINUSE') {
+                console.log('📱 Порт 3457 уже занят (другой экземпляр MusicHub). Сервер не запускается.');
+                // Ничего не делаем, просто выходим
             } else {
-                console.log('⚠️ Окно не активно, команда не отправлена');
+                console.error('Ошибка проверки порта:', err);
             }
-            res.json({ success: true });
-        });
+        })
+        .once('listening', () => {
+            tester.close();
+            // Порт свободен — запускаем сервер
+            startMobileServerInternal();
+        })
+        .listen(3457, '0.0.0.0');
+}
 
-        app.post('/api/next', (req, res) => {
-            if (win && !win.isDestroyed()) {
-                win.webContents.send('mobile-command', 'next');
-                console.log('📱 Команда next отправлена в renderer');
-            }
-            res.json({ success: true });
-        });
+// В этой функции — весь твой оригинальный код (без try/catch, потому что порт гарантированно свободен)
+function startMobileServerInternal() {
+    const app = express();
+    const server = http.createServer(app);
+    const ws = new WebSocket.Server({ server });
+    mobileWs = ws;
 
-        app.post('/api/prev', (req, res) => {
-            if (win && !win.isDestroyed()) {
-                win.webContents.send('mobile-command', 'prev');
-                console.log('📱 Команда prev отправлена в renderer');
-            }
-            res.json({ success: true });
-        });
+    app.use(express.static(path.join(__dirname, 'mobile')));
 
-        app.post('/api/volume', express.json(), (req, res) => {
-            const { volume } = req.body;
-            if (win && !win.isDestroyed()) {
-                win.webContents.send('mobile-volume', volume);
-                console.log(`📱 Громкость ${volume} отправлена в renderer`);
-            }
-            res.json({ success: true });
-        });
+    app.get('/api/status', (req, res) => {
+        res.json(currentMobileStatus);
+    });
 
-        // ============================================================
-        // WEBSOCKET ОБРАБОТКА
-        // ============================================================
-
-        ws.on('connection', (client) => {
-            console.log('📱 Мобильный клиент подключён');
-            client.send(JSON.stringify({
-                type: 'status',
-                data: currentMobileStatus
-            }));
-
-            client.on('close', () => {
-                console.log('📱 Мобильный клиент отключён');
-            });
-        });
-
-        const PORT = 3457;
-        server.listen(PORT, '0.0.0.0', () => {
-            const ip = getLocalIP();
-            console.log(`📱 Мобильный сервер: http://${ip}:${PORT}`);
-            console.log(`📱 Локально: http://localhost:${PORT}`);
-        });
-
-        mobileServer = server;
-        return server;
-
-    } catch (error) {
-        if (error.code === 'EADDRINUSE') {
-            console.log('⚠️ Порт 3457 уже занят, пробуем перезапустить...');
-            if (mobileServer) {
-                try { mobileServer.close(); } catch(e) {}
-                mobileServer = null;
-            }
-            setTimeout(() => {
-                startMobileServer();
-            }, 1000);
+    app.post('/api/play', (req, res) => {
+        if (win && !win.isDestroyed()) {
+            win.webContents.send('mobile-command', 'playpause');
+            console.log('📱 Команда play/pause отправлена в renderer');
         } else {
-            console.error('❌ Ошибка запуска мобильного сервера:', error);
+            console.log('⚠️ Окно не активно, команда не отправлена');
         }
-        return null;
-    }
+        res.json({ success: true });
+    });
+
+    app.post('/api/next', (req, res) => {
+        if (win && !win.isDestroyed()) {
+            win.webContents.send('mobile-command', 'next');
+            console.log('📱 Команда next отправлена в renderer');
+        }
+        res.json({ success: true });
+    });
+
+    app.post('/api/prev', (req, res) => {
+        if (win && !win.isDestroyed()) {
+            win.webContents.send('mobile-command', 'prev');
+            console.log('📱 Команда prev отправлена в renderer');
+        }
+        res.json({ success: true });
+    });
+
+    app.post('/api/volume', express.json(), (req, res) => {
+        const { volume } = req.body;
+        if (win && !win.isDestroyed()) {
+            win.webContents.send('mobile-volume', volume);
+            console.log(`📱 Громкость ${volume} отправлена в renderer`);
+        }
+        res.json({ success: true });
+    });
+
+    ws.on('connection', (client) => {
+        console.log('📱 Мобильный клиент подключён');
+        client.send(JSON.stringify({
+            type: 'status',
+            data: currentMobileStatus
+        }));
+
+        client.on('close', () => {
+            console.log('📱 Мобильный клиент отключён');
+        });
+    });
+
+    const PORT = 3457;
+    server.listen(PORT, '0.0.0.0', () => {
+        const ip = getLocalIP();
+        console.log(`📱 Мобильный сервер: http://${ip}:${PORT}`);
+        console.log(`📱 Локально: http://localhost:${PORT}`);
+    });
+
+    mobileServer = server;
+    return server;
 }
 
 // ============================================================
@@ -3297,7 +3299,7 @@ app.whenReady().then(() => {
                 setTimeout(() => {
                     if (rpc) {
                         rpc.setActivity({
-                            details: 'MusicHub v3.1.5',
+                            details: 'MusicHub v3.2.0',
                             state: 'Слушаю музыку 🎵',
                             largeImageKey: 'spotify',
                             largeImageText: 'MusicHub'

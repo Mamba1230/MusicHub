@@ -1,6 +1,6 @@
 {
   "name": "musichub",
-  "version": "3.1.5",
+  "version": "3.2.0",
   "description": "MusicHub - десктопный музыкальный плеер-агрегатор",
   "author": "Mamba1230",
   "main": "main.js",
@@ -55,6 +55,46 @@
       {
         "from": "VolumeController.exe",
         "to": "VolumeController.exe"
+      },
+      {
+        "from": "VolumeController.dll",
+        "to": "VolumeController.dll"
+      },
+      {
+        "from": "NAudio.Asio.dll",
+        "to": "NAudio.Asio.dll"
+      },
+      {
+        "from": "NAudio.Core.dll",
+        "to": "NAudio.Core.dll"
+      },
+      {
+        "from": "NAudio.dll",
+        "to": "NAudio.dll"
+      },
+      {
+        "from": "NAudio.Midi.dll",
+        "to": "NAudio.Midi.dll"
+      },
+      {
+        "from": "NAudio.Wasapi.dll",
+        "to": "NAudio.Wasapi.dll"
+      },
+      {
+        "from": "NAudio.WinForms.dll",
+        "to": "NAudio.WinForms.dll"
+      },
+      {
+        "from": "NAudio.WinMM.dll",
+        "to": "NAudio.WinMM.dll"
+      },
+      {
+        "from": "VolumeController.pdb",
+        "to": "VolumeController.pdb"
+      },
+      {
+        "from": "VolumeController.runtimeconfig.json",
+        "to": "VolumeController.runtimeconfig.json"
       },
       {
         "from": "mobile/",

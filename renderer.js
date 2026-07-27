@@ -5219,7 +5219,7 @@ console.log('🛒 Магазин плагинов готов! Команда: op
 
          
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 MusicHub v3.1.5');
+    console.log('🚀 MusicHub v3.2.0');
     particleBackground = new ParticleBackground();
     loadSettings();
     loadCustomSites();  
@@ -5235,7 +5235,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initTitlebarEqualizer();
     await checkPremiumStatus();
     document.body.addEventListener('click', createGlobalRipple);
-    showToast('🎵 Добро пожаловать в MusicHub! 3.1.5', 'success');
+    showToast('🎵 Добро пожаловать в MusicHub! 3.2.0', 'success');
     
     const chatBtn = document.getElementById('chatBtn');
     if (chatBtn) {
@@ -8866,7 +8866,7 @@ console.log('🎮 Поддерживаются: стрелки, Numpad, меди
 // ============================================================
 
 const WORKER_URL_1 = 'https://tips-proxy.170610maksim.workers.dev';
-const APP_VERSION = '3.1.5'; // Текущая версия
+const APP_VERSION = '3.2.0'; // Текущая версия
 
 // Функция получения игнорируемой версии
 function getIgnoredUpdateVersion() {
@@ -9766,7 +9766,7 @@ async function forceTestRPC() {
         setTimeout(async () => {
             console.log('🔄 Повторная отправка статуса...');
             window.electronAPI.updateTrackInfo({
-                title: '🎵 MusicHub v3.1.5',
+                title: '🎵 MusicHub v3.2.0',
                 artist: 'Слушаю музыку'
             });
         }, 5000);
@@ -12186,7 +12186,7 @@ async function askGigaChat(question) {
         const historyContext = getHistoryContext();
         
         // === ПРОМПТ С ИСТОРИЕЙ ===
-        const systemPrompt = `Ты — AI-помощник в MusicHub 3.1.5.
+        const systemPrompt = `Ты — AI-помощник в MusicHub 3.2.0.
 
 ${historyContext}
 
