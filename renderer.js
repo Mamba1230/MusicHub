@@ -5219,7 +5219,7 @@ console.log('🛒 Магазин плагинов готов! Команда: op
 
          
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 MusicHub v3.2.0');
+    console.log('🚀 MusicHub v3.2.5');
     particleBackground = new ParticleBackground();
     loadSettings();
     loadCustomSites();  
@@ -5235,7 +5235,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initTitlebarEqualizer();
     await checkPremiumStatus();
     document.body.addEventListener('click', createGlobalRipple);
-    showToast('🎵 Добро пожаловать в MusicHub! 3.2.0', 'success');
+    showToast('🎵 Добро пожаловать в MusicHub! 3.2.5', 'success');
     
     const chatBtn = document.getElementById('chatBtn');
     if (chatBtn) {
@@ -8369,6 +8369,815 @@ console.log('⏱️ Таймер прогресса инициализирова
 
 
 
+// ============================================================
+// HOVER CLICK — "Наведи и кликни" (ПОЛНАЯ ВЕРСИЯ)
+// ============================================================
+
+let hoverClickEnabled = false; // ← ПО УМОЛЧАНИЮ ВЫКЛЮЧЕН
+let hoverClickTimer = null;
+let hoverClickProgress = 0;
+let hoverClickTarget = null;
+let hoverClickRing = null;
+let hoverClickInterval = null;
+let isHoverClickActive = false;
+const HOVER_CLICK_DELAY = 1500; // 1.5 секунды
+
+// ============================================================
+// СОЗДАНИЕ И УПРАВЛЕНИЕ КОЛЬЦОМ
+// ============================================================
+
+function createHoverRing() {
+    if (document.getElementById('hoverRing')) return;
+    
+    const ring = document.createElement('div');
+    ring.id = 'hoverRing';
+    ring.className = 'hover-progress-ring';
+    ring.innerHTML = `<div class="ring-bg"></div>`;
+    document.body.appendChild(ring);
+    hoverClickRing = ring;
+    console.log('🖱️ Кольцо Hover Click создано');
+}
+
+function updateHoverRingPosition(x, y) {
+    if (!hoverClickRing) return;
+    const size = 50;
+    const maxX = window.innerWidth - size / 2;
+    const maxY = window.innerHeight - size / 2;
+    const clampedX = Math.min(maxX, Math.max(size / 2, x));
+    const clampedY = Math.min(maxY, Math.max(size / 2, y));
+    hoverClickRing.style.left = clampedX + 'px';
+    hoverClickRing.style.top = clampedY + 'px';
+}
+
+function updateHoverRingProgress(progress) {
+    if (!hoverClickRing) return;
+    const degrees = (progress / 100) * 360;
+    hoverClickRing.style.transform = `translate(-50%, -50%) rotate(${degrees - 90}deg)`;
+    
+    if (progress > 80) {
+        hoverClickRing.style.borderColor = '#ff4444';
+        hoverClickRing.style.borderTopColor = '#ff4444';
+        hoverClickRing.style.boxShadow = '0 0 40px rgba(255, 68, 68, 0.5)';
+        hoverClickRing.style.borderWidth = '4px';
+    } else if (progress > 0) {
+        hoverClickRing.style.borderColor = 'var(--accent-color)';
+        hoverClickRing.style.borderTopColor = 'var(--accent-color)';
+        hoverClickRing.style.boxShadow = '0 0 30px rgba(29, 185, 84, 0.3)';
+        hoverClickRing.style.borderWidth = '3px';
+    }
+}
+
+function showHoverRing(show) {
+    if (!hoverClickRing) return;
+    if (show) {
+        hoverClickRing.classList.add('visible');
+        updateHoverRingProgress(0);
+    } else {
+        hoverClickRing.classList.remove('visible');
+        updateHoverRingProgress(0);
+        hoverClickRing.style.borderWidth = '3px';
+        hoverClickRing.style.borderColor = 'transparent';
+        hoverClickRing.style.borderTopColor = 'var(--accent-color)';
+        hoverClickRing.style.boxShadow = '0 0 30px rgba(29, 185, 84, 0.3)';
+    }
+}
+
+function showClickFlash(x, y) {
+    const flash = document.createElement('div');
+    flash.className = 'hover-click-flash';
+    flash.textContent = '✅ Клик!';
+    flash.style.left = x + 'px';
+    flash.style.top = y + 'px';
+    document.body.appendChild(flash);
+    setTimeout(() => flash.remove(), 700);
+}
+
+// ============================================================
+// ПРОВЕРКА КЛИКАБЕЛЬНОСТИ В ОСНОВНОМ ОКНЕ
+// ============================================================
+
+function isClickableElement(el) {
+    if (!el) return false;
+    if (el.id === 'hoverClickBtn' || el.id === 'hoverRing') return false;
+    if (el.closest('#hoverRing')) return false;
+    
+    const tags = ['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA', 'LABEL'];
+    if (tags.includes(el.tagName)) return true;
+    
+    if (el.getAttribute('role') === 'button') return true;
+    if (el.onclick) return true;
+    if (el.getAttribute('onclick') !== null) return true;
+    if (el.getAttribute('data-action') !== null) return true;
+    
+    const clickableClasses = [
+        'nav-btn', 'util-btn', 'btn', 'button', 'clickable',
+        'ext-btn', 'close-btn', 'settings-btn', 'chat-btn',
+        'media-control-btn', 'quick-ai-btn', 'home-service-btn'
+    ];
+    for (const cls of clickableClasses) {
+        if (el.classList.contains(cls)) return true;
+    }
+    
+    if (el.closest('.nav-btn')) return true;
+    if (el.closest('.util-btn')) return true;
+    if (el.closest('button')) return true;
+    if (el.closest('[role="button"]')) return true;
+    
+    return false;
+}
+
+// ============================================================
+// УПРАВЛЕНИЕ ОТСЧЁТОМ
+// ============================================================
+
+function startHoverClick(element, x, y) {
+    if (!hoverClickEnabled) return;
+    if (!isClickableElement(element)) return;
+    if (element === hoverClickTarget) return;
+    
+    stopHoverClick();
+    
+    hoverClickTarget = element;
+    hoverClickProgress = 0;
+    
+    showHoverRing(true);
+    updateHoverRingPosition(x, y);
+    updateHoverRingProgress(0);
+    
+    const step = 100 / (HOVER_CLICK_DELAY / 16);
+    hoverClickInterval = setInterval(() => {
+        hoverClickProgress += step;
+        
+        if (hoverClickProgress >= 100) {
+            clearInterval(hoverClickInterval);
+            hoverClickInterval = null;
+            
+            updateHoverRingProgress(100);
+            
+            setTimeout(() => {
+                showHoverRing(false);
+            }, 150);
+            
+            showClickFlash(x, y);
+            
+            try {
+                const clickEvent = new MouseEvent('click', {
+                    view: window,
+                    bubbles: true,
+                    cancelable: true,
+                    clientX: x,
+                    clientY: y
+                });
+                hoverClickTarget.dispatchEvent(clickEvent);
+                
+                if (typeof hoverClickTarget.onclick === 'function') {
+                    hoverClickTarget.onclick.call(hoverClickTarget, clickEvent);
+                }
+                
+                const action = hoverClickTarget.getAttribute('data-action');
+                if (action && typeof window[action] === 'function') {
+                    window[action]();
+                }
+                
+                console.log('🖱️ Hover Click на:', hoverClickTarget);
+            } catch (err) {
+                console.log('Hover Click ошибка:', err);
+            }
+            
+            setTimeout(() => {
+                hoverClickTarget = null;
+                hoverClickProgress = 0;
+            }, 200);
+        } else {
+            updateHoverRingProgress(hoverClickProgress);
+        }
+    }, 16);
+}
+
+function stopHoverClick() {
+    if (hoverClickInterval) {
+        clearInterval(hoverClickInterval);
+        hoverClickInterval = null;
+    }
+    showHoverRing(false);
+    hoverClickTarget = null;
+    hoverClickProgress = 0;
+}
+
+// ============================================================
+// ИНЖЕКТ В WEBVIEW (С ПОДДЕРЖКОЙ ПОКАЗА КОЛЬЦА)
+// ============================================================
+
+function injectHoverClickIntoWebview(webview, enabled = false) {
+    if (!webview) return;
+    
+    // Ждём загрузки webview
+    if (!webview.src || webview.src === '') {
+        webview.addEventListener('dom-ready', () => {
+            injectHoverClickIntoWebview(webview, enabled);
+        });
+        return;
+    }
+    
+    const script = `
+        (function() {
+            if (window.__hoverClickInjected) return;
+            window.__hoverClickInjected = true;
+            
+            let hoverTarget = null;
+            let hoverProgress = 0;
+            let hoverInterval = null;
+            const HOVER_DELAY = 1500;
+            let isEnabled = ${enabled}; // ← НАЧАЛЬНОЕ СОСТОЯНИЕ
+            
+            // Получаем статус из parent
+            window.addEventListener('message', (e) => {
+                if (e.data && e.data.type === 'hover-status') {
+                    isEnabled = e.data.enabled;
+                    if (!isEnabled && hoverInterval) {
+                        clearInterval(hoverInterval);
+                        hoverInterval = null;
+                        hoverTarget = null;
+                        hoverProgress = 0;
+                        window.parent.postMessage({ type: 'hover-cancel' }, '*');
+                    }
+                }
+            });
+            
+            function isClickable(el) {
+                if (!el) return false;
+                if (el.tagName === 'BUTTON' || el.tagName === 'A') return true;
+                if (el.getAttribute('role') === 'button') return true;
+                if (el.onclick) return true;
+                if (el.getAttribute('onclick') !== null) return true;
+                if (el.closest('button')) return true;
+                if (el.closest('[role="button"]')) return true;
+                
+                // YouTube Music
+                if (el.closest('ytmusic-play-button-renderer')) return true;
+                if (el.closest('ytmusic-player-bar #play-pause-button')) return true;
+                if (el.closest('.ytp-play-button')) return true;
+                if (el.closest('.ytp-next-button')) return true;
+                if (el.closest('.ytp-prev-button')) return true;
+                
+                // Яндекс Музыка
+                if (el.closest('.player-controls__btn')) return true;
+                if (el.closest('[data-testid="play-button"]')) return true;
+                if (el.closest('[data-testid="pause-button"]')) return true;
+                
+                // Общие
+                if (el.closest('.play-button')) return true;
+                if (el.closest('.control-button')) return true;
+                if (el.closest('.player-button')) return true;
+                if (el.closest('[class*="play"]')) return true;
+                if (el.closest('[class*="Play"]')) return true;
+                
+                return false;
+            }
+            
+            document.addEventListener('mousemove', (e) => {
+                if (!isEnabled) return;
+                
+                const x = e.clientX;
+                const y = e.clientY;
+                const el = document.elementFromPoint(x, y);
+                const clickable = isClickable(el);
+                
+                window.parent.postMessage({
+                    type: 'hover-position',
+                    x: x,
+                    y: y,
+                    element: clickable
+                }, '*');
+                
+                if (clickable && el !== hoverTarget) {
+                    if (hoverInterval) {
+                        clearInterval(hoverInterval);
+                        hoverInterval = null;
+                    }
+                    
+                    hoverTarget = el;
+                    hoverProgress = 0;
+                    
+                    window.parent.postMessage({
+                        type: 'hover-show',
+                        x: x,
+                        y: y
+                    }, '*');
+                    
+                    const step = 100 / (HOVER_DELAY / 16);
+                    hoverInterval = setInterval(() => {
+                        hoverProgress += step;
+                        
+                        window.parent.postMessage({
+                            type: 'hover-progress',
+                            progress: Math.min(100, hoverProgress)
+                        }, '*');
+                        
+                        if (hoverProgress >= 100) {
+                            clearInterval(hoverInterval);
+                            hoverInterval = null;
+                            
+                            window.parent.postMessage({
+                                type: 'hover-click',
+                                x: x,
+                                y: y
+                            }, '*');
+                            
+                            try {
+                                const clickEvent = new MouseEvent('click', {
+                                    view: window,
+                                    bubbles: true,
+                                    cancelable: true,
+                                    clientX: x,
+                                    clientY: y
+                                });
+                                hoverTarget.dispatchEvent(clickEvent);
+                                if (typeof hoverTarget.onclick === 'function') {
+                                    hoverTarget.onclick.call(hoverTarget, clickEvent);
+                                }
+                            } catch (err) {
+                                console.log('Hover Click error:', err);
+                            }
+                            
+                            hoverTarget = null;
+                            hoverProgress = 0;
+                            
+                            setTimeout(() => {
+                                window.parent.postMessage({ type: 'hover-done' }, '*');
+                            }, 100);
+                        }
+                    }, 16);
+                } else if (!clickable && hoverTarget) {
+                    if (hoverInterval) {
+                        clearInterval(hoverInterval);
+                        hoverInterval = null;
+                    }
+                    hoverTarget = null;
+                    hoverProgress = 0;
+                    window.parent.postMessage({ type: 'hover-cancel' }, '*');
+                }
+            });
+            
+            document.addEventListener('mouseleave', () => {
+                if (hoverInterval) {
+                    clearInterval(hoverInterval);
+                    hoverInterval = null;
+                }
+                hoverTarget = null;
+                hoverProgress = 0;
+                window.parent.postMessage({ type: 'hover-cancel' }, '*');
+            });
+            
+            console.log('🖱️ Hover Click инжектирован в webview (включён: ${enabled})');
+        })();
+    `;
+    
+    try {
+        webview.executeJavaScript(script).catch(() => {});
+    } catch (err) {
+        console.log('Hover Click инжект ошибка:', err);
+    }
+}
+
+// ============================================================
+// ОБРАБОТЧИК СООБЩЕНИЙ ИЗ WEBVIEW
+// ============================================================
+
+window.addEventListener('message', (event) => {
+    const data = event.data;
+    if (!data) return;
+    
+    switch(data.type) {
+        case 'hover-position':
+            if (hoverClickRing) {
+                updateHoverRingPosition(data.x, data.y);
+                if (data.element && !hoverClickRing.classList.contains('visible')) {
+                    showHoverRing(true);
+                } else if (!data.element) {
+                    showHoverRing(false);
+                }
+            }
+            break;
+            
+        case 'hover-show':
+            if (hoverClickRing) {
+                updateHoverRingPosition(data.x, data.y);
+                showHoverRing(true);
+                updateHoverRingProgress(0);
+            }
+            break;
+            
+        case 'hover-progress':
+            if (hoverClickRing) {
+                updateHoverRingProgress(data.progress || 0);
+            }
+            break;
+            
+        case 'hover-click':
+            showClickFlash(data.x, data.y);
+            setTimeout(() => {
+                showHoverRing(false);
+            }, 300);
+            break;
+            
+        case 'hover-cancel':
+            showHoverRing(false);
+            break;
+            
+        case 'hover-done':
+            setTimeout(() => {
+                showHoverRing(false);
+            }, 300);
+            break;
+    }
+});
+
+// ============================================================
+// ОБРАБОТЧИКИ МЫШИ В ОСНОВНОМ ОКНЕ
+// ============================================================
+
+document.addEventListener('mousemove', (e) => {
+    if (!hoverClickEnabled) return;
+    
+    const x = e.clientX;
+    const y = e.clientY;
+    
+    if (hoverClickRing) {
+        updateHoverRingPosition(x, y);
+    }
+    
+    const element = document.elementFromPoint(x, y);
+    
+    if (element !== hoverClickTarget) {
+        stopHoverClick();
+        
+        if (isClickableElement(element)) {
+            startHoverClick(element, x, y);
+        }
+    }
+});
+
+document.addEventListener('mouseleave', () => {
+    if (hoverClickEnabled) {
+        stopHoverClick();
+    }
+});
+
+// ============================================================
+// ОТПРАВКА СТАТУСА ВО ВСЕ WEBVIEW
+// ============================================================
+
+function sendHoverStatusToAllWebviews(enabled) {
+    document.querySelectorAll('webview').forEach(wv => {
+        try {
+            wv.executeJavaScript(`
+                window.postMessage({ type: 'hover-status', enabled: ${enabled} }, '*');
+            `).catch(() => {});
+        } catch(e) {}
+    });
+}
+
+// ============================================================
+// ПЕРЕКЛЮЧЕНИЕ HOVER CLICK
+// ============================================================
+
+function toggleHoverClick() {
+    hoverClickEnabled = !hoverClickEnabled;
+    const btn = document.getElementById('hoverClickBtn');
+    
+    if (hoverClickEnabled) {
+        btn.classList.add('active');
+        btn.title = '🖱️ Hover Click ВКЛ';
+        createHoverRing();
+        showToast('🖱️ Hover Click ВКЛЮЧЁН — наведи и кликни!', 'success');
+        sendHoverStatusToAllWebviews(true);
+    } else {
+        btn.classList.remove('active');
+        btn.title = '🖱️ Наведи и кликни';
+        stopHoverClick();
+        showHoverRing(false);
+        showToast('🖱️ Hover Click ВЫКЛЮЧЕН', 'info');
+        sendHoverStatusToAllWebviews(false);
+    }
+}
+
+// ============================================================
+// ИНИЦИАЛИЗАЦИЯ
+// ============================================================
+
+document.addEventListener('DOMContentLoaded', () => {
+    const hoverBtn = document.getElementById('hoverClickBtn');
+    if (hoverBtn) {
+        hoverBtn.addEventListener('mouseenter', () => {
+            toggleHoverClick();
+        });
+        
+        hoverBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (hoverClickEnabled) {
+                toggleHoverClick();
+            }
+        });
+    }
+    
+    // === ГЛАВНОЕ ИСПРАВЛЕНИЕ ===
+    // Инжектим во все webview с СОСТОЯНИЕМ false (ВЫКЛЮЧЕН)
+    setTimeout(() => {
+        document.querySelectorAll('webview').forEach(wv => {
+            injectHoverClickIntoWebview(wv, false); // ← false = выключен при старте
+        });
+    }, 500);
+    
+    // Убеждаемся, что статус отправлен во все webview
+    setTimeout(() => {
+        sendHoverStatusToAllWebviews(false);
+        console.log('🖱️ Hover Click принудительно выключен во всех webview');
+    }, 1000);
+});
+
+// ============================================================
+// ПЕРЕХВАТ СОЗДАНИЯ WEBVIEW
+// ============================================================
+
+const originalCreateElement = document.createElement.bind(document);
+document.createElement = function(tagName) {
+    const element = originalCreateElement(tagName);
+    if (tagName === 'webview') {
+        setTimeout(() => {
+            injectHoverClickIntoWebview(element, false); // ← false = выключен
+        }, 200);
+        element.addEventListener('dom-ready', () => {
+            injectHoverClickIntoWebview(element, false);
+            // Отправляем статус выключения
+            try {
+                element.executeJavaScript(`
+                    window.postMessage({ type: 'hover-status', enabled: false }, '*');
+                `).catch(() => {});
+            } catch(e) {}
+        });
+    }
+    return element;
+};
+
+// ============================================================
+// ГЛОБАЛЬНЫЕ ФУНКЦИИ ДЛЯ КОНСОЛИ
+// ============================================================
+
+window.toggleHoverClick = toggleHoverClick;
+
+console.log('🖱️ Hover Click загружен! (по умолчанию ВЫКЛЮЧЕН)');
+console.log('📌 Включи: toggleHoverClick()');
+console.log('📌 Или наведи на кнопку 🖱️ в сайдбаре');
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8866,7 +9675,7 @@ console.log('🎮 Поддерживаются: стрелки, Numpad, меди
 // ============================================================
 
 const WORKER_URL_1 = 'https://tips-proxy.170610maksim.workers.dev';
-const APP_VERSION = '3.2.0'; // Текущая версия
+const APP_VERSION = '3.2.5'; // Текущая версия
 
 // Функция получения игнорируемой версии
 function getIgnoredUpdateVersion() {
@@ -9766,7 +10575,7 @@ async function forceTestRPC() {
         setTimeout(async () => {
             console.log('🔄 Повторная отправка статуса...');
             window.electronAPI.updateTrackInfo({
-                title: '🎵 MusicHub v3.2.0',
+                title: '🎵 MusicHub v3.2.5',
                 artist: 'Слушаю музыку'
             });
         }, 5000);
@@ -12186,7 +12995,7 @@ async function askGigaChat(question) {
         const historyContext = getHistoryContext();
         
         // === ПРОМПТ С ИСТОРИЕЙ ===
-        const systemPrompt = `Ты — AI-помощник в MusicHub 3.2.0.
+        const systemPrompt = `Ты — AI-помощник в MusicHub 3.2.5.
 
 ${historyContext}
 
