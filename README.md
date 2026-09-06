@@ -37,7 +37,7 @@
 | **Web Audio API** | Анализ звука, визуализации |
 | **WebSocket** | Чат, мобильное управление, аудиопоток |
 | **C# / NAudio / WASAPI** | Захват звука, системное управление громкостью |
-| **Cloudflare Workers** | Premium-бэкенд, WebSocket-сервер |
+| **Cloudflare Workers** | Бэкенд, WebSocket-сервер |
 
 ---
 
