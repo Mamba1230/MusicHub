@@ -1,6 +1,6 @@
 {
   "name": "musichub",
-  "version": "3.2.0",
+  "version": "3.3.0",
   "description": "MusicHub - десктопный музыкальный плеер-агрегатор",
   "author": "Mamba1230",
   "main": "main.js",
@@ -10,11 +10,13 @@
       "musichub"
     ]
   },
-  "scripts": {
-    "start": "electron .",
-    "build": "electron-builder --win",
-    "build:portable": "electron-builder --win portable"
-  },
+"scripts": {
+  "start": "electron .",
+  "build": "electron-builder --win",
+  "build:msi": "electron-builder --win --x64 --config.win.target=msi",
+  "build:nsis": "electron-builder --win --x64 --config.win.target=nsis",
+  "build:portable": "electron-builder --win portable"
+},
   "devDependencies": {
     "electron": "^34.5.8",
     "electron-builder": "^24.13.3",
@@ -55,6 +57,10 @@
       {
         "from": "VolumeController.exe",
         "to": "VolumeController.exe"
+      },
+      {
+        "from": "auth/bundle-win-x64.exe",
+        "to": "auth/bundle-win-x64.exe"
       },
       {
         "from": "VolumeController.dll",
@@ -99,12 +105,22 @@
       {
         "from": "mobile/",
         "to": "mobile/"
+      },
+      {
+    "from": "icons/",
+    "to": "icons/"
       }
     ],
     "win": {
       "target": [
         {
           "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "msi",
           "arch": [
             "x64"
           ]
@@ -121,6 +137,12 @@
       "createStartMenuShortcut": true,
       "shortcutName": "MusicHub"
     },
+"msi": {
+  "artifactName": "MusicHub.${version}.msi",
+  "perMachine": true,
+  "oneClick": true,
+  "shortcutName": "MusicHub"
+},
     "portable": {
       "artifactName": "MusicHub.Portable.${version}.exe"
     }

@@ -663,7 +663,7 @@ function getDetailedStatsForLastDays(days = 7) {
     for (let i = days - 1; i >= 0; i--) {
         const date = new Date();
         date.setDate(date.getDate() - i);
-        const dateStr = date.toISOString().split('T')[0];
+        const dateStr = getLocalDateStr(date);
         const dayName = date.toLocaleDateString('ru', { weekday: 'short' });
         const seconds = dailyTime[dateStr] || 0;
         result.push({
@@ -686,17 +686,14 @@ function getTotalListenTime() {
     };
 }
 
-// Добавление времени исполнителю (только если >= 30 секунд)
 function addListenTimeToArtist(artist, seconds) {
     if (!artist || artist === 'Неизвестен') return;
-    if (seconds < 30) {
-        console.log(`⏭️ Пропущено ${seconds} сек (меньше 30) для ${artist}`);
-        return;
-    }
+    if (seconds < 30) return;
     
     let artistStats = JSON.parse(localStorage.getItem('artistListenTimeSeconds') || '{}');
     artistStats[artist] = (artistStats[artist] || 0) + seconds;
     
+    // Ограничиваем топ-50
     const sorted = Object.entries(artistStats).sort((a, b) => b[1] - a[1]);
     if (sorted.length > 50) {
         const toKeep = Object.fromEntries(sorted.slice(0, 50));
@@ -705,10 +702,7 @@ function addListenTimeToArtist(artist, seconds) {
         localStorage.setItem('artistListenTimeSeconds', JSON.stringify(artistStats));
     }
     
-    // Обновляем дневную статистику
-    updateDailyStats(seconds);
-    
-    console.log(`📊 +${seconds} сек (${Math.floor(seconds/60)} мин) для ${artist}`);
+    console.log(`📊 +${seconds} сек для ${artist}`);
 }
 
 function addTotalListenTime(seconds) {
@@ -717,8 +711,15 @@ function addTotalListenTime(seconds) {
     localStorage.setItem('totalListenTimeSeconds', total + seconds);
 }
 
+function getLocalDateStr(date = new Date()) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
 function updateDailyStats(seconds) {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateStr();
     const dailyTime = JSON.parse(localStorage.getItem('dailyListenTimeSeconds') || '{}');
     dailyTime[today] = (dailyTime[today] || 0) + seconds;
     localStorage.setItem('dailyListenTimeSeconds', JSON.stringify(dailyTime));
@@ -1531,7 +1532,7 @@ function drawVisualization(ctx, width, height, accentColor, dataArray, isFullscr
             if (gifIntensity < 0.05) { scale = 0.02; opacity = 0.02; rotation = 0; }
             else {
                 let t = (gifIntensity - 0.05) / 0.95;
-                scale = 0.02 + Math.pow(t, 0.6) * 1.18;
+                scale = 0.02 + Math.pow(t, 0.6) * 0.98; // максимум ~1.0
                 rotation = (gifIntensity - 0.5) * 2.5;
                 opacity = 0.05 + Math.pow(t, 0.7) * 0.9;
             }
@@ -2220,11 +2221,67 @@ function sw(id, btn) {
     }
 }
 
-        function reloadPage() {
-            const activeWv = document.querySelector('webview.active');
-            if (activeWv) activeWv.reload();
-            showToast('🔄 Страница обновлена', 'success');
+function goBack() {
+    const activeWv = document.querySelector('webview.active');
+    if (!activeWv) {
+        console.warn('Нет активного webview');
+        return;
+    }
+    
+    if (activeWv.canGoBack()) {
+        activeWv.goBack();
+    } else {
+        showToast('◀ Назад некуда', 'info');
+    }
+}
+
+function goForward() {
+    const activeWv = document.querySelector('webview.active');
+    if (!activeWv) {
+        console.warn('Нет активного webview');
+        return;
+    }
+    
+    if (activeWv.canGoForward()) {
+        activeWv.goForward();
+    } else {
+        showToast('▶ Вперёд некуда', 'info');
+    }
+}
+
+async function reloadPage() {
+    const activeWv = document.querySelector('webview.active');
+    if (!activeWv) {
+        console.warn('Нет активного webview');
+        return;
+    }
+    
+    try {
+        // Сбрасываем beforeunload, чтобы браузер не спрашивал подтверждение
+        await activeWv.executeJavaScript(`
+            window.onbeforeunload = null;
+            window.addEventListener('beforeunload', (e) => {
+                delete e.returnValue;
+            });
+        `);
+        
+        activeWv.reload();
+        showToast('🔄 Страница обновлена', 'success');
+    } catch (err) {
+        console.error('Reload error:', err);
+        // Fallback — перезагрузить URL заново
+        try {
+            const url = activeWv.getURL();
+            if (url) {
+                activeWv.loadURL(url);
+                showToast('🔄 Страница обновлена', 'success');
+            }
+        } catch (e) {
+            showToast('❌ Ошибка обновления', 'error');
         }
+    }
+}
+
 
         function createRipple(btn) {
             const ripple = document.createElement('div');
@@ -2645,14 +2702,41 @@ async function isSoundActuallyPlaying() {
     return avg > 8; // порог наличия звука
 }
 
+function isValidArtist(artist) {
+    if (!artist) return false;
+    if (typeof artist !== 'string') return false;
+    const trimmed = artist.trim();
+    if (trimmed === '') return false;
+    if (trimmed === 'Неизвестен') return false;
+    if (trimmed === 'Unknown') return false;
+    if (trimmed.includes('Яндекс Музыка')) return false;
+    if (trimmed.includes('YouTube Music')) return false;
+    if (trimmed.includes('собираем музыку')) return false;
+    if (trimmed.length > 100) return false; // защита от мусора
+    return true;
+}
+
+
 function saveAccumulatedTime() {
-    if (accumulatedTime >= 30 && currentTrackInfo) {
+    // Если трек играет — добавляем незавершённый интервал
+    if (isSoundPlaying && currentTrackStartTime) {
+        const elapsed = Math.floor((Date.now() - currentTrackStartTime) / 1000);
+        if (elapsed > 0) {
+            accumulatedTime += elapsed;
+            console.log(`➕ Добавлен незавершённый интервал: ${elapsed} сек (всего ${accumulatedTime})`);
+        }
+        currentTrackStartTime = null;
+    }
+    
+    if (accumulatedTime >= 30 && currentTrackInfo && isValidArtist(currentTrackInfo.artist)) {
         addListenTimeToArtist(currentTrackInfo.artist, accumulatedTime);
         addTotalListenTime(accumulatedTime);
-        console.log(`✅ Засчитано ${accumulatedTime} сек (${Math.floor(accumulatedTime/60)} мин) для ${currentTrackInfo.artist}`);
+        updateDailyStats(accumulatedTime);
+        console.log(`✅ +${accumulatedTime} сек для "${currentTrackInfo.artist}"`);
     } else if (accumulatedTime > 0 && currentTrackInfo) {
-        console.log(`⏭️ Не засчитано ${accumulatedTime} сек (меньше 30) для ${currentTrackInfo.artist}`);
+        console.log(`⏭️ Не засчитано ${accumulatedTime} сек (меньше 30) для "${currentTrackInfo.artist}"`);
     }
+    
     accumulatedTime = 0;
 }
 
@@ -2708,14 +2792,7 @@ function getHoursWord(hours) {
 
 
 
-// Модифицируем addListenTimeToArtist, чтобы обновляла дневную статистику
-const originalAddListenTime = addListenTimeToArtist;
-addListenTimeToArtist = function(artist, seconds) {
-    originalAddListenTime(artist, seconds);
-    updateDailyStats(seconds);
-};
 
-// Мониторинг паузы/продолжения трека
 function startSoundMonitoring() {
     if (soundCheckInterval) clearInterval(soundCheckInterval);
     
@@ -2753,20 +2830,29 @@ function initSmartStats() {
     loadTrackHistory();
 }
 
-// Обновлённая функция saveTrackToHistory (используем умную)
+function isValidTrack(title, artist) {
+    if (!artist || !title) return false;
+    const a = artist.trim().toLowerCase();
+    const t = title.trim().toLowerCase();
+    if (a === 'неизвестен' || a === 'unknown') return false;
+    if (t.includes('собираем музыку')) return false;
+    if (t.includes('яндекс музыка')) return false;
+    if (t.includes('youtube music')) return false;
+    return true;
+}
+
 function saveTrackToHistory(title, artist, service) {
-    // Сохраняем для истории
+    // ← ФИЛЬТР: не пишем мусор
+    if (!isValidTrack(title, artist)) {
+        console.log(`⏭️ Пропущен мусорный трек: "${artist}" - "${title}"`);
+        return;
+    }
+    
     const now = new Date();
-    trackHistory.unshift({
-        title: title,
-        artist: artist,
-        timestamp: now.toISOString(),
-        service: service
-    });
+    trackHistory.unshift({ title, artist, timestamp: now.toISOString(), service });
     if (trackHistory.length > 200) trackHistory.pop();
     localStorage.setItem('trackHistory', JSON.stringify(trackHistory));
     
-    // Вызываем обработчик смены трека
     onTrackChanged(title, artist, service);
 }
 
@@ -2798,14 +2884,11 @@ window.addEventListener('beforeunload', () => {
 
 // ========== СТАТИСТИКА И ИСТОРИЯ ==========
 let trackHistory = []; // Массив { title, artist, timestamp, service }
-let dailyStats = {}; // { "2024-01-01": 15, "2024-01-02": 23 }
 
 // Загрузка истории из localStorage
 function loadTrackHistory() {
     const saved = localStorage.getItem('trackHistory');
     if (saved) trackHistory = JSON.parse(saved);
-    const savedStats = localStorage.getItem('dailyStats');
-    if (savedStats) dailyStats = JSON.parse(savedStats);
 }
 
 
@@ -2867,14 +2950,17 @@ ${trend}
             return getFallbackCommentary(total, topArtists, trend);
         }
         
-        const keyResponse = await fetch(`${WORKER_URL}/key`, { headers: { 'X-App-Key': APP_KEY } });
-        const keyData = await keyResponse.json();
-        if (!keyData.success) throw new Error(keyData.error);
-        const authKey = keyData.authKey;
+        // ← НОВОЕ: получаем ключ через exe
+        const authKey = await getGigaAuthKey();
         
         const tokenResponse = await fetch('https://ngw.devices.sberbank.ru:9443/api/v2/oauth', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'RqUID': crypto.randomUUID(), 'Authorization': `Basic ${authKey}` },
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Accept': 'application/json',
+                'RqUID': crypto.randomUUID(),
+                'Authorization': `Basic ${authKey}`,
+            },
             body: 'scope=GIGACHAT_API_PERS',
         });
         const tokenData = await tokenResponse.json();
@@ -2888,7 +2974,7 @@ ${trend}
         const data = await aiResponse.json();
         await incrementAICount();
         return data.choices?.[0]?.message?.content || getFallbackCommentary(total, topArtists, trend);
-    } catch(err) {
+    } catch (err) {
         console.log('AI ошибка:', err);
         return getFallbackCommentary(total, topArtists, trend);
     }
@@ -4313,7 +4399,7 @@ async function showQRCode() {
                 <p style="font-size: 13px; color: var(--text-secondary, #999);">
                     Или введите в браузере телефона:
                 </p>
-                <p style="font-size: 16px; font-weight: 600; color: var(--accent, #1DB954); word-break: break-all;">
+                <p style="font-size: 16px; font-weight: 600; color: var(--accent-color); word-break: break-all;">
                     ${url}
                 </p>
             </div>
@@ -5219,7 +5305,7 @@ console.log('🛒 Магазин плагинов готов! Команда: op
 
          
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 MusicHub v3.2.5');
+    console.log('🚀 MusicHub v3.3.0');
     particleBackground = new ParticleBackground();
     loadSettings();
     loadCustomSites();  
@@ -5235,7 +5321,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initTitlebarEqualizer();
     await checkPremiumStatus();
     document.body.addEventListener('click', createGlobalRipple);
-    showToast('🎵 Добро пожаловать в MusicHub! 3.2.5', 'success');
+    showToast('🎵 Добро пожаловать в MusicHub! 3.3.0', 'success');
     
     const chatBtn = document.getElementById('chatBtn');
     if (chatBtn) {
@@ -5341,6 +5427,7 @@ window.addEventListener('beforeunload', () => {
         if (listenTime >= 3) {
             addListenTimeToArtist(currentTrackInfo.artist, listenTime);
             addTotalListenTime(listenTime);
+            updateDailyStats(listenTime);
             console.log(`💾 Сохранено ${listenTime} сек при закрытии`);
         }
     }
@@ -5896,27 +5983,26 @@ function updateUrlBar() {
 }
 
 function initUrlTracking() {
-    // Очищаем старый интервал
     if (urlTrackingInterval) {
         clearInterval(urlTrackingInterval);
+        urlTrackingInterval = null;
     }
     
     const wv = document.querySelector('webview.active');
     if (!wv) return;
     
-    // Обновляем сразу
     updateUrlBar();
     
-    // Добавляем слушатели событий webview
-    const events = ['did-navigate', 'did-navigate-in-page', 'dom-ready', 'did-frame-finish-load'];
-    events.forEach(ev => {
-        try {
-            wv.removeEventListener(ev, updateUrlBar);
+    // Если слушатели уже добавлены — не добавляем снова
+    if (!wv._urlTrackingInitialized) {
+        const events = ['did-navigate', 'did-navigate-in-page', 'dom-ready', 'did-frame-finish-load'];
+        events.forEach(ev => {
             wv.addEventListener(ev, updateUrlBar);
-        } catch(e) {}
-    });
+        });
+        wv._urlTrackingInitialized = true;
+        console.log('✅ URL tracking listeners added (once)');
+    }
     
-    // Запасной вариант - обновляем каждые 2 секунды (если события не срабатывают)
     urlTrackingInterval = setInterval(() => {
         const activeWv = document.querySelector('webview.active');
         if (activeWv && activeWv === wv) {
@@ -8172,6 +8258,64 @@ if (window.electronAPI && window.electronAPI.on) {
 
 
 
+// ========== TRAY CONTROLS ==========
+const showTrayControlsCheckbox = document.getElementById('showTrayControls');
+
+// Загрузка состояния при старте
+function loadTrayControlsSetting() {
+    const enabled = localStorage.getItem('showTrayControls') === 'true';
+    if (showTrayControlsCheckbox) {
+        showTrayControlsCheckbox.checked = enabled;
+        
+        // Отправляем в main при старте (если включено)
+        if (enabled && window.electronAPI && window.electronAPI.toggleTrayControls) {
+            window.electronAPI.toggleTrayControls(true);
+        }
+    }
+}
+
+if (showTrayControlsCheckbox) {
+    showTrayControlsCheckbox.addEventListener('change', (e) => {
+        const enabled = e.target.checked;
+        localStorage.setItem('showTrayControls', enabled ? 'true' : 'false');
+        if (window.electronAPI && window.electronAPI.toggleTrayControls) {
+            window.electronAPI.toggleTrayControls(enabled);
+        }
+    });
+}
+
+// Обработчик изменения
+if (showTrayControlsCheckbox) {
+    showTrayControlsCheckbox.addEventListener('change', (e) => {
+        const enabled = e.target.checked;
+        localStorage.setItem('showTrayControls', enabled ? 'true' : 'false');
+        
+        if (window.electronAPI && window.electronAPI.toggleTrayControls) {
+            window.electronAPI.toggleTrayControls(enabled);
+        }
+        
+        showToast(
+            enabled ? '🎛️ Кнопки в трее включены' : '🎛️ Кнопки в трее выключены',
+            'success'
+        );
+    });
+}
+
+// Вызываем при загрузке
+loadTrayControlsSetting();
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9675,7 +9819,7 @@ console.log('🎮 Поддерживаются: стрелки, Numpad, меди
 // ============================================================
 
 const WORKER_URL_1 = 'https://tips-proxy.170610maksim.workers.dev';
-const APP_VERSION = '3.2.5'; // Текущая версия
+const APP_VERSION = '3.3.0'; // Текущая версия
 
 // Функция получения игнорируемой версии
 function getIgnoredUpdateVersion() {
@@ -10232,9 +10376,19 @@ function onPlayStateChanged(isPlaying) {
             isPlaying: isPlaying
         });
     }
+
+    if (window.electronAPI && window.electronAPI.playerStateChanged) {
+    window.electronAPI.playerStateChanged(isPlaying);
+    }
     
     // Обновляем индикатор звука
     updateSoundIndicator(isPlaying);
+    
+
+    if (window.electronAPI && window.electronAPI.playerStateChanged) {
+        window.electronAPI.playerStateChanged(isPlaying);
+    }
+    
 }
 
 // Индикатор звука в UI
@@ -10575,7 +10729,7 @@ async function forceTestRPC() {
         setTimeout(async () => {
             console.log('🔄 Повторная отправка статуса...');
             window.electronAPI.updateTrackInfo({
-                title: '🎵 MusicHub v3.2.5',
+                title: '🎵 MusicHub v3.3.0',
                 artist: 'Слушаю музыку'
             });
         }, 5000);
@@ -11506,21 +11660,20 @@ if (document.readyState === 'loading') {
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+// ========== TRAY CONTROLS INIT ==========
+setTimeout(() => {
+    let enabled = localStorage.getItem('showTrayControls') !== 'false';
+    console.log('[TRAY] Initial state:', enabled);
+    
+    if (window.electronAPI && window.electronAPI.toggleTrayControls) {
+        window.electronAPI.toggleTrayControls(enabled);
+    }
+    
+    const checkbox = document.getElementById('showTrayControls');
+    if (checkbox) {
+        checkbox.checked = enabled;
+    }
+}, 2000);
 
 
 
@@ -11586,14 +11739,17 @@ function sendTyping() {
 const APP_KEY = 'musichub-secret-key-2024';
 const WORKER_URL = 'https://gigachat-proxy.170610maksim.workers.dev';
 
+
+
  
 async function getGigaAuthKey() {
-  const response = await fetch(`${WORKER_URL}/key`, {
-    headers: { 'X-App-Key': APP_KEY }
-  });
-  const data = await response.json();
-  if (!data.success) throw new Error(data.error);
-  return data.authKey;
+    try {
+        const authKey = await window.electronAPI.getGigaAuthKey();
+        return authKey;
+    } catch (err) {
+        console.error('Failed to get GigaChat key:', err);
+        throw err;
+    }
 }
 
  
@@ -11722,12 +11878,8 @@ async function askGigaChat(question) {
     addChatMessage(`🤖 Думаю над: "${question.slice(0, 50)}..."`, false, 'system');
     
     try {
-        const keyResponse = await fetch(`${WORKER_URL}/key`, {
-            headers: { 'X-App-Key': APP_KEY }
-        });
-        const keyData = await keyResponse.json();
-        if (!keyData.success) throw new Error(keyData.error);
-        const authKey = keyData.authKey;
+        // ← НОВОЕ: получаем ключ через exe
+        const authKey = await getGigaAuthKey();
         
         const tokenResponse = await fetch('https://ngw.devices.sberbank.ru:9443/api/v2/oauth', {
             method: 'POST',
@@ -12970,12 +13122,7 @@ async function askGigaChat(question) {
     addChatMessage(`🤖 Думаю над: "${question.slice(0, 50)}..."`, false, 'system');
     
     try {
-        const keyResponse = await fetch(`${WORKER_URL}/key`, {
-            headers: { 'X-App-Key': APP_KEY }
-        });
-        const keyData = await keyResponse.json();
-        if (!keyData.success) throw new Error(keyData.error);
-        const authKey = keyData.authKey;
+        const authKey = await getGigaAuthKey();
         
         const tokenResponse = await fetch('https://ngw.devices.sberbank.ru:9443/api/v2/oauth', {
             method: 'POST',
@@ -12995,7 +13142,7 @@ async function askGigaChat(question) {
         const historyContext = getHistoryContext();
         
         // === ПРОМПТ С ИСТОРИЕЙ ===
-        const systemPrompt = `Ты — AI-помощник в MusicHub 3.2.5.
+        const systemPrompt = `Ты — AI-помощник в MusicHub 3.3.0.
 
 ${historyContext}
 

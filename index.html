@@ -38,7 +38,7 @@
         <img id="splashGif" style="max-width: 200px; max-height: 200px; display: none; border-radius: 20px;">
     </div>
     <div class="splash-title" style="font-size: 28px; font-weight: 600; margin-bottom: 10px;">MusicHub</div>
-    <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v3.2.5</div>
+    <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v3.3.0</div>
     <div class="splash-tip" id="splashTip" style="font-size: 14px; color: var(--text-secondary); max-width: 400px; text-align: center; padding: 0 20px; margin-bottom: 20px;"></div>
     <div class="splash-progress" style="width: 300px; height: 3px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
         <div class="splash-progress-bar" style="width: 0%; height: 100%; background: var(--accent-color); transition: width 0.1s linear;"></div>
@@ -300,9 +300,18 @@
             </div>
         </div>
         
-        <div class="settings-section">
+<div class="settings-section">
     <div class="section-title">🎨 Дополнительно</div>
     <div class="settings-grid">
+        <div class="setting-item full-width">
+    <label class="checkbox-label">
+        <input type="checkbox" id="showTrayControls"> 🎛️ Кнопки управления в трее
+    </label>
+    <div class="setting-hint">
+        Показывает кнопки ⏮ ▶/⏸ ⏭ в системном трее Windows. 
+        Можно перетащить на панель задач (Win → Параметры → Персонализация → Панель задач → Другие значки).
+    </div>
+</div>
         <div class="setting-item full-width">
             <label class="checkbox-label">
                 <input type="checkbox" id="autoColorFromArtwork"> 🎨 Авто-цвет из обложки
@@ -633,7 +642,7 @@
         </div>
     </div>
     <button id="qrSettingsBtn" style="
-        background: var(--accent-color, #1DB954);
+        background: var(--accent-color);
         color: #000;
         border: none;
         border-radius: 10px;
@@ -669,7 +678,7 @@
 <div class="settings-footer">
     <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 10px;">
         <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-            <span class="version-pill">MusicHub v3.2.5</span>
+            <span class="version-pill">MusicHub v3.3.0</span>
             <button onclick="checkForUpdates()" class="version-pill" style="
                 background: rgba(29,185,84,0.12);
                 border: none;

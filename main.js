@@ -1,6 +1,6 @@
 // main.js - ПОЛНАЯ ВЕРСИЯ
 
-const { app, BrowserWindow, session, ipcMain, Tray, Menu, globalShortcut, shell } = require('electron');
+const { app, BrowserWindow, session, ipcMain, Tray, Menu, globalShortcut, shell, nativeImage } = require('electron');
 
 const path = require('path');
 const fs = require('fs');
@@ -18,6 +18,10 @@ const nircmdPath = path.join(__dirname, 'nircmd.exe');
 const DiscordRPC = require('discord-rpc');
 const net = require('net');
 
+const PIPE_NAME = '\\\\.\\pipe\\musichub-auth';
+let authProcess = null;
+let authRestartCount = 0;
+const MAX_RESTARTS = 5;
 
 // Константы
 const CHROME_STORE_API = 'https://clients2.google.com/service/update2/crx';
@@ -60,18 +64,6 @@ let currentMobileStatus = {
     service: ''
 };
 
-// Получение локального IP
-function getLocalIP() {
-    const interfaces = os.networkInterfaces();
-    for (const name of Object.keys(interfaces)) {
-        for (const iface of interfaces[name]) {
-            if (iface.family === 'IPv4' && !iface.internal) {
-                return iface.address;
-            }
-        }
-    }
-    return 'localhost';
-}
 
 // Функция отправки статуса всем подключённым клиентам
 
@@ -188,6 +180,125 @@ function getTrackInfoFromFile() {
     }
     return null;
 }
+
+
+
+
+
+
+
+
+
+
+function startAuthProcess() {
+    const isDev = !app.isPackaged;
+    const exePath = isDev
+        ? path.join(__dirname, 'auth', 'bundle-win-x64.exe')
+        : path.join(process.resourcesPath, 'auth', 'bundle-win-x64.exe');
+    console.log('[AUTH] Starting auth process...');
+    
+    authProcess = spawn(exePath, [], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: false,
+        windowsHide: true
+    });
+
+    authProcess.stdout.on('data', (data) => {
+        console.log('[AUTH]', data.toString().trim());
+    });
+
+    authProcess.stderr.on('data', (data) => {
+        console.error('[AUTH ERROR]', data.toString().trim());
+    });
+
+    authProcess.on('exit', (code, signal) => {
+        console.log(`[AUTH] Process exited. Code: ${code}, Signal: ${signal}`);
+        authProcess = null;
+        
+        // Перезапускаем, если не штатное завершение
+        if (code !== 0 && authRestartCount < MAX_RESTARTS) {
+            authRestartCount++;
+            console.log(`[AUTH] Restarting... (${authRestartCount}/${MAX_RESTARTS})`);
+            setTimeout(startAuthProcess, 2000); // через 2 секунды
+        } else if (authRestartCount >= MAX_RESTARTS) {
+            console.error('[AUTH] Max restarts reached. Giving up.');
+        }
+    });
+
+    authProcess.on('error', (err) => {
+        console.error('[AUTH] Failed to start:', err.message);
+    });
+}
+
+// Запрос к exe через Named Pipe
+function requestAuthKey() {
+    return new Promise((resolve, reject) => {
+        const client = net.connect(PIPE_NAME, () => {
+            client.write(JSON.stringify({ type: 'get-key' }) + '\n');
+        });
+
+        let buffer = '';
+        client.on('data', (data) => {
+            buffer += data.toString();
+        });
+
+        client.on('end', () => {
+            try {
+                const response = JSON.parse(buffer.trim());
+                resolve(response);
+            } catch (e) {
+                reject(new Error('Invalid JSON: ' + buffer));
+            }
+        });
+
+        client.on('error', (err) => reject(err));
+
+        setTimeout(() => {
+            client.destroy();
+            reject(new Error('Auth request timeout'));
+        }, 5000);
+    });
+}
+
+// IPC-обработчик для renderer
+ipcMain.handle('get-giga-auth-key', async () => {
+    try {
+        const response = await requestAuthKey();
+        if (!response.ok) throw new Error(response.error || 'Auth failed');
+        return response.authKey;
+    } catch (err) {
+        console.error('[IPC] get-giga-auth-key error:', err.message);
+        throw err;
+    }
+});
+
+// Запуск при старте приложения
+app.on('ready', () => {
+    startAuthProcess();
+});
+
+app.on('will-quit', () => {
+    if (authProcess && authProcess.pid) {
+        console.log('[AUTH] Killing auth process PID:', authProcess.pid);
+        try {
+            // На Windows используем taskkill для надёжности
+            exec(`taskkill /F /PID ${authProcess.pid}`, (err) => {
+                if (err) console.error('[AUTH] Kill error:', err.message);
+                else console.log('[AUTH] Process killed');
+            });
+        } catch (e) {
+            console.error('[AUTH] Kill exception:', e);
+        }
+        authProcess = null;
+    }
+    destroyTrayControls();
+});
+
+
+
+
+
+
 
 
 
@@ -351,7 +462,7 @@ const presence = {
     state: artist || 'Ожидание',
     startTimestamp: Date.now(),
     largeImageKey: 'musichub_icon',
-    largeImageText: 'MusicHub v3.2.0',
+    largeImageText: 'MusicHub v3.3.0',
     buttons: [
         {
             label: '🎵 MusicHub',
@@ -853,16 +964,53 @@ console.log('🎮 Модуль горячих клавиш загружен');
 function getLocalIP() {
     const os = require('os');
     const interfaces = os.networkInterfaces();
+    const candidates = [];
+    
     for (const name of Object.keys(interfaces)) {
         for (const iface of interfaces[name]) {
             if (iface.family === 'IPv4' && !iface.internal) {
-                if (iface.address.startsWith('192.168.')) {
-                    return iface.address;
+                const match = iface.address.match(/^192\.168\.(\d+)\.(\d+)$/);
+                if (match) {
+                    candidates.push({
+                        address: iface.address,
+                        third: parseInt(match[1], 10),
+                        fourth: parseInt(match[2], 10)
+                    });
                 }
             }
         }
     }
-    return 'localhost';
+    
+    if (candidates.length === 0) return 'localhost';
+    
+    // Кастомный приоритет:
+    // 1. 192.168.1.X — приоритет 1 (наивысший)
+    // 2. 192.168.0.X — приоритет 2
+    // 3. остальные — по возрастанию третьего октета
+    
+    function getPriority(third) {
+        if (third === 1) return 1;      // 192.168.1.X
+        if (third === 0) return 2;      // 192.168.0.X
+        return 100 + third;              // остальные: 2 → 102, 80 → 180
+    }
+    
+    candidates.sort((a, b) => {
+        const pa = getPriority(a.third);
+        const pb = getPriority(b.third);
+        if (pa !== pb) return pa - pb;
+        return a.fourth - b.fourth; // если одинаковый приоритет — по 4-му октету
+    });
+    
+    const winner = candidates[0];
+    
+    console.log('🌐 IP candidates:', candidates.map(c => c.address));
+    console.log('📊 Приоритеты:', candidates.map(c => ({
+        ip: c.address,
+        priority: getPriority(c.third)
+    })));
+    console.log('✅ Выбран IP:', winner.address);
+    
+    return winner.address;
 }
 
 // ============================================================
@@ -2218,19 +2366,82 @@ ipcMain.handle('install-plugin-from-store', async (event, pluginId, downloadUrl)
 
 
 
+// ========== TRAY CONTROLS ==========
+let prevTray = null;
+let playPauseTray = null;
+let nextTray = null;
+let currentIsPlaying = false;
 
+const isDev = !app.isPackaged;
+const ICONS_DIR = isDev
+    ? path.join(__dirname, 'icons')
+    : path.join(process.resourcesPath, 'icons');
 
+console.log('[TRAY] ICONS_DIR:', ICONS_DIR);
+console.log('[TRAY] isDev:', isDev);
 
+function createTrayControls() {
+    // Назад
+    if (!prevTray) {
+        const prevIcon = nativeImage.createFromPath(path.join(ICONS_DIR, 'tray-prev.png'));
+        prevTray = new Tray(prevIcon);
+        prevTray.setToolTip('MusicHub: Назад');
+        prevTray.on('click', () => {
+            console.log('[TRAY] Previous clicked');
+            sendMediaCommand('previous');
+        });
+    }
+    
+    // Play/Pause
+    if (!playPauseTray) {
+        const iconName = currentIsPlaying ? 'tray-pause.png' : 'tray-play.png';
+        const playIcon = nativeImage.createFromPath(path.join(ICONS_DIR, iconName));
+        playPauseTray = new Tray(playIcon);
+        playPauseTray.setToolTip('MusicHub: Play/Pause');
+        playPauseTray.on('click', () => {
+            console.log('[TRAY] PlayPause clicked');
+            sendMediaCommand('playpause');
+        });
+    }
+    
+    // Вперёд
+    if (!nextTray) {
+        const nextIcon = nativeImage.createFromPath(path.join(ICONS_DIR, 'tray-next.png'));
+        nextTray = new Tray(nextIcon);
+        nextTray.setToolTip('MusicHub: Вперёд');
+        nextTray.on('click', () => {
+            console.log('[TRAY] Next clicked');
+            sendMediaCommand('next');
+        });
+    }
+    
+    console.log('[TRAY] Controls created');
+}
 
+function destroyTrayControls() {
+    if (prevTray) { prevTray.destroy(); prevTray = null; }
+    if (playPauseTray) { playPauseTray.destroy(); playPauseTray = null; }
+    if (nextTray) { nextTray.destroy(); nextTray = null; }
+    console.log('[TRAY] Controls destroyed');
+}
 
+ipcMain.on('player-state-changed', (event, isPlaying) => {
+    currentIsPlaying = isPlaying;
+    if (playPauseTray) {
+        const iconName = isPlaying ? 'tray-pause.png' : 'tray-play.png';
+        const icon = nativeImage.createFromPath(path.join(ICONS_DIR, iconName));
+        playPauseTray.setImage(icon);
+    }
+});
 
-
-
-
-
-
-
-
+ipcMain.on('toggle-tray-controls', (event, enabled) => {
+    console.log('[TRAY] Toggle:', enabled);
+    if (enabled) {
+        createTrayControls();
+    } else {
+        destroyTrayControls();
+    }
+});
 
 
 
@@ -3299,7 +3510,7 @@ app.whenReady().then(() => {
                 setTimeout(() => {
                     if (rpc) {
                         rpc.setActivity({
-                            details: 'MusicHub v3.2.0',
+                            details: 'MusicHub v3.3.0',
                             state: 'Слушаю музыку 🎵',
                             largeImageKey: 'spotify',
                             largeImageText: 'MusicHub'
