@@ -5,7 +5,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 const api = {
     // Управление окном
     windowCtrl: (cmd) => ipcRenderer.send('window-ctrl', cmd),
-    toggleMini: (isMini) => ipcRenderer.send('toggle-mini', isMini),
+    setAlwaysOnTop: (flag) => ipcRenderer.invoke('set-always-on-top', flag),
     setAutostart: (enabled) => ipcRenderer.send('set-autostart', enabled),
     restoreWindow: (bounds) => ipcRenderer.send('restore-window', bounds),
     openExternal: (url) => ipcRenderer.invoke('open-external', url),

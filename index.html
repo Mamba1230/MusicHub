@@ -38,7 +38,7 @@
         <img id="splashGif" style="max-width: 200px; max-height: 200px; display: none; border-radius: 20px;">
     </div>
     <div class="splash-title" style="font-size: 28px; font-weight: 600; margin-bottom: 10px;">MusicHub</div>
-    <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v3.3.0</div>
+    <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v3.3.5</div>
     <div class="splash-tip" id="splashTip" style="font-size: 14px; color: var(--text-secondary); max-width: 400px; text-align: center; padding: 0 20px; margin-bottom: 20px;"></div>
     <div class="splash-progress" style="width: 300px; height: 3px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
         <div class="splash-progress-bar" style="width: 0%; height: 100%; background: var(--accent-color); transition: width 0.1s linear;"></div>
@@ -56,12 +56,6 @@
     <div id="drag-region">
         <!-- Динамические кнопки окна (Win/Mac, слева/справа) -->
         <div id="window-controls-dynamic" class="window-controls"></div>
-        
-        <!-- Онлайн счётчик -->
-        <div class="titlebar-online" id="titlebarOnline">
-            <span class="online-dot-small"></span>
-            <span id="titlebarOnlineCount">0</span>
-        </div>
         
         <!-- Эквалайзер -->
         <div class="titlebar-equalizer" id="titlebar-eq">
@@ -102,44 +96,54 @@
     <button class="ext-btn" id="extensionsPanelBtn" title="Расширения и плагины">🔌</button>
     
     <!-- Панель расширений (обложка + плагины) -->
-    <div id="extensionsPanel" style="display: none;">
-        <div class="ext-panel-header">
-            <span>🎵 Обложка трека</span>
-            <button id="closeExtensionsPanelBtn">✕</button>
+    <div id="extensionsPanel">
+    <!-- Заголовок панели -->
+    <div class="ext-panel-header">
+        <span class="ext-panel-title">🎵 Панель</span>
+        <button id="closeExtensionsPanelBtn" class="ext-panel-close" title="Закрыть">✕</button>
+    </div>
+
+    <!-- Сейчас играет (обложка + трек) -->
+    <div class="ext-now-playing">
+        <div class="ext-now-playing-artwork">
+            <img id="panelArtwork" src="" alt="">
+            <div class="ext-now-playing-overlay">🎵</div>
         </div>
-        
-        <!-- === ОБЛОЖКА ТРЕКА === -->
-        <div id="nowPlayingPanel" class="now-playing-panel">
-            <div class="panel-artwork-container">
-                <img id="panelArtwork" class="panel-artwork" src="">
-            </div>
-            <div class="panel-track-info">
-                <div id="panelTrackTitle" class="panel-track-title">—</div>
-                <div id="panelTrackArtist" class="panel-track-artist">—</div>
-            </div>
+        <div class="ext-now-playing-info">
+            <div id="panelTrackTitle" class="ext-track-title">—</div>
+            <div id="panelTrackArtist" class="ext-track-artist">—</div>
         </div>
-        
-        <!-- Разделитель -->
-        <div style="border-top: 1px solid var(--border-color); margin: 4px 12px;"></div>
-        
-        <!-- === ПЛАГИНЫ === -->
-        <div style="padding: 6px 12px 2px;">
-            <span style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">🔌 Плагины</span>
+    </div>
+
+    <!-- Плагины -->
+    <div class="ext-section">
+        <div class="ext-section-header">
+            <span class="ext-section-title">🔌 Плагины</span>
+            <span id="pluginCountBadge" class="ext-badge">0</span>
         </div>
-        
+
         <div id="extensionsList" class="extensions-list">
-            <div style="padding: 12px; text-align: center; opacity: 0.6; font-size: 13px;">Загрузка...</div>
+            <div class="ext-empty">
+                <div class="ext-empty-icon">📦</div>
+                <div class="ext-empty-text">Нет установленных плагинов</div>
+                <div class="ext-empty-hint">Откройте магазин, чтобы установить</div>
+            </div>
         </div>
-        
-        <!-- Кнопки действий -->
-        <div class="ext-panel-actions">
-            <button id="pluginStoreBtn" class="ext-action-btn store-btn">
-                🛒 Магазин плагинов
-            </button>
-        </div>
+    </div>
+
+    <!-- Кнопки действий -->
+    <div class="ext-actions">
+        <button id="pluginStoreBtn" class="ext-action-btn ext-action-store">
+            <span>🛒</span> Магазин плагинов
+        </button>
+        <button id="refreshPluginsBtn" class="ext-action-btn ext-action-refresh" title="Обновить список">
+            <span>🔄</span>
+        </button>
     </div>
 </div>
         
+    </div>
+</div>
     </div>
 </div>
 
@@ -157,7 +161,7 @@
     <button class="viz-expand-btn" onclick="expandVisualizer()">⤢</button>
 </div>
 
-            <button class="util-btn" id="miniBtn" onclick="toggleMini(this)">M</button>
+            <button class="util-btn" id="miniBtn" onclick="toggleMini(this)">📌</button>
             <button class="util-btn" id="settingsBtn">⚙</button>
             <button class="util-btn" id="adaptiveVolumeBtn" title="Адаптивная громкость">🎤</button>
             <button class="util-btn" id="hoverClickBtn" title="Наведи и кликни (hover-активация)">🖱️</button>
@@ -172,542 +176,512 @@
 
 
 <div id="settings-panel">
+    <!-- Заголовок -->
     <div class="settings-header">
         <h3>✨ Настройки MusicHub</h3>
-        <button class="close-btn" onclick="toggleSettings()">✕</button>
-    </div>
-    
-    <div class="settings-content">
-        <!-- Premium блок + выход -->
-        <div class="settings-section">
-            <div class="premium-row">
-                <div id="premiumStatus" class="premium-status">⭐ Загрузка статуса...</div>
-                <div class="premium-actions">
-                    <button id="premiumInfoBtn" class="btn-premium">💎 Premium</button>
-                    <button id="logoutHeaderBtn" class="btn-logout" style="display: none;">🚪 Выйти</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Внешний вид -->
-        <div class="settings-section">
-            <div class="section-title">🎨 Внешний вид</div>
-            <div class="settings-grid">
-                <div class="setting-item">
-                    <label>Тема</label>
-                    <select id="theme-select" onchange="changeThemeWithAnimation(this.value)">
-                        <option value="dark">🌙 Темная</option>
-                        <option value="light">☀️ Светлая</option>
-                    </select>
-                </div>
-<div class="setting-item">
-    <label>🎨 Акцентный цвет</label>
-    <input type="color" id="cp" onchange="changeAccentColor(this.value)" value="#1DB954">
-</div>
-                <div class="setting-item">
-                    <label>Масштаб</label>
-                    <select id="zoom-select" onchange="setZoom(this.value)">
-                        <option value="0.8">80%</option>
-                        <option value="1.0" selected>100%</option>
-                        <option value="1.2">120%</option>
-                    </select>
-                </div>
-                <div class="setting-item">
-                    <label>Стиль кнопок окна</label>
-                    <select id="windowButtonsStyle" onchange="changeWindowButtonsStyle(this.value)">
-                        <option value="win">Windows (▢ _ ✕)</option>
-                        <option value="mac">macOS (🔴🟡🟢)</option>
-                    </select>
-                </div>
-                <div class="setting-item">
-                    <label>Позиция кнопок</label>
-                    <select id="windowButtonsPosition" onchange="changeWindowButtonsPosition(this.value)">
-                        <option value="left">Слева</option>
-                        <option value="right">Справа</option>
-                    </select>
-                </div>
-                <div class="setting-item">
-                    <label>Эффект кнопок</label>
-                    <select id="btn-effect" onchange="changeBtnEffect(this.value)">
-                        <option value="pulse">💓 Пульсация</option>
-                        <option value="glow">✨ Свечение</option>
-                        <option value="none">🚫 Нет</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-
-        <!-- Запуск -->
-<div class="settings-section">
-    <div class="section-title">🚀 Запуск</div>
-    <div class="settings-grid">
-        <div class="setting-item">
-            <label class="checkbox-label">
-                <input type="checkbox" id="startWithSystem"> Запускать с системой
-            </label>
-        </div>
-        <div class="setting-item">
-            <label class="checkbox-label">
-                <input type="checkbox" id="startMinimized"> Запускать свернутым
-            </label>
-        </div>
-        <div class="setting-item full-width">
-            <label>При запуске открывать</label>
-            <select id="startupPage">
-                <option value="last">📱 Последний сервис</option>
-                <option value="home">🏠 Домашняя страница</option>
-            </select>
-            <div class="setting-hint">Домашняя страница показывает текущий трек и управление плеером</div>
-        </div>
-    </div>
-</div>
-
-        <!-- Визуализация -->
-        <div class="settings-section">
-            <div class="section-title">🎵 Визуализация</div>
-            <div class="settings-grid">
-                <div class="setting-item full-width">
-                    <label>🎵 Режим визуализации:</label>
-        <select id="viz-mode" onchange="changeVizMode(this.value)">
-<option value="bars">📊 Полоски</option>
-<option value="wave">🌊 Волна</option>
-<option value="circle">⭕ Круг</option>
-<option value="dots">🔴 Точки</option>
-<option value="particles">✨ Частицы</option>
-<option value="radial">🎯 Радиальный</option>
-<option value="galaxy">🌌 Галактика</option>
-<option value="aurora">🎆 Северное сияние</option>
-<option value="vortex">🌀 Вихрь</option>
-<option value="starburst">⭐ Звездный взрыв</option>
-<option value="gif">🎞️ GIF анимация</option>
-        </select>
-                </div>
-                <div class="setting-item full-width">
-                    <label>Чувствительность</label>
-                    <input type="range" id="viz-sensitivity" min="0.1" max="3" step="0.1" value="1" onchange="setSensitivity(this.value)">
-                </div>
-                <div class="setting-item full-width">
-                    <label>🎞️ GIF анимация</label>
-                    <div class="gif-controls">
-                        <input type="file" id="gifFileInput" accept="image/gif">
-                        <button id="previewGifBtn" class="btn-secondary">👁️ Предпросмотр</button>
-                        <button id="clearGifBtn" class="btn-danger">✕ Удалить</button>
-                    </div>
-                    <div id="gifPreview" class="gif-preview" style="display: none;">
-                        <img id="gifPreviewImg">
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-<div class="settings-section">
-    <div class="section-title">🎨 Дополнительно</div>
-    <div class="settings-grid">
-        <div class="setting-item full-width">
-    <label class="checkbox-label">
-        <input type="checkbox" id="showTrayControls"> 🎛️ Кнопки управления в трее
-    </label>
-    <div class="setting-hint">
-        Показывает кнопки ⏮ ▶/⏸ ⏭ в системном трее Windows. 
-        Можно перетащить на панель задач (Win → Параметры → Персонализация → Панель задач → Другие значки).
-    </div>
-</div>
-        <div class="setting-item full-width">
-            <label class="checkbox-label">
-                <input type="checkbox" id="autoColorFromArtwork"> 🎨 Авто-цвет из обложки
-            </label>
-            <div class="setting-hint">Акцентный цвет будет подстраиваться под цвет текущей обложки</div>
-        </div>
-        <div class="setting-item full-width">
-            <label class="checkbox-label">
-                <input type="checkbox" id="simpleGradientCheckbox"> 🌈 Цветной фон под обложку
-            </label>
-            <div class="setting-hint">Фон будет подсвечиваться цветом обложки</div>
-        </div>
-    </div>
-</div>
-
-        <!-- Звук -->
-<div class="settings-section">
-    <div class="section-title">🔊 Звук</div>
-    <div class="settings-grid">
-        <div class="setting-item">
-            <label>Звук переключения</label>
-            <select id="sound-select" onchange="changeSound(this.value)">
-                <option value="off">🔇 Выключен</option>
-                <option value="beep1" selected>🔊 Короткий писк</option>
-                <option value="beep2">🔊 Двойной писк</option>
-                <option value="click">🔊 Щелчок</option>
-                <option value="whoosh">🔊 Вжух</option>
-            </select>
-        </div>
-        
-        <div class="setting-item">
-            <label>Звук системных уведомлений</label>
-            <select id="notify-sound-select" onchange="changeNotifySound(this.value)">
-                <option value="off">🔇 Выключен</option>
-                <option value="beep1" selected>🔊 Короткий писк</option>
-                <option value="beep2">🔊 Двойной писк</option>
-                <option value="click">🔊 Щелчок</option>
-                <option value="whoosh">🔊 Вжух</option>
-            </select>
-        </div>
-        
-<!-- Аудио - Секция в настройках -->
-<div class="settings-section">
-    <div class="section-title">🎤 Источник звука</div>
-    <div class="settings-grid">
-        
-        <!-- Режим захвата -->
-        <div class="setting-item full-width">
-            <label>Режим захвата</label>
-            <select id="audioCaptureMode">
-                <option value="0">Классический (микрофон)</option>
-                <option value="1">Системный звук (C# WASAPI)</option>
-            </select>
-            <div class="setting-hint">
-                Классический — через выбранный микрофон. Системный — захват всего звука с компьютера.
-            </div>
-        </div>
-        
-        <!-- Устройство для классического режима -->
-        <div class="setting-item" id="classicDeviceContainer">
-            <label>Устройство захвата (микрофон)</label>
-            <select id="audio-device" onchange="selectAudioDevice(this.value)">
-                <option value="">🔇 Выключено</option>
-            </select>
-            <div class="setting-hint">Выберите микрофон для классического режима</div>
-        </div>
-        
-        <!-- Устройство для Modern режима -->
-        <div class="setting-item" id="modernDeviceContainer" style="display:none;">
-            <label>Устройство для системного звука</label>
-            <select id="audioCaptureDevice">
-                <option value="">Системное устройство по умолчанию</option>
-            </select>
-            <div class="setting-hint">Выберите аудио-устройство для захвата системного звука</div>
-        </div>
-        
-    </div>
-</div>
-
-<div class="setting-item full-width" id="audioStatusContainer">
-    <div id="audioStatus" style="padding: 8px 12px; border-radius: 6px; background: var(--bg-secondary); font-size: 13px;">
-        🎤 Классический режим (микрофон)
-    </div>
-</div>
-
-        <!-- Адаптивная громкость (ОТДЕЛЬНЫЙ микрофон) -->
-<div class="settings-section">
-    <div class="section-title">🎤 Адаптивная громкость</div>
-    <div class="settings-grid">
-        <div class="setting-item full-width">
-            <label class="checkbox-label">
-                <input type="checkbox" id="adaptiveVolumeEnabled"> 🔊 Включить адаптивную громкость
-            </label>
-            <div class="setting-hint">При шуме выше порога громкость снижается на указанный процент</div>
-        </div>
-        
-        <div id="adaptiveVolumeSettings" style="display: none;">
-            <div class="setting-item full-width">
-                <label>🎤 Микрофон для замера шума</label>
-                <select id="noiseMicDevice">
-                    <option value="">-- Выберите микрофон --</option>
-                </select>
-                <div class="setting-hint">Выберите микрофон, который будет слушать окружающий шум</div>
-            </div>
-            
-            <div class="setting-item">
-                <label>📊 Порог шума (0-200)</label>
-                <input type="number" id="noiseThreshold" min="10" max="200" step="5" value="60">
-                <div class="setting-hint">Выше этого значения - громкость снижается</div>
-            </div>
-            
-            <div class="setting-item">
-                <label>🔉 Громкость при шуме (%)</label>
-                <input type="number" id="reducedVolumePercent" min="0" max="100" step="5" value="30">
-                <div class="setting-hint">На сколько процентов снижать громкость (например, 30% = 30% от 100%)</div>
-            </div>
-            
-            <div class="setting-item">
-                <label>⏱️ Задержка восстановления (сек)</label>
-                <input type="number" id="restoreDelaySec" min="0.5" max="10" step="0.5" value="3">
-                <div class="setting-hint">Через сколько секунд после тишины вернуть громкость</div>
-            </div>
-            
-            <div class="setting-item full-width">
-                <div style="background: var(--bg-secondary); border-radius: 8px; padding: 10px;">
-                    <div>📊 Уровень шума: <span id="currentNoiseLevel">0</span> / <span id="thresholdDisplay">60</span></div>
-                    <div style="height: 4px; background: #333; border-radius: 2px; margin: 8px 0; overflow: hidden;">
-                        <div id="noiseMeterBar" style="width: 0%; height: 100%; background: var(--accent-color); transition: width 0.1s;"></div>
-                    </div>
-                    <div style="font-size: 12px;">
-                        🎚️ Текущая громкость: <span id="currentVolumeDisplay">100</span>%
-                    </div>
-                    <div id="volumeStatus" style="font-size: 11px; margin-top: 8px; color: var(--accent-color);"></div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-        
-        <div class="setting-item full-width">
-            <label class="checkbox-label">
-                <input type="checkbox" id="showNotificationsCheckbox" checked> 🔔 Показывать всплывающие уведомления
-            </label>
-            <div class="setting-hint">При выключении уведомления не будут отображаться, но звук может остаться</div>
-        </div>
-    </div>
-</div>
-
-        <!-- Сервисы -->
-        <div class="settings-section">
-            <div class="section-title">🎵 Музыкальные сервисы</div>
-            <div id="services-list" class="services-list"></div>
-            <button id="resetServicesBtn" class="btn-danger" style="margin-top: 12px;">🔄 Сбросить до стандартных</button>
-        </div>
-
-        <!-- Кастомные сайты -->
-        <div class="settings-section">
-            <div class="section-title">🌐 Кастомные сайты</div>
-            <div id="customSitesList" class="custom-sites-list"></div>
-            <div class="add-custom-site">
-                <input type="text" id="newSiteName" placeholder="Название">
-                <input type="url" id="newSiteUrl" placeholder="https://...">
-            </div>
-            <button id="addCustomSiteBtn" class="btn-primary add-site-btn">➕ Добавить сайт</button>
-        </div>
-
-
-<div class="settings-section">
-    <div class="section-title">🔗 Кастомные магазины плагинов</div>
-    <div class="settings-grid">
-        <div class="setting-item full-width">
-            <label>Дополнительные raw-ссылки на магазины плагинов</label>
-            <div id="customPluginStoresList" class="custom-stores-list" style="margin-bottom: 8px;">
-                <!-- Список будет генерироваться через JS -->
-            </div>
-            <div class="add-custom-store" style="display: flex; gap: 8px; margin-top: 8px;">
-                <input type="url" id="newStoreUrl" placeholder="https://raw.githubusercontent.com/..." style="flex: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary);">
-                <button id="addCustomStoreBtn" class="btn-primary" style="padding: 6px 16px;">➕ Добавить</button>
-            </div>
-            <div class="setting-hint" style="margin-top: 6px;">
-                💡 Добавьте ссылку на raw-файл plugins.json с вашими плагинами. 
-                Формат: https://raw.githubusercontent.com/пользователь/репозиторий/refs/heads/main/plugins.json
-            </div>
-        </div>
-        <div class="setting-item full-width">
-            <button id="refreshPluginStoresBtn" class="btn-secondary" style="width: 100%;">🔄 Обновить все магазины</button>
-        </div>
-    </div>
-</div>
-
-
-
-
-
-
-<!-- В секции настроек -->
-<div class="settings-section">
-    <div class="section-title">🎮 Discord Rich Presence</div>
-    <div class="settings-grid">
-        <div class="setting-item full-width">
-            <label class="checkbox-label">
-                <input type="checkbox" id="discordRPCEnabled"> 💬 Показывать статус в Discord
-            </label>
-            <div class="setting-hint">Отображает текущий трек и обложку в вашем профиле Discord</div>
-        </div>
-        <div class="setting-item full-width" id="discordRPCStatus" style="display: none;">
-            <div style="padding: 8px 12px; border-radius: 6px; background: var(--bg-secondary); font-size: 13px; color: #1DB954;">
-                ✅ Discord RPC активен
-            </div>
-        </div>
-    </div>
-</div>
-
-
-
-
-
-<div class="settings-section">
-    <div class="section-title">⌨️ Горячие клавиши</div>
-    <div class="hotkey-settings">
-        <div class="hotkey-row">
-            <label>🎮 Переключение вкладок</label>
-            <div class="hotkey-controls">
-                <input type="checkbox" id="enableTabBinding" checked>
-                <span>Вкл</span>
-                <input type="text" id="tabBindingKey" value="Ctrl+Tab" readonly>
-                <button id="changeTabBindingBtn">Изменить</button>
-                <button id="resetTabBindingBtn">Сброс</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="settings-section">
-    <div class="section-title">⌨️ Гибкие горячие клавиши</div>
-    
-    <div class="hotkey-group">
-        <!-- Play/Pause -->
-        <div class="hotkey-row">
-            <label>🎮 Play/Pause</label>
-            <div class="hotkey-controls">
-                <input type="text" id="hotkeyPlayPause" value="Ctrl+Shift+Space" readonly>
-                <button class="hotkey-change-btn" data-action="playpause">Изменить</button>
-            </div>
-        </div>
-        
-        <!-- Next -->
-        <div class="hotkey-row">
-            <label>⏭ Next</label>
-            <div class="hotkey-controls">
-                <input type="text" id="hotkeyNext" value="Ctrl+Shift+Right" readonly>
-                <button class="hotkey-change-btn" data-action="next">Изменить</button>
-            </div>
-        </div>
-        
-        <!-- Previous -->
-        <div class="hotkey-row">
-            <label>⏮ Previous</label>
-            <div class="hotkey-controls">
-                <input type="text" id="hotkeyPrev" value="Ctrl+Shift+Left" readonly>
-                <button class="hotkey-change-btn" data-action="prev">Изменить</button>
-            </div>
-        </div>
-        
-        <!-- Stop -->
-        <div class="hotkey-row">
-            <label>⏹ Stop</label>
-            <div class="hotkey-controls">
-                <input type="text" id="hotkeyStop" value="Ctrl+Shift+." readonly>
-                <button class="hotkey-change-btn" data-action="stop">Изменить</button>
-            </div>
-        </div>
-        
-        <!-- Volume Up -->
-        <div class="hotkey-row">
-            <label>🔊 Volume Up</label>
-            <div class="hotkey-controls">
-                <input type="text" id="hotkeyVolumeup" value="Ctrl+Shift+Up" readonly>
-                <button class="hotkey-change-btn" data-action="volumeup">Изменить</button>
-            </div>
-        </div>
-        
-        <!-- Volume Down -->
-        <div class="hotkey-row">
-            <label>🔉 Volume Down</label>
-            <div class="hotkey-controls">
-                <input type="text" id="hotkeyVolumedown" value="Ctrl+Shift+Down" readonly>
-                <button class="hotkey-change-btn" data-action="volumedown">Изменить</button>
-            </div>
+        <div class="settings-header-actions">
+            <input type="text" id="settingsSearch" placeholder="🔍 Поиск настроек..." class="settings-search">
+            <button class="close-btn" onclick="toggleSettings()">✕</button>
         </div>
     </div>
 
-    
-    
-    <button id="resetHotkeysBtn" class="btn-secondary" style="margin-top: 10px;">🔄 Сбросить все</button>
-</div>
-
-<div class="settings-section">
-    <div class="section-title">🖼️ Обложка трека</div>
-    <div class="setting-item full-width">
-        <button id="openArtworkLinkBtn" class="btn-primary">🌐 Открыть обложку в браузере</button>
-        <div class="setting-hint" style="font-size: 11px; margin-top: 8px;">
-            Откроется страница с текущей обложкой: 
-            <code id="artworkUrlDisplay">http://127.0.0.1:3456/</code>
-        </div>
-    </div>
-</div>
-
-<div class="setting-item" style="
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    background: rgba(255,255,255,0.03);
-    border-radius: 12px;
-    border: 1px solid var(--border-color, #333);
-    margin-bottom: 10px;
-">
-    <div style="display: flex; align-items: center; gap: 12px;">
-        <span style="font-size: 22px;">📱</span>
-        <div>
-            <div style="font-size: 14px; font-weight: 600; color: var(--text-primary, #fff);">
-                Мобильное управление
-            </div>
-            <div style="font-size: 12px; color: var(--text-secondary, #999);">
-                Управляй музыкой с телефона через QR-код
-            </div>
-        </div>
-    </div>
-    <button id="qrSettingsBtn" style="
-        background: var(--accent-color);
-        color: #000;
-        border: none;
-        border-radius: 10px;
-        padding: 8px 18px;
-        cursor: pointer;
-        font-size: 13px;
-        font-weight: 600;
-        transition: all 0.2s;
-        white-space: nowrap;
-    " onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
-        📱 Показать QR
-    </button>
-</div>
-
-        <!-- Запуск -->
-        <div class="settings-section">
-            <div class="section-title">🚀 Запуск</div>
-            <div class="settings-grid">
-                <div class="setting-item">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="startWithSystem"> Запускать с системой
-                    </label>
-                </div>
-                <div class="setting-item">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="startMinimized"> Запускать свернутым
-                    </label>
-                </div>
-            </div>
-        </div>
-    </div>
-
-<div class="settings-footer">
-    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 10px;">
-        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-            <span class="version-pill">MusicHub v3.3.0</span>
-            <button onclick="checkForUpdates()" class="version-pill" style="
-                background: rgba(29,185,84,0.12);
-                border: none;
-                color: var(--accent-color, #1DB954) !important;
-                cursor: pointer;
-                transition: all 0.25s ease;
-                font-family: inherit;
-                font-size: 11.5px;
-                font-weight: 500;
-                padding: 3px 12px;
-                border-radius: 20px;
-                display: inline-flex;
-                align-items: center;
-                gap: 4px;
-                margin-bottom: 0;
-                letter-spacing: 0.3px;
-                position: relative;
-                top: -4px;
-            " onmouseover="this.style.background='rgba(29,185,84,0.25)'" 
-               onmouseout="this.style.background='rgba(29,185,84,0.12)'">
-                Проверить обновление
+    <!-- Тело: сайдбар категорий + контент -->
+    <div class="settings-body">
+        <!-- Боковая панель категорий -->
+        <nav class="settings-nav">
+            <button class="settings-nav-item active" data-tab="appearance">
+                <span class="nav-icon">🎨</span><span class="nav-label">Внешний вид</span>
             </button>
+            <button class="settings-nav-item" data-tab="startup">
+                <span class="nav-icon">🚀</span><span class="nav-label">Запуск</span>
+            </button>
+            <button class="settings-nav-item" data-tab="audio">
+                <span class="nav-icon">🎤</span><span class="nav-label">Аудио</span>
+            </button>
+            <button class="settings-nav-item" data-tab="viz">
+                <span class="nav-icon">🎵</span><span class="nav-label">Визуализация</span>
+            </button>
+            <button class="settings-nav-item" data-tab="services">
+                <span class="nav-icon">🌐</span><span class="nav-label">Сервисы</span>
+            </button>
+            <button class="settings-nav-item" data-tab="plugins">
+                <span class="nav-icon">🔌</span><span class="nav-label">Плагины</span>
+            </button>
+            <button class="settings-nav-item" data-tab="integrations">
+                <span class="nav-icon">🔗</span><span class="nav-label">Интеграции</span>
+            </button>
+            <button class="settings-nav-item" data-tab="hotkeys">
+                <span class="nav-icon">⌨️</span><span class="nav-label">Горячие клавиши</span>
+            </button>
+            <button class="settings-nav-item" data-tab="about">
+                <span class="nav-icon">ℹ️</span><span class="nav-label">О программе</span>
+            </button>
+        </nav>
+
+        <!-- Контент -->
+        <div class="settings-content" id="settingsContent">
+
+            <!-- ============ ВНЕШНИЙ ВИД ============ -->
+            <section class="settings-tab active" data-tab="appearance">
+                <div class="settings-card">
+                    <div class="card-title">🎨 Внешний вид</div>
+                    <div class="settings-grid">
+                        <div class="setting-item">
+                            <label>Тема</label>
+                            <select id="theme-select" onchange="changeThemeWithAnimation(this.value)">
+                                <option value="dark">🌙 Тёмная</option>
+                                <option value="light">☀️ Светлая</option>
+                            </select>
+                        </div>
+                        <div class="setting-item">
+                            <label>Акцентный цвет</label>
+                            <input type="color" id="cp" onchange="changeAccentColor(this.value)" value="#1DB954">
+                        </div>
+                        <div class="setting-item">
+                            <label>Масштаб</label>
+                            <select id="zoom-select" onchange="setZoom(this.value)">
+                                <option value="0.8">80%</option>
+                                <option value="1.0" selected>100%</option>
+                                <option value="1.2">120%</option>
+                            </select>
+                        </div>
+                        <div class="setting-item">
+                            <label>Стиль кнопок окна</label>
+                            <select id="windowButtonsStyle" onchange="changeWindowButtonsStyle(this.value)">
+                                <option value="win">Windows (▢ _ ✕)</option>
+                                <option value="mac">macOS (🔴🟡🟢)</option>
+                            </select>
+                        </div>
+                        <div class="setting-item">
+                            <label>Позиция кнопок</label>
+                            <select id="windowButtonsPosition" onchange="changeWindowButtonsPosition(this.value)">
+                                <option value="right">Справа</option>
+                                <option value="left">Слева</option>
+                            </select>
+                        </div>
+                        <div class="setting-item">
+                            <label>Эффект кнопок</label>
+                            <select id="btn-effect" onchange="changeBtnEffect(this.value)">
+                                <option value="pulse">💓 Пульсация</option>
+                                <option value="glow">✨ Свечение</option>
+                                <option value="none">🚫 Нет</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-card">
+                    <div class="card-title">🌈 Цвет</div>
+                    <div class="settings-grid">
+                        <div class="setting-item full-width">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="autoColorFromArtwork"> 🎨 Авто-цвет из обложки
+                            </label>
+                            <div class="setting-hint">Акцентный цвет подстраивается под текущую обложку</div>
+                        </div>
+                        <div class="setting-item full-width">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="simpleGradientCheckbox"> 🌈 Цветной фон под обложку
+                            </label>
+                            <div class="setting-hint">Фон будет подсвечиваться цветом обложки</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-card">
+                    <div class="card-title">🔊 Звук</div>
+                    <div class="settings-grid">
+                        <div class="setting-item">
+                            <label>Звук переключения</label>
+                            <select id="sound-select" onchange="changeSound(this.value)">
+                                <option value="off">🔇 Выключен</option>
+                                <option value="beep1" selected>🔊 Короткий писк</option>
+                                <option value="beep2">🔊 Двойной писк</option>
+                                <option value="click">🔊 Щелчок</option>
+                                <option value="whoosh">🔊 Вжух</option>
+                            </select>
+                        </div>
+                        <div class="setting-item">
+                            <label>Звук уведомлений</label>
+                            <select id="notify-sound-select" onchange="changeNotifySound(this.value)">
+                                <option value="off">🔇 Выключен</option>
+                                <option value="beep1" selected>🔊 Короткий писк</option>
+                                <option value="beep2">🔊 Двойной писк</option>
+                                <option value="click">🔊 Щелчок</option>
+                                <option value="whoosh">🔊 Вжух</option>
+                            </select>
+                        </div>
+                        <div class="setting-item full-width">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="showNotificationsCheckbox" checked> 🔔 Показывать уведомления
+                            </label>
+                            <div class="setting-hint">Всплывающие уведомления о смене трека и событиях</div>
+                        </div>
+                        <div class="setting-item full-width">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="showTrayControls"> 🎛️ Кнопки управления в трее
+                            </label>
+                            <div class="setting-hint">⏮ ▶/⏸ ⏭ в системном трее Windows. Можно перетащить на панель задач.</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ ЗАПУСК ============ -->
+            <section class="settings-tab" data-tab="startup">
+                <div class="settings-card">
+                    <div class="card-title">🚀 Запуск приложения</div>
+                    <div class="settings-grid">
+                        <div class="setting-item full-width">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="startWithSystem"> Запускать с системой
+                            </label>
+                        </div>
+                        <div class="setting-item full-width">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="startMinimized"> Запускать свёрнутым
+                            </label>
+                        </div>
+                        <div class="setting-item full-width">
+                            <label>При запуске открывать</label>
+                            <select id="startupPage">
+                                <option value="last">📱 Последний сервис</option>
+                                <option value="home">🏠 Домашняя страница</option>
+                            </select>
+                            <div class="setting-hint">Домашняя страница показывает текущий трек и управление плеером</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ АУДИО ============ -->
+            <section class="settings-tab" data-tab="audio">
+                <div class="settings-card">
+                    <div class="card-title">🎤 Источник звука</div>
+                    <div class="settings-grid">
+                        <div class="setting-item full-width">
+                            <label>Режим захвата</label>
+                            <select id="audioCaptureMode">
+                                <option value="0">Классический (микрофон)</option>
+                                <option value="1">Системный звук (C# WASAPI)</option>
+                            </select>
+                            <div class="setting-hint">Классический — через выбранный микрофон. Системный — захват всего звука с компьютера.</div>
+                        </div>
+                        <div class="setting-item full-width" id="classicDeviceContainer">
+                            <label>Устройство захвата (микрофон)</label>
+                            <select id="audio-device" onchange="selectAudioDevice(this.value)">
+                                <option value="">🔇 Выключено</option>
+                            </select>
+                        </div>
+                        <div class="setting-item full-width" id="modernDeviceContainer" style="display:none;">
+                            <label>Устройство для системного звука</label>
+                            <select id="audioCaptureDevice">
+                                <option value="">Системное устройство по умолчанию</option>
+                            </select>
+                        </div>
+                        <div class="setting-item full-width">
+                            <div id="audioStatus" style="padding: 8px 12px; border-radius: 6px; background: var(--bg-secondary); font-size: 13px;">
+                                🎤 Классический режим (микрофон)
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-card">
+                    <div class="card-title">🔊 Адаптивная громкость</div>
+                    <div class="settings-grid">
+                        <div class="setting-item full-width">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="adaptiveVolumeEnabled"> Включить адаптивную громкость
+                            </label>
+                            <div class="setting-hint">При шуме выше порога громкость снижается на указанный процент</div>
+                        </div>
+
+                        <div id="adaptiveVolumeSettings" style="display: none; width: 100%;">
+                            <div class="setting-item full-width">
+                                <label>🎤 Микрофон для замера шума</label>
+                                <select id="noiseMicDevice">
+                                    <option value="">-- Выберите микрофон --</option>
+                                </select>
+                            </div>
+                            <div class="settings-grid">
+                                <div class="setting-item">
+                                    <label>📊 Порог шума (10–200)</label>
+                                    <input type="number" id="noiseThreshold" min="10" max="200" step="5" value="60">
+                                </div>
+                                <div class="setting-item">
+                                    <label>🔉 Громкость при шуме (%)</label>
+                                    <input type="number" id="reducedVolumePercent" min="0" max="100" step="5" value="30">
+                                </div>
+                                <div class="setting-item">
+                                    <label>⏱️ Задержка восстановления (сек)</label>
+                                    <input type="number" id="restoreDelaySec" min="0.5" max="10" step="0.5" value="3">
+                                </div>
+                            </div>
+                            <div class="setting-item full-width">
+                                <div class="audio-meter-box">
+                                    <div>📊 Уровень шума: <span id="currentNoiseLevel">0</span> / <span id="thresholdDisplay">60</span></div>
+                                    <div class="audio-meter-track">
+                                        <div id="noiseMeterBar"></div>
+                                    </div>
+                                    <div>🎚️ Текущая громкость: <span id="currentVolumeDisplay">100</span>%</div>
+                                    <div id="volumeStatus"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ ВИЗУАЛИЗАЦИЯ ============ -->
+            <section class="settings-tab" data-tab="viz">
+                <div class="settings-card">
+                    <div class="card-title">🎵 Визуализация</div>
+                    <div class="settings-grid">
+                        <div class="setting-item full-width">
+                            <label>Режим визуализации</label>
+                            <select id="viz-mode" onchange="changeVizMode(this.value)">
+                                <option value="bars">📊 Полоски</option>
+                                <option value="wave">🌊 Волна</option>
+                                <option value="circle">⭕ Круг</option>
+                                <option value="dots">🔴 Точки</option>
+                                <option value="particles">✨ Частицы</option>
+                                <option value="radial">🎯 Радиальный</option>
+                                <option value="galaxy">🌌 Галактика</option>
+                                <option value="aurora">🎆 Северное сияние</option>
+                                <option value="vortex">🌀 Вихрь</option>
+                                <option value="starburst">⭐ Звездный взрыв</option>
+                                <option value="gif">🎞️ GIF анимация</option>
+                            </select>
+                        </div>
+                        <div class="setting-item full-width">
+                            <label>Чувствительность</label>
+                            <input type="range" id="viz-sensitivity" min="0.1" max="3" step="0.1" value="1" onchange="setSensitivity(this.value)">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-card">
+                    <div class="card-title">🎞️ GIF анимация</div>
+                    <div class="settings-grid">
+                        <div class="setting-item full-width">
+                            <div class="gif-controls">
+                                <input type="file" id="gifFileInput" accept="image/gif">
+                                <button id="previewGifBtn" class="btn-secondary">👁️ Предпросмотр</button>
+                                <button id="clearGifBtn" class="btn-danger">✕ Удалить</button>
+                            </div>
+                            <div id="gifPreview" class="gif-preview" style="display: none;">
+                                <img id="gifPreviewImg">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ СЕРВИСЫ ============ -->
+            <section class="settings-tab" data-tab="services">
+                <div class="settings-card">
+                    <div class="card-title">🎵 Музыкальные сервисы</div>
+                    <div id="services-list" class="services-list"></div>
+                    <button id="resetServicesBtn" class="btn-danger" style="margin-top: 12px;">🔄 Сбросить до стандартных</button>
+                </div>
+
+                <div class="settings-card">
+                    <div class="card-title">🌐 Кастомные сайты</div>
+                    <div id="customSitesList" class="custom-sites-list"></div>
+                    <div class="add-custom-site">
+                        <input type="text" id="newSiteName" placeholder="Название">
+                        <input type="url" id="newSiteUrl" placeholder="https://...">
+                    </div>
+                    <button id="addCustomSiteBtn" class="btn-primary add-site-btn">➕ Добавить сайт</button>
+                </div>
+            </section>
+
+            <!-- ============ ПЛАГИНЫ ============ -->
+            <section class="settings-tab" data-tab="plugins">
+                <div class="settings-card">
+                    <div class="card-title">🔌 Магазины плагинов</div>
+                    <div class="settings-grid">
+                        <div class="setting-item full-width">
+                            <div id="customPluginStoresList" class="custom-stores-list"></div>
+                            <div class="add-custom-store">
+                                <input type="url" id="newStoreUrl" placeholder="https://raw.githubusercontent.com/...">
+                                <button id="addCustomStoreBtn" class="btn-primary">➕ Добавить</button>
+                            </div>
+                            <div class="setting-hint">
+                                💡 Добавьте raw-ссылку на plugins.json с вашими плагинами.<br>
+                                Формат: <code>https://raw.githubusercontent.com/пользователь/репозиторий/refs/heads/main/plugins.json</code>
+                            </div>
+                        </div>
+                        <div class="setting-item full-width">
+                            <button id="refreshPluginStoresBtn" class="btn-secondary" style="width: 100%;">🔄 Обновить все магазины</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ ИНТЕГРАЦИИ ============ -->
+            <section class="settings-tab" data-tab="integrations">
+                <div class="settings-card">
+                    <div class="card-title">🎮 Discord Rich Presence</div>
+                    <div class="settings-grid">
+                        <div class="setting-item full-width">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="discordRPCEnabled"> 💬 Показывать статус в Discord
+                            </label>
+                            <div class="setting-hint">Отображает текущий трек и обложку в вашем профиле Discord</div>
+                        </div>
+                        <div class="setting-item full-width" id="discordRPCStatus" style="display: none;">
+                            <div style="padding: 8px 12px; border-radius: 6px; background: var(--bg-secondary); font-size: 13px; color: #1DB954;">
+                                ✅ Discord RPC активен
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-card">
+                    <div class="card-title">📱 Мобильное управление</div>
+                    <div class="settings-grid">
+                        <div class="setting-item full-width">
+                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                                <div>
+                                    <div style="font-size: 13px; font-weight: 600;">Управление с телефона</div>
+                                    <div class="setting-hint">Открой QR-код и управляй музыкой с телефона в одной Wi-Fi сети</div>
+                                </div>
+                                <button id="qrSettingsBtn" class="btn-primary">📱 Показать QR</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-card">
+                    <div class="card-title">🖼️ Обложка трека</div>
+                    <div class="settings-grid">
+                        <div class="setting-item full-width">
+                            <button id="openArtworkLinkBtn" class="btn-primary">🌐 Открыть обложку в браузере</button>
+                            <div class="setting-hint">
+                                Откроется страница с текущей обложкой: <code id="artworkUrlDisplay">http://127.0.0.1:3456/</code>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ ГОРЯЧИЕ КЛАВИШИ ============ -->
+            <section class="settings-tab" data-tab="hotkeys">
+                <div class="settings-card">
+                    <div class="card-title">🎮 Переключение вкладок</div>
+                    <div class="hotkey-settings">
+                        <div class="hotkey-row">
+                            <label>Переключение вкладок</label>
+                            <div class="hotkey-controls">
+                                <input type="checkbox" id="enableTabBinding" checked>
+                                <span>Вкл</span>
+                                <input type="text" id="tabBindingKey" value="Ctrl+Tab" readonly>
+                                <button id="changeTabBindingBtn">Изменить</button>
+                                <button id="resetTabBindingBtn">Сброс</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-card">
+                    <div class="card-title">⌨️ Управление плеером</div>
+                    <div class="hotkey-group">
+                        <div class="hotkey-row">
+                            <label>🎮 Play/Pause</label>
+                            <div class="hotkey-controls">
+                                <input type="text" id="hotkeyPlayPause" value="Ctrl+Shift+Space" readonly>
+                                <button class="hotkey-change-btn" data-action="playpause">Изменить</button>
+                            </div>
+                        </div>
+                        <div class="hotkey-row">
+                            <label>⏭ Next</label>
+                            <div class="hotkey-controls">
+                                <input type="text" id="hotkeyNext" value="Ctrl+Shift+Right" readonly>
+                                <button class="hotkey-change-btn" data-action="next">Изменить</button>
+                            </div>
+                        </div>
+                        <div class="hotkey-row">
+                            <label>⏮ Previous</label>
+                            <div class="hotkey-controls">
+                                <input type="text" id="hotkeyPrev" value="Ctrl+Shift+Left" readonly>
+                                <button class="hotkey-change-btn" data-action="prev">Изменить</button>
+                            </div>
+                        </div>
+                        <div class="hotkey-row">
+                            <label>⏹ Stop</label>
+                            <div class="hotkey-controls">
+                                <input type="text" id="hotkeyStop" value="Ctrl+Shift+." readonly>
+                                <button class="hotkey-change-btn" data-action="stop">Изменить</button>
+                            </div>
+                        </div>
+                        <div class="hotkey-row">
+                            <label>🔊 Volume Up</label>
+                            <div class="hotkey-controls">
+                                <input type="text" id="hotkeyVolumeup" value="Ctrl+Shift+Up" readonly>
+                                <button class="hotkey-change-btn" data-action="volumeup">Изменить</button>
+                            </div>
+                        </div>
+                        <div class="hotkey-row">
+                            <label>🔉 Volume Down</label>
+                            <div class="hotkey-controls">
+                                <input type="text" id="hotkeyVolumedown" value="Ctrl+Shift+Down" readonly>
+                                <button class="hotkey-change-btn" data-action="volumedown">Изменить</button>
+                            </div>
+                        </div>
+                    </div>
+                    <button id="resetHotkeysBtn" class="btn-secondary" style="margin-top: 12px; width: 100%;">🔄 Сбросить все</button>
+                </div>
+            </section>
+
+            <!-- ============ О ПРОГРАММЕ ============ -->
+            <section class="settings-tab" data-tab="about">
+
+                <div class="settings-card">
+    <div class="card-title">💾 Резервная копия настроек</div>
+    <div class="settings-grid">
+        <div class="setting-item full-width">
+            <div class="backup-actions">
+                <button id="exportSettingsBtn" class="btn-primary">
+                    ⬇️ Экспорт настроек
+                </button>
+                <button id="importSettingsBtn" class="btn-secondary">
+                    ⬆️ Импорт настроек
+                </button>
+                <input type="file" id="importSettingsFile" accept=".json,application/json" style="display: none;">
+            </div>
+            <div class="setting-hint">
+                Экспорт сохраняет все настройки в JSON-файл. Импорт восстанавливает их из файла.
+                <br>⚠️ При импорте настройки <b>перезапишут</b> текущие и приложение перезагрузится.
+            </div>
         </div>
-        <a href="#" id="githubFooterLink" style="color: var(--accent-color); text-decoration: none; font-size: 32px; line-height: 1;">
-            <i class="fa fa-github"></i>
-        </a>
     </div>
-    <div class="copyright" style="text-align: left; margin-top: 6px; font-size: 11px; color: var(--text-secondary, #666);">© 2026 MusicHub Labs | Made with Mamba1230</div>
 </div>
+
+                <div class="settings-card">
+                    <div class="card-title">ℹ️ О MusicHub</div>
+                    <div class="about-info">
+                        <div class="about-row">
+    <span>Версия</span>
+    <b id="easterEggVersion" class="easter-egg-version">3.3.5</b>
+</div>
+                        <div class="about-row"><span>Разработчик</span><b>Mamba1230</b></div>
+                        <div class="about-row"><span>GitHub</span>
+                            <a href="#" id="githubFooterLink" style="color: var(--accent-color);">
+                                <i class="fa fa-github"></i> Mamba1230/MusicHub
+                            </a>
+                        </div>
+                    </div>
+                    <button onclick="window.forceCheckUpdates && window.forceCheckUpdates()" class="btn-secondary" style="width: 100%; margin-top: 12px;">
+                    🔄 Проверить обновления
+                    </button>
+                </div>
+
+            </section>
+
+        </div>
+    </div>
 </div>
     
 

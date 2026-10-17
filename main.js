@@ -1,4 +1,4 @@
-// main.js - ПОЛНАЯ ВЕРСИЯ
+// main.js
 
 const { app, BrowserWindow, session, ipcMain, Tray, Menu, globalShortcut, shell, nativeImage } = require('electron');
 
@@ -23,6 +23,8 @@ let authProcess = null;
 let authRestartCount = 0;
 const MAX_RESTARTS = 5;
 
+const APP_VERSION = '3.3.5';
+
 // Константы
 const CHROME_STORE_API = 'https://clients2.google.com/service/update2/crx';
 const EXTENSIONS_DB = path.join(app.getPath('userData'), 'extensions_db.json');
@@ -40,7 +42,7 @@ let ext;
 let httpServer = null;
 let currentArtworkBase64 = null;
 let currentTrackInfo = { title: '', artist: '' };
-
+let currentAccentColor = '#1DB954';
 
 
 
@@ -61,7 +63,8 @@ let currentMobileStatus = {
     volume: 0.5,
     progress: 0,
     duration: 0,
-    service: ''
+    service: '',
+    accentColor: '#1DB954'
 };
 
 
@@ -460,9 +463,9 @@ function updateDiscordPresence(trackInfo) {
 const presence = {
     details: title,
     state: artist || 'Ожидание',
-    startTimestamp: Date.now(),
+    startTimestamp: Date.now(),е,
     largeImageKey: 'musichub_icon',
-    largeImageText: 'MusicHub v3.3.0',
+    largeImageText: `MusicHub v${APP_VERSION}`,
     buttons: [
         {
             label: '🎵 MusicHub',
@@ -1052,7 +1055,22 @@ function startMobileServerInternal() {
     const ws = new WebSocket.Server({ server });
     mobileWs = ws;
 
-    app.use(express.static(path.join(__dirname, 'mobile')));
+        // ЗАПРЕТ КЭШИРОВАНИЯ
+    app.use((req, res, next) => {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        next();
+    });
+
+
+    app.use(express.static(path.join(__dirname, 'mobile'), {
+    setHeaders: (res, path) => {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+    }
+    }));
 
     app.get('/api/status', (req, res) => {
         res.json(currentMobileStatus);
@@ -1093,17 +1111,25 @@ function startMobileServerInternal() {
         res.json({ success: true });
     });
 
-    ws.on('connection', (client) => {
-        console.log('📱 Мобильный клиент подключён');
-        client.send(JSON.stringify({
-            type: 'status',
-            data: currentMobileStatus
-        }));
+ws.on('connection', (client) => {
+    console.log('📱 Мобильный клиент подключён');
+    
+    // Отправляем статус
+    client.send(JSON.stringify({
+        type: 'status',
+        data: currentMobileStatus
+    }));
 
-        client.on('close', () => {
-            console.log('📱 Мобильный клиент отключён');
-        });
+    // Отправляем цвет ИЗ ОБЪЕКТА (он всегда существует)
+    client.send(JSON.stringify({
+        type: 'accent_color',
+        color: currentMobileStatus.accentColor || '#1DB954'
+    }));
+
+    client.on('close', () => {
+        console.log('📱 Мобильный клиент отключён');
     });
+});
 
     const PORT = 3457;
     server.listen(PORT, '0.0.0.0', () => {
@@ -1123,10 +1149,7 @@ function startMobileServerInternal() {
 function broadcastMobileStatus() {
     if (!mobileWs) return;
 
-    // === НЕ ОТПРАВЛЯЕМ ПУСТЫЕ ДАННЫЕ ===
-    // Если нет названия — пропускаем отправку
     if (!currentMobileStatus.title || currentMobileStatus.title === 'Не играет' || currentMobileStatus.title === 'null') {
-        // Можно пропустить, чтобы не затирать
         return;
     }
 
@@ -1137,6 +1160,9 @@ function broadcastMobileStatus() {
 
     mobileWs.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
+            // Логируем, с какого IP пришёл клиент
+            const clientIp = client._socket?.remoteAddress || 'unknown';
+            console.log(`📤 [WebSocket] Отправка статуса клиенту ${clientIp}. Цвет: ${currentMobileStatus.accentColor}`);
             client.send(data);
         }
     });
@@ -1295,6 +1321,27 @@ ipcMain.on('mobile-update-status', (event, status) => {
 // ============================================================
 
 ipcMain.on('send-mobile-status', (event, status) => {
+    // Если пришёл цвет — сохраняем в объект и шлём всем
+    if (status.accentColor && status.accentColor !== 'null' && status.accentColor !== 'undefined') {
+        
+        // Обновляем цвет в объекте статуса
+        if (currentMobileStatus.accentColor !== status.accentColor) {
+            currentMobileStatus.accentColor = status.accentColor;
+            
+            if (mobileWs) {
+                const colorMsg = JSON.stringify({ 
+                    type: 'accent_color', 
+                    color: currentMobileStatus.accentColor 
+                });
+                mobileWs.clients.forEach(client => {
+                    if (client.readyState === WebSocket.OPEN) {
+                        client.send(colorMsg);
+                    }
+                });
+            }
+        }
+    }
+    
     // То же самое, что и mobile-update-status
     if (status.title !== undefined && status.title !== 'null' && status.title !== '') {
         currentMobileStatus.title = status.title;
@@ -1329,6 +1376,23 @@ ipcMain.on('send-mobile-status', (event, status) => {
     if (status.progress !== undefined) {
         broadcastProgressToMobile(status.progress);
     }
+    if (status.accentColor && status.accentColor !== currentAccentColor) {
+        currentAccentColor = status.accentColor;
+        
+        // Шлём всем WebSocket-клиентам
+        if (mobileWs) {
+            const colorMsg = JSON.stringify({ 
+                type: 'accent_color', 
+                color: currentAccentColor 
+            });
+            mobileWs.clients.forEach(client => {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(colorMsg);
+                }
+            });
+            console.log(`🎨 Отправлен accentColor: ${currentAccentColor}`);
+        }
+    }
 });
 
 // ============================================================
@@ -1337,16 +1401,15 @@ ipcMain.on('send-mobile-status', (event, status) => {
 
 if (mobileWs) {
     mobileWs.on('connection', (client) => {
-        client.on('message', (message) => {
-            try {
-                const data = JSON.parse(message);
-                if (data.command === 'sync_status') {
-                    // Клиент запросил синхронизацию
-                    client.send(JSON.stringify({
-                        type: 'status',
-                        data: currentMobileStatus
-                    }));
-                }
+    client.on('message', (message) => {
+        try {
+            const data = JSON.parse(message);
+            if (data.command === 'get_accent_color') {
+                client.send(JSON.stringify({
+                    type: 'accent_color',
+                    color: currentAccentColor
+                }));
+            }
             } catch (e) {
                 console.error('Ошибка обработки сообщения от мобильного клиента:', e);
             }
@@ -3246,8 +3309,8 @@ function createWindow() {
         height: config.height,
         x: config.x, 
         y: config.y,
-        minWidth: 500, 
-        minHeight: 400,
+        minWidth: 550, 
+        minHeight: 510,
         backgroundColor: '#000000',
         frame: false,
         show: false,
@@ -3354,18 +3417,36 @@ win.on('close', (e) => {
 
 
 // ========== ПОЛУЧЕНИЕ УСТРОЙСТВ ДЛЯ C# ==========
+ipcMain.handle('set-always-on-top', (event, flag) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { success: false };
+
+    if (flag) {
+        // 'screen-saver' — самый высокий уровень, поверх полноэкранных приложений
+        win.setAlwaysOnTop(true, 'screen-saver');
+        win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    } else {
+        win.setAlwaysOnTop(false);
+        win.setVisibleOnAllWorkspaces(false);
+    }
+
+    console.log(`📌 Always-on-top: ${flag}`);
+    return { success: true };
+});
+
 ipcMain.handle('get-audio-devices', async () => {
     try {
-        const response = await fetch('http://localhost:9876/audio-devices', {
-            method: 'GET',
-            signal: AbortSignal.timeout(2000)
-        });
-        if (response.ok) {
-            return await response.json();
+        // Если у вас есть внешний exe/сервер, который отдаёт устройства — используем его.
+        // Пример: HTTP-запрос к локальному серверу VolumeController/CaptureServer
+        const response = await fetch('http://localhost:9876/audio-devices');
+        if (!response.ok) {
+            console.warn('⚠️ Сервер устройств ответил:', response.status);
+            return [];
         }
-        return [];
-    } catch (error) {
-        console.error('Ошибка получения устройств:', error);
+        const devices = await response.json();
+        return devices || [];
+    } catch (err) {
+        console.error('❌ get-audio-devices:', err.message);
         return [];
     }
 });
@@ -3510,7 +3591,7 @@ app.whenReady().then(() => {
                 setTimeout(() => {
                     if (rpc) {
                         rpc.setActivity({
-                            details: 'MusicHub v3.3.0',
+                            details: `MusicHub v${APP_VERSION}`,
                             state: 'Слушаю музыку 🎵',
                             largeImageKey: 'spotify',
                             largeImageText: 'MusicHub'

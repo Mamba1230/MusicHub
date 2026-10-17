@@ -1,6 +1,6 @@
 {
   "name": "musichub",
-  "version": "3.3.0",
+  "version": "3.3.5",
   "description": "MusicHub - десктопный музыкальный плеер-агрегатор",
   "author": "Mamba1230",
   "main": "main.js",
@@ -93,10 +93,6 @@
       {
         "from": "NAudio.WinMM.dll",
         "to": "NAudio.WinMM.dll"
-      },
-      {
-        "from": "VolumeController.pdb",
-        "to": "VolumeController.pdb"
       },
       {
         "from": "VolumeController.runtimeconfig.json",

@@ -79,6 +79,18 @@ window.testStartupPage = function(page) {
     }, 500);
 };
 
+
+// ============================================================
+// ЕДИНАЯ ВЕРСИЯ ПРИЛОЖЕНИЯ
+// ============================================================
+const APP_VERSION = '3.3.5';
+
+// Пробрасываем глобально, чтобы любой скрипт мог взять
+window.APP_VERSION = APP_VERSION;
+
+// Записываем в localStorage — нужно для экспорта настроек и т.п.
+localStorage.setItem('appVersion', APP_VERSION);
+
 // Проверка при загрузке
 console.log('📋 Текущая startupPage в localStorage:', localStorage.getItem('startupPage'));
 
@@ -100,6 +112,13 @@ window.debugBindings = function() {
         });
         console.log('✅ Отправлено в main');
     }
+};
+
+window.ignoreOutsideClick = false;
+
+window.markInternalClick = function() {
+    window.ignoreOutsideClick = true;
+    setTimeout(() => { window.ignoreOutsideClick = false; }, 400);
 };
 
 // Вызов через 2 секунды после загрузки
@@ -812,19 +831,6 @@ function hasFeature(feature) {
     return freeFeatures[feature] === true;
 }
 
-function updatePremiumUI() {
-    const isPremium = premiumStatus?.isPremium || true; // По умолчанию true для гостя
-    
-    if (isPremium) {
-        premiumStatusDiv.innerHTML = `⭐ Premium активен (Гостевой режим)`;
-        premiumStatusDiv.style.color = 'gold';
-    } else {
-        premiumStatusDiv.innerHTML = `🎵 Бесплатная версия`;
-    }
-    
-    // Убрать кнопку выхода
-    document.getElementById('logoutHeaderBtn')?.remove();
-}
 
 function closePremiumModal() {
     document.getElementById('premiumModal').style.display = 'none';
@@ -2372,14 +2378,47 @@ function changeVizMode(mode) {
             localStorage.setItem('vizSensitivity', value);
         }
 
-let savedBounds = null;
-
 function toggleMini(btn) {
     const isActive = btn.classList.toggle('active-util');
-    console.log('📱 toggleMini вызвана, состояние:', isActive);
-    window.electronAPI.toggleMini(isActive);
-    showToast(isActive ? '📱 Мини-режим' : '🖥️ Полный режим', 'info');
+    console.log('📌 Always-on-top:', isActive);
+
+    // Вызываем новый метод (см. шаг 2)
+    if (window.electronAPI && window.electronAPI.setAlwaysOnTop) {
+        window.electronAPI.setAlwaysOnTop(isActive);
+    } else {
+        // Fallback: если main ещё не обновлён
+        window.electronAPI.toggleMini(isActive);
+    }
+
+    // Меняем иконку/тултип
+    btn.textContent = isActive ? '📌' : '📌';
+    btn.title = isActive ? 'Окно поверх всех (вкл)' : 'Закрепить поверх окон';
+
+    localStorage.setItem('alwaysOnTop', isActive ? 'true' : 'false');
+
+    showToast(
+        isActive ? '📌 Окно закреплено поверх других' : '🖥️ Обычный режим',
+        'info'
+    );
 }
+
+// Восстановление состояния при старте
+function initAlwaysOnTop() {
+    const btn = document.getElementById('miniBtn');
+    if (!btn) return;
+
+    const saved = localStorage.getItem('alwaysOnTop') === 'true';
+    if (saved) {
+        btn.classList.add('active-util');
+        btn.textContent = '📌';
+        btn.title = 'Окно поверх всех (вкл)';
+        window.electronAPI?.setAlwaysOnTop?.(true);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(initAlwaysOnTop, 800);
+});
 
 function toggleSettings() {
     const settings = document.getElementById('settings-panel');
@@ -4886,42 +4925,58 @@ function checkPluginInstalled(pluginId) {
 
 async function loadPluginsList() {
     const container = document.getElementById('extensionsList');
+    const badge = document.getElementById('pluginCountBadge');
     if (!container) return;
     
     try {
         const plugins = await window.electronAPI.getPlugins();
         pluginsList = plugins || [];
         
+        // Обновляем счётчик
+        if (badge) {
+            badge.textContent = pluginsList.length;
+            badge.style.display = pluginsList.length > 0 ? 'inline-block' : 'none';
+        }
+        
         if (!plugins || plugins.length === 0) {
             container.innerHTML = `
-                <div class="empty-plugins">
-                    <span class="empty-icon">🔌</span>
-                    Нет установленных плагинов<br>
-                    <span style="font-size: 11px; color: #666;">Нажмите "Магазин плагинов" чтобы установить</span>
+                <div class="ext-empty">
+                    <div class="ext-empty-icon">📦</div>
+                    <div class="ext-empty-text">Нет установленных плагинов</div>
+                    <div class="ext-empty-hint">Откройте магазин, чтобы установить</div>
                 </div>
             `;
             return;
         }
         
-        container.innerHTML = plugins.map(p => `
-            <div class="extension-item" data-id="${p.id}">
-                <div class="extension-icon">${p.icon ? `<img src="file://${p.icon}" style="width:100%;height:100%;object-fit:cover;border-radius:4px;">` : '🧩'}</div>
-                <div class="extension-info">
-                    <div class="extension-name">
-                        ${p.name}
-                        <span class="extension-version">v${p.version}</span>
+        container.innerHTML = plugins.map(p => {
+            const iconHtml = p.icon
+                ? `<img src="file://${p.icon}" onerror="this.parentElement.textContent='🧩'">`
+                : '🧩';
+            
+            return `
+                <div class="extension-item" data-id="${p.id}" title="${p.description || p.name}">
+                    <div class="extension-icon">${iconHtml}</div>
+                    <div class="extension-info">
+                        <div class="extension-name">
+                            ${escapeHtml(p.name)}
+                            <span class="extension-version">v${p.version}</span>
+                        </div>
+                        ${p.description ? `<div class="extension-desc">${escapeHtml(p.description)}</div>` : ''}
                     </div>
-                    ${p.description ? `<div class="extension-desc">${p.description}</div>` : ''}
+                    <div class="extension-actions">
+                        <button class="extension-btn delete" data-delete-id="${p.id}" title="Удалить">🗑️</button>
+                    </div>
                 </div>
-                <button class="extension-delete" data-id="${p.id}" title="Удалить плагин">🗑️</button>
-            </div>
-        `).join('');
+            `;
+        }).join('');
         
-        container.querySelectorAll('.extension-delete').forEach(btn => {
+        // Обработчик удаления
+        container.querySelectorAll('[data-delete-id]').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
-                const id = btn.dataset.id;
-                const plugin = plugins.find(p => p.id === id);
+                const id = btn.dataset.deleteId;
+                const plugin = pluginsList.find(p => p.id === id);
                 if (!confirm(`Удалить плагин "${plugin?.name || id}"?`)) return;
                 
                 try {
@@ -4934,14 +4989,15 @@ async function loadPluginsList() {
             });
         });
         
+        // Клик по плагину — открыть попап
         container.querySelectorAll('.extension-item').forEach(item => {
             item.addEventListener('click', async (e) => {
-                if (e.target.closest('.extension-delete')) return;
+                if (e.target.closest('.extension-actions')) return;
                 const id = item.dataset.id;
                 try {
                     await window.electronAPI.openPluginPopup(id);
                 } catch (err) {
-                    ('❌ ' + err.message, 'error');
+                    showToast('❌ ' + err.message, 'error');
                 }
             });
         });
@@ -4949,10 +5005,10 @@ async function loadPluginsList() {
     } catch (err) {
         console.error('Ошибка загрузки плагинов:', err);
         container.innerHTML = `
-            <div class="empty-plugins" style="color: #ff6666;">
-                <span class="empty-icon">❌</span>
-                Ошибка загрузки плагинов<br>
-                <span style="font-size: 11px; color: #666;">${err.message}</span>
+            <div class="ext-empty">
+                <div class="ext-empty-icon">❌</div>
+                <div class="ext-empty-text">Ошибка загрузки</div>
+                <div class="ext-empty-hint">${escapeHtml(err.message)}</div>
             </div>
         `;
     }
@@ -5127,44 +5183,14 @@ function broadcastStatusToPlugins() {
 // ============================================================
 
 document.addEventListener('DOMContentLoaded', () => {
-    // === КНОПКА ОТКРЫТИЯ ПАНЕЛИ ===
-    const extBtn = document.getElementById('extensionsPanelBtn');
-    const panel = document.getElementById('extensionsPanel');
-    const closeBtn = document.getElementById('closeExtensionsPanelBtn');
-    
-    if (extBtn && panel) {
-        extBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            panel.classList.toggle('show');
-            if (panel.classList.contains('show')) {
-                panel.style.display = 'block';
-                loadPluginsList();
-            } else {
-                panel.style.display = 'none';
-            }
-        });
-        
-        if (closeBtn) {
-            closeBtn.addEventListener('click', () => {
-                panel.classList.remove('show');
-                panel.style.display = 'none';
-            });
-        }
-        
-        document.addEventListener('click', (e) => {
-            if (panel.classList.contains('show') && 
-                !panel.contains(e.target) && 
-                e.target !== extBtn) {
-                panel.classList.remove('show');
-                panel.style.display = 'none';
-            }
-        });
-    }
-    
     // === КНОПКА МАГАЗИНА ===
     const storeBtn = document.getElementById('pluginStoreBtn');
     if (storeBtn) {
-        storeBtn.addEventListener('click', () => {
+        storeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (window.markInternalClick) window.markInternalClick();
+            
+            const panel = document.getElementById('extensionsPanel');
             if (panel) {
                 panel.classList.remove('show');
                 panel.style.display = 'none';
@@ -5189,6 +5215,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         showToast('🔄 Магазины обновлены!', 'success');
     });
+
+    document.getElementById('refreshPluginsBtn')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (window.markInternalClick) window.markInternalClick();
+        showToast('🔄 Обновляю список...', 'info');
+        await loadPluginsList();
+    });
+
 });
 
 // === ЗАПУСК ОТПРАВКИ СТАТУСА ===
@@ -5305,7 +5339,6 @@ console.log('🛒 Магазин плагинов готов! Команда: op
 
          
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 MusicHub v3.3.0');
     particleBackground = new ParticleBackground();
     loadSettings();
     loadCustomSites();  
@@ -5321,7 +5354,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initTitlebarEqualizer();
     await checkPremiumStatus();
     document.body.addEventListener('click', createGlobalRipple);
-    showToast('🎵 Добро пожаловать в MusicHub! 3.3.0', 'success');
+    showToast(`🎵 Добро пожаловать в MusicHub! ${APP_VERSION}`, 'success');
     
     const chatBtn = document.getElementById('chatBtn');
     if (chatBtn) {
@@ -6024,175 +6057,7 @@ if (originalSw) {
 document.addEventListener('DOMContentLoaded', () => {
     setTimeout(initUrlTracking, 1000);
 });
-// ---------- Панель расширений ----------
-(function() {
-    const extBtn = document.getElementById('extensionsPanelBtn');
-    const panel = document.getElementById('extensionsPanel');
-    const closePanelBtn = document.getElementById('closeExtensionsPanelBtn');
-    const installBtn = document.getElementById('installExtensionBtn');
-    
-    if (!extBtn || !panel) {
-        console.warn('Элементы панели расширений не найдены');
-        return;
-    }
-    
-    function togglePanel() {
-        const isVisible = panel.classList.contains('show');
-        if (isVisible) {
-            panel.classList.remove('show');
-            setTimeout(() => { panel.style.display = 'none'; }, 200);
-        } else {
-            panel.style.display = 'block';
-            setTimeout(() => panel.classList.add('show'), 10);
-            loadExtensionsList();
-        }
-    }
-    
-    function closePanel() {
-        panel.classList.remove('show');
-        setTimeout(() => { panel.style.display = 'none'; }, 200);
-    }
-    
-    async function loadExtensionsList() {
-        const listContainer = document.getElementById('extensionsList');
-        if (!listContainer) return;
-        try {
-            const extensions = await window.electronAPI.getExtensions();
-            if (!extensions.length) {
-                listContainer.innerHTML = '<div style="padding: 12px; text-align: center; opacity: 0.6;">Нет установленных расширений</div>';
-                return;
-            }
-            listContainer.innerHTML = extensions.map(ext => `
-                <div class="extension-item" data-id="${ext.id}">
-                    ${ext.icon ? `<img class="extension-icon" src="file://${ext.icon}" onerror="this.style.display='none'">` : '<div class="extension-icon" style="background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center;">🧩</div>'}
-                    <span class="extension-name" title="${ext.name}">${ext.name}</span>
-                    <button class="extension-delete" data-id="${ext.id}" title="Удалить">🗑️</button>
-                </div>
-            `).join('');
-            
-            // Обработчики удаления
-            document.querySelectorAll('.extension-delete').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const extId = btn.dataset.id;
-                    if (confirm(`Удалить расширение "${extId}"?`)) {
-                        await window.electronAPI.uninstallExtension(extId);
-                        loadExtensionsList();
-                    }
-                });
-            });
-            
-            // Обработчики клика по расширению (можно открыть попап)
-            document.querySelectorAll('.extension-item').forEach(item => {
-item.addEventListener('click', async (e) => {
-    if (e.target.classList.contains('extension-delete')) return;
-    const extId = item.dataset.id;
-    try {
-        await window.electronAPI.openExtensionPopup(extId);
-    } catch (err) {
-        showToast('Ошибка открытия: ' + err.message, 'error');
-    }
-});
-            });
-        } catch (err) {
-            console.error('Ошибка загрузки расширений:', err);
-            listContainer.innerHTML = '<div style="padding: 12px; text-align: center; color: #ff8888;">Ошибка загрузки</div>';
-        }
-    }
-    
-    async function installExtensionFlow() {
-    const choice = confirm('Установить расширение?    99% не будут работать.\n\n"OK" — ввести ID из Chrome Web Store\n"Отмена" — выбрать папку с расширением');
-    if (choice) {
-        // Показываем модальное окно для ввода ID
-        const modal = document.getElementById('extensionIdModal');
-        const input = document.getElementById('extensionIdInputField');
-        const okBtn = document.getElementById('extIdOkBtn');
-        const cancelBtn = document.getElementById('extIdCancelBtn');
-        
-        modal.style.display = 'flex';
-        input.value = '';
-        
-        const onOk = async () => {
-            const extId = input.value.trim();
-            modal.style.display = 'none';
-            if (!extId) return;
-            
-            const statusDiv = document.getElementById('extensionInstallStatus') || (() => {
-                const div = document.createElement('div');
-                div.id = 'extensionInstallStatus';
-                div.style.position = 'fixed';
-                div.style.bottom = '20px';
-                div.style.right = '20px';
-                div.style.background = 'rgba(0,0,0,0.8)';
-                div.style.color = '#fff';
-                div.style.padding = '8px 16px';
-                div.style.borderRadius = '8px';
-                div.style.zIndex = '10002';
-                document.body.appendChild(div);
-                return div;
-            })();
-            statusDiv.style.display = 'block';
-            statusDiv.innerHTML = '⏳ Установка...';
-            try {
-                const result = await window.electronAPI.installFromChrome(extId);
-                if (result.success) {
-                    statusDiv.innerHTML = '✅ Установлено! Перезагрузите приложение.';
-                    setTimeout(() => statusDiv.style.display = 'none', 3000);
-                    loadExtensionsList();
-                } else {
-                    statusDiv.innerHTML = `❌ ${result.error}`;
-                }
-            } catch(e) {
-                statusDiv.innerHTML = `❌ ${e.message}`;
-            }
-            clean();
-        };
-        
-        const onCancel = () => {
-            modal.style.display = 'none';
-            clean();
-        };
-        
-        const clean = () => {
-            okBtn.removeEventListener('click', onOk);
-            cancelBtn.removeEventListener('click', onCancel);
-        };
-        
-        okBtn.addEventListener('click', onOk);
-        cancelBtn.addEventListener('click', onCancel);
-        
-    } else {
-        // Установка из папки
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.webkitdirectory = true;
-        input.onchange = async (e) => {
-            const path = e.target.files[0]?.path;
-            if (path) {
-                const result = await window.electronAPI.installExtension(path);
-                if (result.success) {
-                    showToast('✅ Расширение установлено!', 'success');
-                    loadExtensionsList();
-                } else {
-                    showToast('❌ Ошибка: ' + result.error, 'error');
-                }
-            }
-        };
-        input.click();
-    }
-}
-    
-    extBtn.addEventListener('click', togglePanel);
-    if (closePanelBtn) closePanelBtn.addEventListener('click', closePanel);
-    if (installBtn) installBtn.addEventListener('click', installExtensionFlow);
-    
-    // Закрыть при клике вне панели
-    document.addEventListener('click', (e) => {
-        if (panel.classList.contains('show') && !panel.contains(e.target) && e.target !== extBtn) {
-            closePanel();
-        }
-    });
-})();
+
 
 
 
@@ -6314,7 +6179,7 @@ async function pollCurrentTrack() {
                     console.log('🖼️ Есть обложка, длина base64:', mediaInfo.artwork_base64.length);
                     const artworkUrl = `data:image/jpeg;base64,${mediaInfo.artwork_base64}`;
                     updateNowPlayingArtwork(artworkUrl);
-                    updatePanelArtwork(artworkUrl);
+                    updatePanelArtwork(null, mediaInfo.title, mediaInfo.artist);
                 } else {
                     console.log('❌ Нет обложки в mediaInfo');
                 }
@@ -6557,6 +6422,7 @@ function changeAccentColor(color) {
     if (!autoColorEnabled) {
         localStorage.setItem('userAccentColor', color);
     }
+    
 }
 
 
@@ -6702,7 +6568,7 @@ async function pollMediaFiles() {
                 if (artworkBase64) {
                     const artworkUrl = `data:image/jpeg;base64,${artworkBase64}`;
                     updateNowPlayingArtwork(artworkUrl);
-                    updatePanelArtwork(artworkUrl);
+                    updatePanelArtwork(artworkUrl, mediaInfo.title, mediaInfo.artist);
                     
                     if (window.electronAPI.updateArtworkForTray) {
                         window.electronAPI.updateArtworkForTray(artworkUrl);
@@ -6886,7 +6752,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
                 <div style="margin-top: 16px;">
                     <div style="font-size: 14px; font-weight: 600; margin-bottom: 10px;">📈 Активность за неделю</div>
-                    <div id="statsContainer"></div>
+                    <div id="statsContainer" style="margin-top: 50px;"></div>
                 </div>
             </div>
         </div>
@@ -7484,6 +7350,203 @@ async function updateStatsUI() {
         commentaryContainer.innerHTML = `💭 ${commentary}`;
     }
 }
+
+
+
+
+
+
+
+
+
+
+// ============================================================
+// ВСТРОЕННЫЙ (ВИРТУАЛЬНЫЙ) ПЛАГИН — Debug Tool
+// ============================================================
+(function injectVirtualDebugPlugin() {
+    const VIRTUAL_PLUGIN = {
+        id: '_debug_tool',
+        name: '🔧 Debug Tool',
+        version: '1.0.0',
+        description: 'Встроенная панель разработчика',
+        author: 'MusicHub',
+        icon: null,
+        hidden: true,
+        isVirtual: true   // ← флаг, что это встроенный
+    };
+
+    // Сохраняем оригинальные методы
+    const originalGetPlugins = window.electronAPI.getPlugins;
+    const originalOpenPopup = window.electronAPI.openPluginPopup;
+    const originalUninstall = window.electronAPI.uninstallPlugin;
+
+    // 1. getPlugins() — подмешиваем виртуальный плагин
+    window.electronAPI.getPlugins = async function (...args) {
+        const real = await originalGetPlugins.apply(this, args);
+        const list = Array.isArray(real) ? real : [];
+
+        // Не дублируем, если уже есть
+        if (list.some(p => p.id === VIRTUAL_PLUGIN.id)) return list;
+
+        return [...list, { ...VIRTUAL_PLUGIN }];
+    };
+
+    // 2. openPluginPopup() — перехватываем открытие дебаг-плагина
+    window.electronAPI.openPluginPopup = async function (pluginId, ...args) {
+        if (pluginId === VIRTUAL_PLUGIN.id) {
+            openDebugToolWindow();
+            return { success: true };
+        }
+        return originalOpenPopup.apply(this, [pluginId, ...args]);
+    };
+
+    // 3. uninstallPlugin() — запрещаем удалять
+    window.electronAPI.uninstallPlugin = async function (pluginId, ...args) {
+        if (pluginId === VIRTUAL_PLUGIN.id) {
+            showToast('🔒 Встроенный плагин нельзя удалить', 'info');
+            return { success: false, error: 'Cannot uninstall built-in plugin' };
+        }
+        return originalUninstall.apply(this, [pluginId, ...args]);
+    };
+
+    console.log('🔧 Виртуальный Debug Tool внедрён в список плагинов');
+})();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9010,30 +9073,126 @@ function toggleHoverClick() {
 // ИНИЦИАЛИЗАЦИЯ
 // ============================================================
 
+// ============================================================
+// HOVER-АКТИВАЦИЯ САМОЙ КНОПКИ 🖱️ (задержка 1.5 сек)
+// ============================================================
+
+const HOVER_BTN_DELAY = 1500; // мс удержания на кнопке
+let hoverBtnTimer = null;
+let hoverBtnProgress = 0;
+let hoverBtnInterval = null;
+let hoverBtnRing = null;
+let hoverBtnIsArmed = false; // уже сработало при текущем наведении
+
+function createHoverBtnRing() {
+    if (document.getElementById('hoverBtnRing')) {
+        hoverBtnRing = document.getElementById('hoverBtnRing');
+        return;
+    }
+    const ring = document.createElement('div');
+    ring.id = 'hoverBtnRing';
+    ring.className = 'hover-btn-ring';
+    ring.innerHTML = `<svg viewBox="0 0 60 60">
+        <circle class="hover-btn-ring-bg" cx="30" cy="30" r="26"></circle>
+        <circle class="hover-btn-ring-fg" cx="30" cy="30" r="26"></circle>
+    </svg>`;
+    document.body.appendChild(ring);
+    hoverBtnRing = ring;
+}
+
+function showHoverBtnRing(show) {
+    if (!hoverBtnRing) return;
+    if (show) hoverBtnRing.classList.add('visible');
+    else hoverBtnRing.classList.remove('visible');
+}
+
+function updateHoverBtnRing(progress) {
+    if (!hoverBtnRing) return;
+    const fg = hoverBtnRing.querySelector('.hover-btn-ring-fg');
+    if (!fg) return;
+    const circumference = 2 * Math.PI * 26; // r=26
+    const offset = circumference * (1 - progress / 100);
+    fg.style.strokeDashoffset = offset;
+}
+
+function startHoverBtnActivation() {
+    if (hoverBtnIsArmed) return; // уже сработало за это наведение
+    if (hoverBtnInterval) return; // уже идёт отсчёт
+
+    const btn = document.getElementById('hoverClickBtn');
+    if (!btn) return;
+
+    createHoverBtnRing();
+    const rect = btn.getBoundingClientRect();
+    hoverBtnRing.style.left = (rect.left + rect.width / 2) + 'px';
+    hoverBtnRing.style.top  = (rect.top  + rect.height / 2) + 'px';
+    // масштаб под размер кнопки
+    const size = Math.max(rect.width, rect.height) + 14;
+    hoverBtnRing.style.width = size + 'px';
+    hoverBtnRing.style.height = size + 'px';
+
+    hoverBtnProgress = 0;
+    updateHoverBtnRing(0);
+    showHoverBtnRing(true);
+
+    const step = 100 / (HOVER_BTN_DELAY / 16);
+    hoverBtnInterval = setInterval(() => {
+        hoverBtnProgress += step;
+        updateHoverBtnRing(Math.min(100, hoverBtnProgress));
+
+        if (hoverBtnProgress >= 100) {
+            clearInterval(hoverBtnInterval);
+            hoverBtnInterval = null;
+
+            hoverBtnIsArmed = true;
+
+            // Вспышка
+            hoverBtnRing.classList.add('fired');
+            setTimeout(() => hoverBtnRing && hoverBtnRing.classList.remove('fired'), 400);
+
+            // Вызываем активацию
+            toggleHoverClick();
+
+            // Прячем кольцо через маленькую паузу
+            setTimeout(() => showHoverBtnRing(false), 350);
+        }
+    }, 16);
+}
+
+function cancelHoverBtnActivation() {
+    if (hoverBtnInterval) {
+        clearInterval(hoverBtnInterval);
+        hoverBtnInterval = null;
+    }
+    hoverBtnProgress = 0;
+    updateHoverBtnRing(0);
+    showHoverBtnRing(false);
+    hoverBtnIsArmed = false;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const hoverBtn = document.getElementById('hoverClickBtn');
     if (hoverBtn) {
-        hoverBtn.addEventListener('mouseenter', () => {
-            toggleHoverClick();
-        });
-        
+        hoverBtn.addEventListener('mouseenter', startHoverBtnActivation);
+        hoverBtn.addEventListener('mouseleave', cancelHoverBtnActivation);
+
+        // Клик — только для ВЫКЛЮЧЕНИЯ (если включено), чтобы не ждать 1.5 сек
         hoverBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             if (hoverClickEnabled) {
                 toggleHoverClick();
+                cancelHoverBtnActivation();
             }
         });
     }
-    
-    // === ГЛАВНОЕ ИСПРАВЛЕНИЕ ===
-    // Инжектим во все webview с СОСТОЯНИЕМ false (ВЫКЛЮЧЕН)
+
+    // ... остальной код инициализации без изменений
     setTimeout(() => {
         document.querySelectorAll('webview').forEach(wv => {
-            injectHoverClickIntoWebview(wv, false); // ← false = выключен при старте
+            injectHoverClickIntoWebview(wv, false);
         });
     }, 500);
     
-    // Убеждаемся, что статус отправлен во все webview
     setTimeout(() => {
         sendHoverStatusToAllWebviews(false);
         console.log('🖱️ Hover Click принудительно выключен во всех webview');
@@ -9381,7 +9540,7 @@ const DEFAULT_HOTKEYS = {
     playpause: 'Control+Shift+Space',
     next: 'Control+Shift+ArrowRight',
     prev: 'Control+Shift+ArrowLeft',
-    stop: 'Control+Shift+Period',
+    stop: 'Control+Shift+Backspace',
     volumeup: 'Control+Shift+ArrowUp',
     volumedown: 'Control+Shift+ArrowDown'
 };
@@ -9819,7 +9978,6 @@ console.log('🎮 Поддерживаются: стрелки, Numpad, меди
 // ============================================================
 
 const WORKER_URL_1 = 'https://tips-proxy.170610maksim.workers.dev';
-const APP_VERSION = '3.3.0'; // Текущая версия
 
 // Функция получения игнорируемой версии
 function getIgnoredUpdateVersion() {
@@ -9844,8 +10002,7 @@ function shouldIgnoreUpdate(latestVersion) {
     return ignoredVersion === latestVersion;
 }
 
-async function checkForUpdates() {
-    // Проверяем наличие игнорируемой версии
+async function checkForUpdates(manual = false) {
     const ignoredVersion = getIgnoredUpdateVersion();
     
     try {
@@ -9855,8 +10012,8 @@ async function checkForUpdates() {
         if (data.updateAvailable) {
             const latestVersion = data.latestVersion;
             
-            // Если пользователь проигнорировал ЭТУ конкретную версию — не показываем
-            if (shouldIgnoreUpdate(latestVersion)) {
+            // Если версия проигнорирована — не показываем модалку при АВТО-проверке
+            if (shouldIgnoreUpdate(latestVersion) && !manual) {
                 console.log(`🔇 Версия ${latestVersion} проигнорирована пользователем`);
                 return;
             }
@@ -9865,9 +10022,18 @@ async function checkForUpdates() {
             showUpdateModal(data);
         } else {
             console.log(`✅ У вас актуальная версия (${APP_VERSION})`);
+            
+            // Показываем тост только при ручной проверке (не при автопроверке при старте)
+            if (manual) {
+                showToast(`✅ У вас последняя версия (v${APP_VERSION})`, 'success');
+            }
         }
     } catch (err) {
         console.log('⚠️ Ошибка проверки обновлений:', err);
+        
+        if (manual) {
+            showToast('❌ Не удалось проверить обновления. Проверьте интернет.', 'error');
+        }
     }
 }
 
@@ -10033,9 +10199,8 @@ console.log('📱 Для проверки обновлений: checkForUpdates(
 
 // Принудительная проверка (сбрасываем игнор, если пользователь хочет проверить вручную)
 window.forceCheckUpdates = function() {
-    // Если пользователь проверяет вручную — сбрасываем игнор, чтобы он увидел, если что-то вышло
-    setIgnoredUpdateVersion(null);
-    checkForUpdates();
+    setIgnoredUpdateVersion(null);  // сбрасываем "не напоминать"
+    checkForUpdates(true);           // true = ручная проверка (тосты включены)
 };
 
 
@@ -10047,7 +10212,66 @@ window.forceCheckUpdates = function() {
 
 
 
+// ============================================================
+// НАСТРОЙКИ — ПЕРЕКЛЮЧЕНИЕ ВКЛАДОК + ПОИСК
+// ============================================================
+(function initSettingsTabs() {
+    function activateTab(tabId) {
+        document.querySelectorAll('.settings-nav-item').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tab === tabId);
+        });
+        document.querySelectorAll('.settings-tab').forEach(tab => {
+            tab.classList.toggle('active', tab.dataset.tab === tabId);
+        });
+        // Прокручиваем контент наверх
+        const content = document.getElementById('settingsContent');
+        if (content) content.scrollTop = 0;
+    }
 
+    document.querySelectorAll('.settings-nav-item').forEach(btn => {
+        btn.addEventListener('click', () => activateTab(btn.dataset.tab));
+    });
+
+    // Поиск
+    const searchInput = document.getElementById('settingsSearch');
+    if (searchInput) {
+        searchInput.addEventListener('input', () => {
+            const q = searchInput.value.trim().toLowerCase();
+
+            if (!q) {
+                // Показать только активный таб, вернуть все карточки
+                document.querySelectorAll('.settings-tab').forEach(tab => {
+                    tab.style.display = '';
+                    tab.querySelectorAll('.settings-card').forEach(c => c.style.display = '');
+                });
+                // Вернуть активную вкладку
+                const active = document.querySelector('.settings-nav-item.active');
+                if (active) activateTab(active.dataset.tab);
+                return;
+            }
+
+            // Показываем ВСЕ табы, но прячем карточки, где нет совпадений
+            document.querySelectorAll('.settings-tab').forEach(tab => {
+                let anyVisible = false;
+                tab.querySelectorAll('.settings-card').forEach(card => {
+                    const match = card.textContent.toLowerCase().includes(q);
+                    card.style.display = match ? '' : 'none';
+                    if (match) anyVisible = true;
+                });
+                tab.style.display = anyVisible ? 'flex' : 'none';
+                tab.classList.toggle('active', anyVisible);
+            });
+        });
+
+        // Enter — сброс поиска
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                searchInput.value = '';
+                searchInput.dispatchEvent(new Event('input'));
+            }
+        });
+    }
+})();
 
 
 
@@ -10494,6 +10718,8 @@ function sendMobileStatus() {
         }
     }
     
+
+    
     // Если всё ещё нет — пробуем из mediaInfo
     if (trackTitle === 'Не играет' || trackTitle === '-') {
         // Используем данные из последнего трека
@@ -10565,6 +10791,363 @@ if (window.electronAPI && window.electronAPI.onMobileVolume) {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ============================================================
+// ЭКСПОРТ / ИМПОРТ НАСТРОЕК
+// ============================================================
+
+// Список всех ключей настроек (что имеет смысл бэкапить)
+// Всё, что НЕ в этом списке — считается «данными» (история, статистика, id)
+const SETTINGS_KEYS = [
+    // Внешний вид
+    'theme', 'hubC', 'manualAccentColor', 'userAccentColor',
+    'autoColorFromArtwork', 'simpleGradientEnabled',
+    'hubZoom', 'btnEffect', 'windowButtonsStyle', 'windowButtonsPosition',
+    // Звук
+    'switchSound', 'notifySound', 'showNotifications', 'showTrayControls',
+    // Запуск
+    'startWithSystem', 'startMinimized', 'startupPage',
+    // Аудио
+    'audioCaptureMode', 'audioCaptureDeviceId', 'selectedMicDeviceId',
+    'adaptiveEnabled', 'adaptiveMicId', 'adaptiveThreshold',
+    'adaptiveReducePercent', 'adaptiveRestoreDelaySec',
+    // Визуализация
+    'vizMode', 'vizSensitivity', 'gifVisualizerUrl',
+    // Сервисы
+    'activeServices', 'customSites', 'tabOrder',
+    // Плагины
+    'customPluginStores',
+    // Интеграции
+    'discordRPCEnabled',
+    // Горячие клавиши
+    'hotkeys', 'tabBinding', 'tabBindingEnabled',
+    // Прочее
+    'alwaysOnTop', 'ignoredUpdateVersion',
+    'sidebarWidth',
+    'globalVolume', 'globalVolumePercent', 'mediaVolume',
+    'notificationsEnabled'
+];
+
+// Ключи, которые НЕ экспортируем (личное/большое)
+const EXCLUDED_PREFIXES = [
+    'customSound',          // base64 звук
+    'chat_user',            // id/имя пользователя
+    'device_id',            // уникальный id устройства
+    'premium_status',       // статус премиума
+];
+
+function shouldExportKey(key) {
+    if (EXCLUDED_PREFIXES.some(p => key.startsWith(p))) return false;
+    return true;
+}
+
+// ---------- ЭКСПОРТ ----------
+
+function exportSettings() {
+    try {
+        const data = {
+            _meta: {
+                app: 'MusicHub',
+                version: localStorage.getItem('appVersion') || '${APP_VERSION}',
+                exportedAt: new Date().toISOString(),
+                keyCount: 0
+            },
+            settings: {}
+        };
+
+        // Собираем только ключи из SETTINGS_KEYS + всё, что выглядит как настройка
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (!shouldExportKey(key)) continue;
+
+            const value = localStorage.getItem(key);
+            // Пропускаем слишком большие значения (base64 и т.п.)
+            if (value && value.length > 100_000) {
+                console.warn(`⏭️ Пропущен ключ ${key} (слишком большой: ${value.length} байт)`);
+                continue;
+            }
+
+            data.settings[key] = value;
+        }
+
+        data._meta.keyCount = Object.keys(data.settings).length;
+
+        // Скачиваем
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const date = new Date().toISOString().slice(0, 10);
+        a.href = url;
+        a.download = `musichub-settings-${date}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+
+        showToast(`📦 Экспортировано ${data._meta.keyCount} настроек`, 'success');
+        console.log('📦 Экспорт завершён:', data);
+
+        if (typeof addChatMessage === 'function') {
+            addChatMessage(`📦 Настройки экспортированы (${data._meta.keyCount} шт.)`, false, 'system');
+        }
+    } catch (err) {
+        console.error('Ошибка экспорта:', err);
+        showToast('❌ Ошибка экспорта: ' + err.message, 'error');
+    }
+}
+
+// ---------- ИМПОРТ ----------
+
+let _pendingImport = null;
+
+function openImportFileDialog() {
+    const fileInput = document.getElementById('importSettingsFile');
+    if (!fileInput) return;
+    fileInput.value = '';
+    fileInput.click();
+}
+
+async function handleImportFile(file) {
+    if (!file) return;
+
+    try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+
+        // Валидация
+        if (!data || typeof data !== 'object') {
+            throw new Error('Некорректный формат файла');
+        }
+        if (!data.settings || typeof data.settings !== 'object') {
+            throw new Error('В файле нет блока "settings"');
+        }
+
+        const keys = Object.keys(data.settings);
+        if (keys.length === 0) {
+            throw new Error('Файл не содержит настроек');
+        }
+
+        // Проверяем, что это действительно MusicHub-файл
+        const meta = data._meta || {};
+        const isMusicHub = meta.app === 'MusicHub' ||
+                          keys.some(k => SETTINGS_KEYS.includes(k));
+
+        if (!isMusicHub) {
+            if (!confirm('⚠️ Файл не похож на настройки MusicHub. Всё равно импортировать?')) {
+                return;
+            }
+        }
+
+        // Показываем превью
+        _pendingImport = data;
+        showImportPreview(data);
+    } catch (err) {
+        console.error('Ошибка чтения файла:', err);
+        showToast('❌ ' + err.message, 'error');
+    }
+}
+
+function showImportPreview(data) {
+    // Удаляем старую модалку
+    document.getElementById('importPreviewModal')?.remove();
+
+    const meta = data._meta || {};
+    const keys = Object.keys(data.settings);
+
+    // Формируем список изменений (только те, что реально отличаются)
+    const changes = [];
+    for (const key of keys) {
+        const current = localStorage.getItem(key);
+        const incoming = data.settings[key];
+        if (current !== incoming) {
+            let label = key;
+            if (key === 'theme') label = '🌙 Тема';
+            else if (key === 'hubC') label = '🎨 Акцентный цвет';
+            else if (key === 'vizMode') label = '🎵 Визуализация';
+            else if (key === 'hotkeys') label = '⌨️ Горячие клавиши';
+            else if (key === 'customSites') label = '🌐 Кастомные сайты';
+            else if (key === 'activeServices') label = '📱 Активные сервисы';
+
+            let preview = String(incoming || '(пусто)');
+            if (preview.length > 40) preview = preview.slice(0, 37) + '...';
+
+            changes.push({ key: label, value: preview });
+        }
+    }
+
+    const modal = document.createElement('div');
+    modal.id = 'importPreviewModal';
+    modal.innerHTML = `
+        <div class="import-preview-box">
+            <div class="import-preview-header">
+                <h3>📥 Импорт настроек</h3>
+                <button class="close-btn" onclick="document.getElementById('importPreviewModal').remove()" style="background:none;border:none;color:var(--text-secondary);font-size:20px;cursor:pointer;">✕</button>
+            </div>
+            <div class="import-preview-body">
+                <div class="import-preview-meta">
+                    ${meta.app ? `<div><b>Приложение:</b> ${meta.app}</div>` : ''}
+                    ${meta.version ? `<div><b>Версия:</b> ${meta.version}</div>` : ''}
+                    ${meta.exportedAt ? `<div><b>Дата экспорта:</b> ${new Date(meta.exportedAt).toLocaleString('ru')}</div>` : ''}
+                    <div><b>Настроек в файле:</b> ${keys.length}</div>
+                    <div><b>Изменений будет применено:</b> ${changes.length}</div>
+                </div>
+
+                ${changes.length > 0 ? `
+                    <div style="font-weight: 600; margin-bottom: 8px; font-size: 12px; color: var(--text-secondary);">
+                        БУДЕТ ИЗМЕНЕНО:
+                    </div>
+                    <div class="import-preview-list">
+                        ${changes.slice(0, 30).map(c => `
+                            <div class="import-preview-item">
+                                <span class="key">${escapeHtml(c.key)}</span>
+                                <span class="value">${escapeHtml(c.value)}</span>
+                            </div>
+                        `).join('')}
+                        ${changes.length > 30 ? `<div style="text-align:center;padding:6px;color:var(--text-secondary);font-size:11px;">...и ещё ${changes.length - 30}</div>` : ''}
+                    </div>
+                ` : `
+                    <div style="text-align: center; padding: 20px; color: var(--text-secondary);">
+                        ✨ Все настройки в файле совпадают с текущими
+                    </div>
+                `}
+
+                <div class="import-preview-warning">
+                    ⚠️ Текущие настройки будут <b>перезаписаны</b>. Приложение перезагрузится.
+                </div>
+            </div>
+            <div class="import-preview-footer">
+                <button class="cancel" onclick="document.getElementById('importPreviewModal').remove(); _pendingImport=null;">
+                    Отмена
+                </button>
+                <button class="confirm" onclick="applyImportSettings()">
+                    ✅ Импортировать
+                </button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Клик по фону — закрыть
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.remove();
+            _pendingImport = null;
+        }
+    });
+}
+
+function applyImportSettings() {
+    if (!_pendingImport || !_pendingImport.settings) {
+        showToast('❌ Нет данных для импорта', 'error');
+        return;
+    }
+
+    try {
+        const settings = _pendingImport.settings;
+        let applied = 0;
+
+        for (const [key, value] of Object.entries(settings)) {
+            if (!shouldExportKey(key)) continue; // не импортируем запрещённые
+            if (value === null || value === undefined) continue;
+
+            localStorage.setItem(key, value);
+            applied++;
+        }
+
+        document.getElementById('importPreviewModal')?.remove();
+        _pendingImport = null;
+
+        showToast(`✅ Импортировано ${applied} настроек. Перезагрузка...`, 'success');
+        console.log(`📥 Импортировано ${applied} настроек, перезагрузка через 1с`);
+
+        setTimeout(() => {
+            location.reload();
+        }, 1000);
+    } catch (err) {
+        console.error('Ошибка импорта:', err);
+        showToast('❌ Ошибка импорта: ' + err.message, 'error');
+    }
+}
+
+// ---------- ПРИВЯЗКА К UI ----------
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Ждём появления кнопок (они внутри таба, но в DOM они сразу)
+    const exportBtn = document.getElementById('exportSettingsBtn');
+    const importBtn = document.getElementById('importSettingsBtn');
+    const fileInput = document.getElementById('importSettingsFile');
+
+    if (exportBtn) {
+        exportBtn.addEventListener('click', exportSettings);
+    }
+
+    if (importBtn && fileInput) {
+        importBtn.addEventListener('click', openImportFileDialog);
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (file) handleImportFile(file);
+        });
+    }
+
+    // Горячие клавиши для консоли
+    window.exportSettings = exportSettings;
+    window.openImportFileDialog = openImportFileDialog;
+
+    console.log('💾 Экспорт/импорт настроек готов');
+    console.log('📌 Команды: exportSettings(), openImportFileDialog()');
+});
 
 
 
@@ -10729,7 +11312,7 @@ async function forceTestRPC() {
         setTimeout(async () => {
             console.log('🔄 Повторная отправка статуса...');
             window.electronAPI.updateTrackInfo({
-                title: '🎵 MusicHub v3.3.0',
+                title: `🎵 MusicHub v${APP_VERSION}`,
                 artist: 'Слушаю музыку'
             });
         }, 5000);
@@ -12582,110 +13165,572 @@ document.getElementById('musicVolumeDown')?.addEventListener('click', () => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ============================================================
+// ПАСХАЛКА — клик по версии
+// ============================================================
+(function initEasterEgg() {
+    const REQUIRED_CLICKS = 10;
+    const COOLDOWN_MS = 2 * 60 * 60 * 1000; // 2 часа
+    const LOCK_MS = 3000;
+    const COOLDOWN_KEY = 'easterEggLastOpened';
+    const TIME_API = 'https://young-tooth-0eb6.mawba-1230.workers.dev/';
+
+    let clickCount = 0;
+    let clickResetTimer = null;
+    let eggOpen = false;
+    let serverTimeOffset = 0;
+    let serverTimeReady = false;
+
+    // --- СЕРВЕРНОЕ ВРЕМЯ ---
+    async function fetchServerTime() {
+        try {
+            const t0 = Date.now();
+            const resp = await fetch(TIME_API, { cache: 'no-store' });
+            if (!resp.ok) throw new Error();
+            const data = await resp.json();
+            const t1 = Date.now();
+            if (!data || typeof data.time !== 'number') throw new Error();
+            serverTimeOffset = data.time - (t0 + (t1 - t0) / 2);
+            serverTimeReady = true;
+        } catch (e) {
+            serverTimeReady = false;
+        }
+    }
+    fetchServerTime();
+    setInterval(() => { if (!document.hidden) fetchServerTime(); }, 10 * 60 * 1000);
+
+    function getNow() { return serverTimeReady ? Date.now() + serverTimeOffset : Date.now(); }
+
+    // --- КУЛДАУН ---
+    function isOnCooldown() {
+        const last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0');
+        return (getNow() - last) < COOLDOWN_MS;
+    }
+    function setCooldown() { localStorage.setItem(COOLDOWN_KEY, getNow().toString()); }
+
+    // --- 1 МАРТА ---
+    function isFirstOfMarch() {
+        const d = new Date(getNow());
+        return d.getMonth() === 2 && d.getDate() === 1;
+    }
+
+    // --- 3D ТОРТ SVG ---
+    const CAKE_SVG = `
+        <svg class="cake-svg" viewBox="0 0 320 320" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <radialGradient id="cakeGlow" cx="50%" cy="45%" r="60%">
+                    <stop offset="0%" stop-color="#ffd8e8" stop-opacity="0.35"/>
+                    <stop offset="100%" stop-color="#ffd8e8" stop-opacity="0"/>
+                </radialGradient>
+                <linearGradient id="layerBottom" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#ffb3c6"/><stop offset="100%" stop-color="#a8405a"/>
+                </linearGradient>
+                <linearGradient id="layerMiddle" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#ffd8a8"/><stop offset="100%" stop-color="#c98a3a"/>
+                </linearGradient>
+                <linearGradient id="layerTop" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#c9a0ff"/><stop offset="100%" stop-color="#6a3fb8"/>
+                </linearGradient>
+                <linearGradient id="icing" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#fff6fa"/><stop offset="100%" stop-color="#e0b8c8"/>
+                </linearGradient>
+                <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#7a4e2b"/><stop offset="100%" stop-color="#3a220e"/>
+                </linearGradient>
+                <radialGradient id="flameGlow">
+                    <stop offset="0%" stop-color="#ffcc00" stop-opacity="0.8"/><stop offset="100%" stop-color="#ffcc00" stop-opacity="0"/>
+                </radialGradient>
+            </defs>
+            <circle cx="160" cy="170" r="140" fill="url(#cakeGlow)"/>
+            <ellipse cx="160" cy="282" rx="130" ry="20" fill="rgba(0,0,0,0.5)"/>
+            <ellipse cx="160" cy="272" rx="125" ry="20" fill="url(#plate)"/>
+            <ellipse cx="160" cy="265" rx="125" ry="20" fill="#9a6a44"/>
+            <path d="M55 265 L55 210 Q55 200 65 200 L255 200 Q265 200 265 210 L265 265 Q265 275 255 275 L65 275 Q55 275 55 265 Z" fill="url(#layerBottom)"/>
+            <path d="M60 210 Q60 205 65 205 L70 205 L70 270 Q60 270 60 265 Z" fill="rgba(255,255,255,0.18)"/>
+            <path d="M55 220 Q90 235 130 220 Q160 210 190 220 Q230 235 265 220 L265 235 Q230 250 190 235 Q160 225 130 235 Q90 250 55 235 Z" fill="rgba(0,0,0,0.15)"/>
+            <path d="M55 210 Q70 240 90 210 T125 210 T160 210 T195 210 T230 210 T265 210 L265 225 Q230 250 195 225 Q160 205 125 225 Q90 250 55 225 Z" fill="url(#icing)"/>
+            <ellipse cx="160" cy="200" rx="105" ry="16" fill="#ffd8e8"/>
+            <ellipse cx="160" cy="198" rx="100" ry="13" fill="#fff0f6"/>
+            <path d="M90 200 L90 155 Q90 145 100 145 L220 145 Q230 145 230 155 L230 200 Z" fill="url(#layerMiddle)"/>
+            <path d="M95 155 Q95 150 100 150 L105 150 L105 198 Q95 198 95 195 Z" fill="rgba(255,255,255,0.18)"/>
+            <path d="M90 165 Q120 178 155 165 Q190 152 230 165 L230 178 Q190 190 155 178 Q120 190 90 178 Z" fill="rgba(0,0,0,0.15)"/>
+            <path d="M90 155 Q110 180 130 155 T170 155 T210 155 T230 155 L230 168 Q210 192 190 168 Q170 148 150 168 Q130 192 110 168 Q90 155 90 168 Z" fill="url(#icing)"/>
+            <ellipse cx="160" cy="145" rx="70" ry="11" fill="#ffe6c7"/>
+            <ellipse cx="160" cy="143" rx="65" ry="9" fill="#fff5e0"/>
+            <path d="M125 145 L125 105 Q125 98 132 98 L188 98 Q195 98 195 105 L195 145 Z" fill="url(#layerTop)"/>
+            <path d="M128 105 Q128 102 132 102 L136 102 L136 143 Q128 143 128 140 Z" fill="rgba(255,255,255,0.22)"/>
+            <path d="M125 115 Q145 124 165 115 Q185 106 195 115 L195 125 Q185 133 165 125 Q145 133 125 125 Z" fill="rgba(0,0,0,0.18)"/>
+            <path d="M125 105 Q138 125 152 105 Q165 125 178 105 Q190 125 195 105 L195 115 Q185 135 170 115 Q160 105 150 115 Q138 135 125 115 Z" fill="url(#icing)"/>
+            <ellipse cx="160" cy="98" rx="35" ry="7" fill="#e0c8ff"/>
+            <ellipse cx="160" cy="96" rx="31" ry="5" fill="#f0e5ff"/>
+            <ellipse cx="160" cy="97" rx="10" ry="3" fill="rgba(0,0,0,0.3)"/>
+            <rect x="156" y="52" width="9" height="46" rx="3" fill="#ffe066"/>
+            <rect x="156" y="52" width="3" height="46" rx="2" fill="#fff5b0"/>
+            <rect x="162" y="52" width="3" height="46" rx="2" fill="#d4a800"/>
+            <rect x="156" y="60" width="9" height="2" fill="#d4a800"/>
+            <rect x="156" y="70" width="9" height="2" fill="#d4a800"/>
+            <rect x="156" y="80" width="9" height="2" fill="#d4a800"/>
+            <line x1="160.5" y1="52" x2="160.5" y2="44" stroke="#333" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="160.5" cy="38" r="30" fill="url(#flameGlow)"/>
+            <g class="candle-flame" id="candleFlame">
+                <path d="M160.5 20 Q168 30 168 38 Q168 46 160.5 48 Q153 46 153 38 Q153 30 160.5 20 Z" fill="#ff8800" opacity="0.9"/>
+                <path d="M160.5 26 Q165 34 165 40 Q165 46 160.5 47 Q156 46 156 40 Q156 34 160.5 26 Z" fill="#ffcc00"/>
+                <ellipse cx="160.5" cy="40" rx="3" ry="6" fill="#fff5b0"/>
+            </g>
+            <circle cx="95" cy="230" r="2.5" fill="#fff" opacity="0.8"/>
+            <circle cx="220" cy="245" r="2" fill="#fff" opacity="0.7"/>
+            <circle cx="130" cy="175" r="2" fill="#fff" opacity="0.8"/>
+            <circle cx="190" cy="125" r="2" fill="#fff" opacity="0.7"/>
+        </svg>
+    `;
+
+    // --- КОНФЕТИ ---
+    function spawnConfetti(container, cx, cy, count = 150) {
+        if (!container) return;
+        const colors = ['#ff2a2a', '#ffcc00', '#1DB954', '#4ecdc4', '#ffb3c6', '#c9a0ff', '#ffffff'];
+        for (let i = 0; i < count; i++) {
+            const piece = document.createElement('div');
+            piece.className = 'confetti-piece';
+            piece.style.left = cx + 'px';
+            piece.style.top = cy + 'px';
+            piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+            if (Math.random() > 0.6) piece.style.borderRadius = '50%';
+            if (Math.random() > 0.7) piece.style.width = '6px';
+            if (Math.random() > 0.7) piece.style.height = '20px';
+
+            // Разлетаемся в стороны (dx) и ВВЕРХ (dy отрицательный)
+            const dx = (Math.random() - 0.5) * window.innerWidth * 1.5;
+            const dy = -(Math.random() * 0.6 + 0.4) * window.innerHeight; // от 40% до 100% высоты экрана ВВЕРХ
+            
+            const rot = (Math.random() - 0.5) * 1440;
+            const dur = 1.5 + Math.random() * 1.5;
+
+            piece.style.setProperty('--dx', dx + 'px');
+            piece.style.setProperty('--dy', dy + 'px');
+            piece.style.setProperty('--rot', rot + 'deg');
+            piece.style.animationDuration = dur + 's';
+
+            container.appendChild(piece);
+            setTimeout(() => piece.remove(), dur * 1000 + 100);
+        }
+    }
+
+    // --- КРАСНАЯ КНОПКА ---
+    function openRedButtonEgg() {
+        if (eggOpen) return;
+        eggOpen = true;
+
+        const overlay = document.createElement('div');
+        overlay.id = 'easterEggOverlay';
+        overlay.innerHTML = `
+            <div id="easterEggConfettiBox"></div>
+            <button id="easterEggButton"><div class="ring-inner"></div></button>
+        `;
+        document.body.appendChild(overlay);
+
+        const btn = overlay.querySelector('#easterEggButton');
+        const confettiBox = overlay.querySelector('#easterEggConfettiBox');
+        let locked = false; // Больше нет блокировки
+
+        requestAnimationFrame(() => {
+            overlay.classList.add('open');
+            setTimeout(() => btn.classList.add('shown'), 50);
+        });
+
+        // Клик по кнопке
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+
+            const rect = btn.getBoundingClientRect();
+            const cx = rect.left + rect.width / 2;
+            const cy = rect.top + rect.height / 2;
+
+            setTimeout(() => spawnConfetti(confettiBox, cx, cy, 200), 80);
+
+            setTimeout(() => {
+                btn.classList.remove('shown');
+                overlay.classList.remove('open');
+                setTimeout(() => {
+                    overlay.remove();
+                    eggOpen = false;
+                    setCooldown();
+                }, 500);
+            }, 1500);
+        });
+    }
+
+    // --- ТОРТ ---
+    function openCakeEgg() {
+        if (eggOpen) return;
+        eggOpen = true;
+
+        const overlay = document.createElement('div');
+        overlay.id = 'easterEggOverlay';
+        document.body.appendChild(overlay);
+
+        const cake = document.createElement('div');
+        cake.id = 'easterEggCake';
+        cake.innerHTML = CAKE_SVG;
+        document.body.appendChild(cake);
+
+        requestAnimationFrame(() => {
+            overlay.classList.add('open');
+            setTimeout(() => cake.classList.add('shown'), 50);
+        });
+
+        const flame = cake.querySelector('#candleFlame');
+
+        setTimeout(() => {
+            if (flame) flame.classList.add('dying');
+            for (let i = 0; i < 3; i++) {
+                setTimeout(() => {
+                    const smoke = document.createElement('div');
+                    smoke.className = 'cake-smoke';
+                    cake.appendChild(smoke);
+                    setTimeout(() => smoke.remove(), 1500);
+                }, i * 150);
+            }
+        }, 2000);
+
+        setTimeout(() => {
+            cake.classList.add('exploding');
+            setTimeout(() => {
+                const shard = document.createElement('div');
+                shard.id = 'cakeShard';
+                shard.innerHTML = `
+                    <div style="width: 240px; height: 200px; background: radial-gradient(circle at 40% 35%, #ffd8e8, #c97090 60%, #8a3050 100%); border-radius: 30% 60% 50% 40%; box-shadow: 0 20px 60px rgba(255,100,150,0.7), inset 0 -20px 40px rgba(80,20,40,0.5), inset 0 20px 40px rgba(255,230,240,0.5); transform: rotate(25deg); position: relative; overflow: hidden;">
+                        <div style="position: absolute; top: 0; left: 0; width: 100%; height: 40%; background: linear-gradient(180deg, #fff6fa, #e0b8c8); border-radius: 30% 60% 0 0;"></div>
+                        <div style="position: absolute; top: 40%; left: 0; width: 100%; height: 18%; background: linear-gradient(180deg, #ffd8a8, #c98a3a);"></div>
+                        <div style="position: absolute; top: 6%; left: 20%; width: 50%; height: 8%; background: rgba(255,255,255,0.7); border-radius: 50%; filter: blur(3px);"></div>
+                        <div style="position: absolute; bottom: 15%; right: 15%; width: 30px; height: 30px; background: #c9a0ff; border-radius: 50%;"></div>
+                    </div>
+                `;
+                document.body.appendChild(shard);
+
+                setTimeout(() => shard.classList.add('flying'), 30);
+                setTimeout(() => shard.classList.add('covering'), 700);
+                setTimeout(() => shard.classList.add('fading'), 1400);
+
+                setTimeout(() => {
+                    shard.remove();
+                    cake.remove();
+                    overlay.remove();
+                    eggOpen = false;
+                    setCooldown();
+                }, 4200);
+            }, 400);
+        }, 2800);
+
+        // !!! БОЛЬШЕ НЕТ КЛИКА ПО ФОНУ ДЛЯ ЗАКРЫТИЯ !!!
+    }
+
+    // --- КЛИК ПО ВЕРСИИ ---
+    function onVersionClick() {
+        if (eggOpen) return; // если уже открыто - не реагируем
+        if (isOnCooldown()) return;
+
+        const versionEl = document.getElementById('easterEggVersion');
+        if (!versionEl) return;
+
+        clickCount++;
+
+        if (clickCount >= 7) versionEl.classList.add('warming');
+
+        if (clickResetTimer) clearTimeout(clickResetTimer);
+        clickResetTimer = setTimeout(() => {
+            clickCount = 0;
+            versionEl.classList.remove('warming');
+        }, 3000);
+
+        if (clickCount >= REQUIRED_CLICKS) {
+            clickCount = 0;
+            versionEl.classList.remove('warming');
+
+            if (isFirstOfMarch()) openCakeEgg();
+            else openRedButtonEgg();
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        document.body.addEventListener('click', (e) => {
+            if (e.target && e.target.id === 'easterEggVersion') onVersionClick();
+        });
+    });
+
+    window.easterEgg = {
+        reset: () => { localStorage.removeItem(COOLDOWN_KEY); clickCount = 0; },
+        forceRed: () => openRedButtonEgg(),
+        forceCake: () => openCakeEgg(),
+        status: () => ({ clicks: clickCount, onCooldown: isOnCooldown(), isMarchFirst: isFirstOfMarch() })
+    };
+})();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ============================================================
+// ПАНЕЛЬ РАСШИРЕНИЙ — ЕДИНАЯ ИНИЦИАЛИЗАЦИЯ
+// ============================================================
+
+// Флаг защиты от закрытия при внутренних кликах
+window.ignoreOutsideClick = false;
+window.markInternalClick = function() {
+    window.ignoreOutsideClick = true;
+    setTimeout(() => { window.ignoreOutsideClick = false; }, 400);
+};
+
+// Перетаскивание панели
 function initDraggableArtworkPanel() {
     const panel = document.getElementById('extensionsPanel');
     if (!panel) return;
+    
+    // Если уже инициализировано — не дублируем
+    if (panel._dragInitialized) return;
+    panel._dragInitialized = true;
     
     let isDragging = false;
     let dragStartX, dragStartY;
     let panelStartLeft, panelStartTop;
     
-    // Получаем границы
     function getBounds() {
         const titlebar = document.getElementById('titlebar');
         const sidebar = document.getElementById('sidebar');
-        
         const minX = sidebar ? sidebar.offsetWidth + 10 : 80;
         const minY = titlebar ? titlebar.offsetHeight + 10 : 40;
         const maxX = window.innerWidth - panel.offsetWidth - 10;
         const maxY = window.innerHeight - panel.offsetHeight - 10;
-        
         return { minX, minY, maxX, maxY };
     }
     
-    let header = panel.querySelector('.ext-panel-header');
-    if (header) {
-        header.style.cursor = 'grab';
-        header.style.userSelect = 'none';
+    const header = panel.querySelector('.ext-panel-header');
+    if (!header) return;
+    
+    header.style.cursor = 'grab';
+    header.style.userSelect = 'none';
+    
+    header.addEventListener('mousedown', (e) => {
+        if (e.target.closest('#closeExtensionsPanelBtn')) return;
         
-        header.addEventListener('mousedown', (e) => {
-            if (e.target.closest('#closeExtensionsPanelBtn')) return;
-            
-            isDragging = true;
-            dragStartX = e.clientX;
-            dragStartY = e.clientY;
-            
-            const rect = panel.getBoundingClientRect();
-            panelStartLeft = rect.left;
-            panelStartTop = rect.top;
-            
-            panel.style.position = 'fixed';
-            panel.style.margin = '0';
-            panel.style.left = panelStartLeft + 'px';
-            panel.style.top = panelStartTop + 'px';
-            panel.style.right = 'auto';
-            panel.style.bottom = 'auto';
-            
-            header.style.cursor = 'grabbing';
-            e.preventDefault();
-        });
+        isDragging = true;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
         
-        document.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-            
-            const deltaX = e.clientX - dragStartX;
-            const deltaY = e.clientY - dragStartY;
-            
-            let newLeft = panelStartLeft + deltaX;
-            let newTop = panelStartTop + deltaY;
-            
-            // Применяем границы
-            const bounds = getBounds();
-            newLeft = Math.max(bounds.minX, Math.min(bounds.maxX, newLeft));
-            newTop = Math.max(bounds.minY, Math.min(bounds.maxY, newTop));
-            
-            panel.style.left = newLeft + 'px';
-            panel.style.top = newTop + 'px';
-        });
+        const rect = panel.getBoundingClientRect();
+        panelStartLeft = rect.left;
+        panelStartTop = rect.top;
         
-        document.addEventListener('mouseup', () => {
-            if (isDragging) {
-                localStorage.setItem('artworkPanelLeft', panel.style.left);
-                localStorage.setItem('artworkPanelTop', panel.style.top);
-                isDragging = false;
-                header.style.cursor = 'grab';
-            }
-        });
+        panel.style.position = 'fixed';
+        panel.style.margin = '0';
+        panel.style.left = panelStartLeft + 'px';
+        panel.style.top = panelStartTop + 'px';
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
         
-        // Восстанавливаем позицию с учётом границ
-        const savedLeft = localStorage.getItem('artworkPanelLeft');
-        const savedTop = localStorage.getItem('artworkPanelTop');
-        if (savedLeft && savedTop) {
-            panel.style.position = 'fixed';
-            panel.style.left = savedLeft;
-            panel.style.top = savedTop;
-            panel.style.right = 'auto';
-            panel.style.bottom = 'auto';
-            
-            // Проверяем, не уехала ли за границы
-            setTimeout(() => {
-                const bounds = getBounds();
-                let left = parseFloat(panel.style.left);
-                let top = parseFloat(panel.style.top);
-                
-                if (left < bounds.minX) panel.style.left = bounds.minX + 'px';
-                if (left > bounds.maxX) panel.style.left = bounds.maxX + 'px';
-                if (top < bounds.minY) panel.style.top = bounds.minY + 'px';
-                if (top > bounds.maxY) panel.style.top = bounds.maxY + 'px';
-            }, 100);
+        header.style.cursor = 'grabbing';
+        e.preventDefault();
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const deltaX = e.clientX - dragStartX;
+        const deltaY = e.clientY - dragStartY;
+        
+        let newLeft = panelStartLeft + deltaX;
+        let newTop = panelStartTop + deltaY;
+        
+        const bounds = getBounds();
+        newLeft = Math.max(bounds.minX, Math.min(bounds.maxX, newLeft));
+        newTop = Math.max(bounds.minY, Math.min(bounds.maxY, newTop));
+        
+        panel.style.left = newLeft + 'px';
+        panel.style.top = newTop + 'px';
+    });
+    
+    document.addEventListener('mouseup', () => {
+        if (isDragging) {
+            localStorage.setItem('artworkPanelLeft', panel.style.left);
+            localStorage.setItem('artworkPanelTop', panel.style.top);
+            isDragging = false;
+            header.style.cursor = 'grab';
         }
+    });
+    
+    // Восстановление позиции
+    const savedLeft = localStorage.getItem('artworkPanelLeft');
+    const savedTop = localStorage.getItem('artworkPanelTop');
+    if (savedLeft && savedTop) {
+        panel.style.position = 'fixed';
+        panel.style.left = savedLeft;
+        panel.style.top = savedTop;
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+        
+        setTimeout(() => {
+            const bounds = getBounds();
+            let left = parseFloat(panel.style.left);
+            let top = parseFloat(panel.style.top);
+            if (left < bounds.minX) panel.style.left = bounds.minX + 'px';
+            if (left > bounds.maxX) panel.style.left = bounds.maxX + 'px';
+            if (top < bounds.minY) panel.style.top = bounds.minY + 'px';
+            if (top > bounds.maxY) panel.style.top = bounds.maxY + 'px';
+        }, 100);
     }
 }
 
-// Вызываем при открытии панели
-document.getElementById('extensionsPanelBtn')?.addEventListener('click', () => {
-    setTimeout(initDraggableArtworkPanel, 50);
+// Инициализация кнопки 🔌 (открытие/закрытие)
+// Инициализация кнопки 🔌 (открытие/закрытие)
+document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('extensionsPanelBtn');
+    if (!btn) {
+        console.warn('Кнопка #extensionsPanelBtn не найдена');
+        return;
+    }
+    
+    if (btn._initialized) return;
+    btn._initialized = true;
+    
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        
+        const panel = document.getElementById('extensionsPanel');
+        if (!panel) return;
+        
+        // Защита от дребезга
+        if (panel.dataset.animating === 'true') return;
+        panel.dataset.animating = 'true';
+        setTimeout(() => { panel.dataset.animating = 'false'; }, 250);
+        
+        if (window.markInternalClick) window.markInternalClick();
+        
+        const isOpen = panel.classList.contains('show');
+        if (isOpen) {
+            // Закрываем
+            panel.dataset.closing = 'true';
+            panel.classList.remove('show');
+            setTimeout(() => {
+                if (!panel.classList.contains('show')) {
+                    panel.style.display = 'none';
+                }
+                panel.dataset.closing = 'false';
+            }, 200);
+        } else {
+            // Открываем
+            panel.dataset.closing = 'false';
+            panel.style.display = 'flex';
+            
+            // ✅ Форсируем reflow — браузер применит display: flex
+            // до добавления класса show, и transition сработает
+            void panel.offsetWidth;
+            
+            panel.classList.add('show');
+            
+            if (typeof loadPluginsList === 'function') loadPluginsList();
+            setTimeout(initDraggableArtworkPanel, 50);
+        }
+    });
 });
+
+// Кнопка закрытия (крестик)
+document.addEventListener('DOMContentLoaded', () => {
+    const closeBtn = document.getElementById('closeExtensionsPanelBtn');
+    if (!closeBtn || closeBtn._initialized) return;
+    closeBtn._initialized = true;
+    
+    closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        
+        if (window.markInternalClick) window.markInternalClick();
+        
+        const panel = document.getElementById('extensionsPanel');
+        if (!panel) return;
+        
+        // Защита от повторного клика
+        if (panel.dataset.animating === 'true') return;
+        panel.dataset.animating = 'true';
+        setTimeout(() => { panel.dataset.animating = 'false'; }, 250);
+        
+        panel.dataset.closing = 'true';
+        panel.classList.remove('show');
+        setTimeout(() => {
+            if (!panel.classList.contains('show')) {
+                panel.style.display = 'none';
+            }
+            panel.dataset.closing = 'false';
+        }, 200);
+    });
+});
+
+document.addEventListener('mousedown', (e) => {
+    const panel = document.getElementById('extensionsPanel');
+    const extBtn = document.getElementById('extensionsPanelBtn');
+    if (!panel || !extBtn) return;
+    if (!panel.classList.contains('show')) return;
+    
+    if (panel.contains(e.target)) return;
+    if (e.target === extBtn || extBtn.contains(e.target)) return;
+    if (window.ignoreOutsideClick) return;
+    if (panel.dataset.animating === 'true') return;
+    
+    panel.dataset.animating = 'true';
+    setTimeout(() => { panel.dataset.animating = 'false'; }, 250);
+    
+    panel.dataset.closing = 'true';
+    panel.classList.remove('show');
+    setTimeout(() => {
+        if (!panel.classList.contains('show')) {
+            panel.style.display = 'none';
+        }
+        panel.dataset.closing = 'false';
+    }, 200);
+});
+
+console.log('🔌 Панель расширений инициализирована');
 
 
 
@@ -13142,7 +14187,7 @@ async function askGigaChat(question) {
         const historyContext = getHistoryContext();
         
         // === ПРОМПТ С ИСТОРИЕЙ ===
-        const systemPrompt = `Ты — AI-помощник в MusicHub 3.3.0.
+        const systemPrompt = `Ты — AI-помощник в MusicHub ${APP_VERSION}.
 
 ${historyContext}
 
@@ -13651,19 +14696,30 @@ function setChatUserName(newName) {
     }
 }
 
-function updatePanelArtwork(artworkUrl, trackTitle) {
+function updatePanelArtwork(artworkUrl, trackTitle, trackArtist) {
     const panelArtwork = document.getElementById('panelArtwork');
     const panelTitle = document.getElementById('panelTrackTitle');
+    const panelArtist = document.getElementById('panelTrackArtist');
     
-    if (panelArtwork && artworkUrl && artworkUrl !== 'null' && artworkUrl !== 'undefined') {
-        panelArtwork.src = artworkUrl;
-        panelArtwork.style.display = 'block';
-    } else if (panelArtwork) {
-        panelArtwork.src = '';
+    // Обложка
+    if (panelArtwork) {
+        if (artworkUrl && artworkUrl !== 'null' && artworkUrl !== 'undefined' && artworkUrl !== '') {
+            panelArtwork.src = artworkUrl;
+            panelArtwork.style.display = 'block';
+        } else {
+            panelArtwork.src = '';
+            panelArtwork.style.display = 'none';
+        }
     }
     
-    if (panelTitle && trackTitle) {
-        panelTitle.textContent = trackTitle;
+    // Название трека
+    if (panelTitle) {
+        panelTitle.textContent = trackTitle || '—';
+    }
+    
+    // Исполнитель
+    if (panelArtist) {
+        panelArtist.textContent = trackArtist || '—';
     }
 }
 
