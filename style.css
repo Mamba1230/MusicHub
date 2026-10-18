@@ -372,6 +372,7 @@ body::after {
     align-items: center;
     margin-left: 8px;
     height: 100%;
+    -webkit-app-region: no-drag; /* Чтобы кликалось */
 }
 
 .volume-icon {
@@ -380,27 +381,22 @@ body::after {
     border-radius: 8px;
     cursor: pointer;
     transition: background 0.2s;
-    display: flex;
-    align-items: center;
+    -webkit-app-region: no-drag; /* Чтобы кликалось */
 }
 
 .volume-icon:hover {
     background: rgba(255, 255, 255, 0.1);
 }
 
+/* Выпадающий ползунок (вынесен в body) */
 .volume-slider-container {
-    position: absolute !important;
-    top: 100% !important;
-    left: 0 !important;
-    margin-top: 8px !important;
+    position: fixed !important;
+    z-index: 9999 !important; /* ← БЫЛО 9999999, СТАЛО 9999 */
     background: var(--bg-primary);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 8px 12px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    z-index: 10000;
-    min-width: 130px;
-    border: 1px solid var(--border-color);
-    display: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
 
 .volume-slider {
@@ -2043,7 +2039,7 @@ webview.exiting-left {
     border: 1px solid var(--border-color);
     border-radius: 16px;
     box-shadow: 0 12px 40px rgba(0,0,0,0.45);
-    z-index: 10001;
+    z-index: 999;
     display: none;
     flex-direction: column;
     overflow: hidden;

@@ -22,6 +22,7 @@
         
         :root {
             --accent: #1DB954;
+            --accent-shadow: rgba(29, 185, 84, 0.15); 
             --accent-dim: rgba(29, 185, 84, 0.15);
             --bg: #0a0a0a;
             --card: #141414;
@@ -163,13 +164,15 @@
             height: 24px;
         }
         
-        .controls .play-btn {
-            width: 72px;
-            height: 72px;
-            background: var(--accent, #1DB954);
-            padding: 18px;
-            box-shadow: 0 0 30px var(--accent-glow, rgba(29, 185, 84, 0.15));
-        }
+.controls .play-btn {
+    width: 72px;
+    height: 72px;
+    background: var(--accent, #1DB954); /* уже стоит, ок */
+    padding: 18px;
+    /* Убираем захардкоженный rgba и делаем прозрачную тень */
+    box-shadow: 0 0 30px var(--accent-shadow, rgba(29, 185, 84, 0.15));
+    transition: background 0.3s, box-shadow 0.3s;
+}
         
         .controls .play-btn svg {
             width: 32px;
@@ -206,16 +209,16 @@
             transition: background 0.3s;
         }
         
-        .volume-slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            background: var(--accent, #1DB954);
-            cursor: pointer;
-            transition: background 0.3s, transform 0.15s;
-            box-shadow: 0 0 12px rgba(29, 185, 84, 0.2);
-        }
+.volume-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--thumb-color, var(--accent, #1DB954)); /* Берем из JS */
+    cursor: pointer;
+    transition: background 0.3s, transform 0.15s;
+    box-shadow: 0 0 12px var(--thumb-shadow, rgba(29, 185, 84, 0.2));
+}
         
         .volume-slider::-webkit-slider-thumb:active {
             transform: scale(1.1);
@@ -264,12 +267,12 @@
             overflow: hidden;
         }
         
-        .progress-fill {
-            height: 100%;
-            background: var(--accent, #1DB954);
-            width: 0%;
-            transition: width 0.3s ease;
-        }
+.progress-fill {
+    height: 100%;
+    background: var(--accent, #1DB954); /* тут уже правильно, но проверим */
+    width: 0%;
+    transition: width 0.3s ease, background 0.3s ease; /* добавили плавную смену цвета */
+}
         
         .progress-time {
             display: flex;
@@ -520,6 +523,8 @@ let isPlayingState = false;
 let currentAccentColor = '#1DB954';
 let isFirstLoad = true;
 
+localStorage.removeItem('musichub_mobile_track_data');
+
 // === КЛЮЧ ДЛЯ localStorage ===
 const STORAGE_KEY = 'musichub_mobile_track_data';
 
@@ -628,13 +633,39 @@ function updatePlayButtonGlow(color) {
     if (!playBtn) return;
     const useColor = color || lastTrackData.accentColor || '#1DB954';
     currentAccentColor = useColor;
-    const rgba = hexToRgba(useColor, 0.3);
-    const rgbaLight = hexToRgba(useColor, 0.15);
     
+    // 1. Меняем переменные
+    document.documentElement.style.setProperty('--accent', useColor);
+    
+    const rgbaStrong = hexToRgba(useColor, 0.3);
+    const rgbaLight = hexToRgba(useColor, 0.15);
+    document.documentElement.style.setProperty('--accent-shadow', rgbaLight);
+
+    // 2. Перекрашиваем кнопку
+    playBtn.style.background = useColor;
     if (playBtn.classList.contains('playing')) {
-        playBtn.style.boxShadow = `0 0 40px ${rgba}`;
+        playBtn.style.boxShadow = `0 0 40px ${rgbaStrong}`;
     } else {
         playBtn.style.boxShadow = `0 0 30px ${rgbaLight}`;
+    }
+    
+    // 3. Перекрашиваем ползунок
+    const slider = document.getElementById('volumeSlider');
+    if (slider) {
+        slider.style.setProperty('--thumb-color', useColor);
+        slider.style.setProperty('--thumb-shadow', rgbaLight);
+    }
+    
+    // 4. Перекрашиваем прогресс
+    const fill = document.getElementById('progressFill');
+    if (fill) {
+        fill.style.background = useColor;
+    }
+
+    // 5. ПЕРЕКРАШИВАЕМ НАЗВАНИЕ СЕРВИСА (Яндекс Музыка и т.д.)
+    const serviceEl = document.getElementById('service');
+    if (serviceEl) {
+        serviceEl.style.color = useColor;
     }
 }
 
@@ -668,30 +699,41 @@ function connect() {
             
             // === ПРИ ПОДКЛЮЧЕНИИ ЗАПРАШИВАЕМ АКТУАЛЬНЫЙ СТАТУС ===
             sendSyncRequest();
+            ws.send(JSON.stringify({ command: 'get_accent_color' }));
         };
         
-        ws.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                
-                if (data.type === 'status') {
-                    const statusKey = JSON.stringify(data.data);
-                    if (statusKey !== lastStatus.key) {
-                        lastStatus.key = statusKey;
-                        clearTimeout(statusUpdateTimeout);
-                        statusUpdateTimeout = setTimeout(() => {
-                            updateUI(data.data);
-                        }, 50);
-                    }
-                } else if (data.type === 'track_progress') {
-                    updateProgressOnly(data);
-                } else if (data.type === 'track_changed') {
-                    updateTrackOnly(data.data);
-                }
-            } catch (e) {
-                console.error('Ошибка:', e);
-            }
-        };
+ws.onmessage = (event) => {
+    try {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'status') {
+            // Просто обновляем всегда, без защиты
+            updateUI(data.data);
+        } else if (data.type === 'track_progress') {
+            updateProgressOnly(data);
+        } else if (data.type === 'track_changed') {
+            updateTrackOnly(data.data);
+} else if (data.type === 'accent_color') {
+    const newColor = data.color;
+    if (newColor) {
+        currentAccentColor = newColor;
+        lastTrackData.accentColor = newColor;
+        
+        // 1. Обновляем фон
+        document.documentElement.style.setProperty('--accent', newColor);
+        document.body.style.background = `#0a0a0a`;
+        document.body.style.backgroundImage = `radial-gradient(circle at 50% 0%, ${newColor}22 0%, transparent 70%)`;
+        
+        // 2. ВЫЗЫВАЕМ ФУНКЦИЮ, КОТОРАЯ КРАСИТ ВСЕ (кнопку, ползунок, прогресс)
+        updatePlayButtonGlow(newColor);
+        
+        saveTrackData();
+    }
+}
+    } catch (e) {
+        console.error('Ошибка:', e);
+    }
+};
         
         ws.onclose = () => {
             isConnected = false;
@@ -758,7 +800,11 @@ function restoreTrackData() {
         };
         service.textContent = serviceNames[lastTrackData.service] || lastTrackData.service;
     }
-    if (lastTrackData.artwork && lastTrackData.artwork !== '') {
+    
+    // ДОБАВЛЕНА ПРОВЕРКА НА file://
+    if (lastTrackData.artwork && 
+        lastTrackData.artwork !== '' && 
+        !lastTrackData.artwork.startsWith('file://')) {
         artwork.src = lastTrackData.artwork;
         artwork.classList.remove('placeholder');
         artwork.style.display = 'block';
@@ -791,24 +837,7 @@ function updateTrackOnly(data) {
             artist.textContent = lastTrackData.artist;
         }
     }
-    
-    if (data.artwork !== undefined) {
-        if (data.artwork && data.artwork !== '' && data.artwork !== 'null' && data.artwork !== 'undefined') {
-            lastTrackData.artwork = data.artwork;
-            artwork.src = data.artwork;
-            artwork.classList.remove('placeholder');
-            artwork.style.display = 'block';
-            saveTrackData();
-            console.log(`🖼️ Обложка обновлена`);
-        } else {
-            if (!lastTrackData.artwork || lastTrackData.artwork === '') {
-                artwork.src = '';
-                artwork.classList.add('placeholder');
-                artwork.style.display = 'flex';
-            }
-        }
-    }
-    
+
     if (data.service) {
         lastTrackData.service = data.service;
         const serviceNames = {
@@ -872,15 +901,27 @@ function updateUI(data) {
         }
     }
     
+    // ТУТ БЫЛА ОШИБКА! ТЕПЕРЬ ИСПРАВЛЕНО:
     if (data.artwork !== undefined) {
-        if (data.artwork && data.artwork !== '' && data.artwork !== 'null' && data.artwork !== 'undefined') {
+        const isSafeArtwork = data.artwork && 
+                              data.artwork !== '' && 
+                              data.artwork !== 'null' && 
+                              data.artwork !== 'undefined' && 
+                              !data.artwork.startsWith('file://');
+
+        if (isSafeArtwork) {
             lastTrackData.artwork = data.artwork;
-            artwork.src = data.artwork;
+            if (artwork.src !== data.artwork) {
+                artwork.src = data.artwork;
+            }
             artwork.classList.remove('placeholder');
             artwork.style.display = 'block';
             saveTrackData();
             console.log(`🖼️ Обложка обновлена`);
         } else {
+            if (data.artwork && data.artwork.startsWith('file://')) {
+                console.warn('⚠️ file:// обложка заблокирована браузером');
+            }
             if (!lastTrackData.artwork || lastTrackData.artwork === '') {
                 artwork.src = '';
                 artwork.classList.add('placeholder');

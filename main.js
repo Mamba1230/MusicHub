@@ -23,7 +23,7 @@ let authProcess = null;
 let authRestartCount = 0;
 const MAX_RESTARTS = 5;
 
-const APP_VERSION = '3.3.5';
+const APP_VERSION = '3.4.0';
 
 // Константы
 const CHROME_STORE_API = 'https://clients2.google.com/service/update2/crx';
@@ -463,7 +463,7 @@ function updateDiscordPresence(trackInfo) {
 const presence = {
     details: title,
     state: artist || 'Ожидание',
-    startTimestamp: Date.now(),е,
+    startTimestamp: Date.now(),
     largeImageKey: 'musichub_icon',
     largeImageText: `MusicHub v${APP_VERSION}`,
     buttons: [
@@ -1846,7 +1846,12 @@ ipcMain.handle('uninstall-plugin', async (event, pluginId) => {
 });
 
 ipcMain.handle('open-plugin-popup', async (event, pluginId) => {
-    return await openPluginPopup(pluginId);
+    try {
+        await openPluginPopup(pluginId);
+        return { success: true }; // 👈 Возвращаем простой объект вместо окна
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
 });
 
 // === СОБЫТИЕ ДЛЯ ЗАГРУЗКИ В RENDERER ===
