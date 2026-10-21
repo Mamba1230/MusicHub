@@ -38,7 +38,7 @@
         <img id="splashGif" style="max-width: 200px; max-height: 200px; display: none; border-radius: 20px;">
     </div>
     <div class="splash-title" style="font-size: 28px; font-weight: 600; margin-bottom: 10px;">MusicHub</div>
-    <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v3.4.0</div>
+    <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v3.4.5</div>
     <div class="splash-tip" id="splashTip" style="font-size: 14px; color: var(--text-secondary); max-width: 400px; text-align: center; padding: 0 20px; margin-bottom: 20px;"></div>
     <div class="splash-progress" style="width: 300px; height: 3px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
         <div class="splash-progress-bar" style="width: 0%; height: 100%; background: var(--accent-color); transition: width 0.1s linear;"></div>
@@ -86,7 +86,7 @@
         <div class="volume-icon" id="volumeIcon" title="Наведите для регулировки громкости">🔊</div>
         <div class="volume-slider-container" id="volumeSliderContainer">
             <div style="display: flex; align-items: center; gap: 8px; min-width: 120px;">
-                <input type="range" id="volumeSlider" min="0" max="100" value="100" class="volume-slider">
+                <input type="range" id="volumeSlider" min="1" max="100" value="100" class="volume-slider">
                 <span id="volumePercent" style="font-size: 11px; min-width: 35px; text-align: right; color: var(--text-secondary);">100%</span>
             </div>
         </div>
@@ -167,7 +167,14 @@
             <button class="util-btn" id="hoverClickBtn" title="Наведи и кликни (hover-активация)">🖱️</button>
             <button class="util-btn" id="chatBtn">💬</button>
         </div>
-        <div class="content" id="content">
+<div class="content" id="content">
+    <div id="webviewLoader" class="webview-loader">
+        <div class="loader-content">
+            <div class="loader-logo">M</div>
+            <div class="loader-spinner"></div>
+            <div class="loader-text">Загрузка сервиса...</div>
+        </div>
+    </div>
 </div>
             
            
@@ -212,6 +219,9 @@
             </button>
             <button class="settings-nav-item" data-tab="hotkeys">
                 <span class="nav-icon">⌨️</span><span class="nav-label">Горячие клавиши</span>
+            </button>
+            <button class="settings-nav-item" data-tab="feedback">
+                <span class="nav-icon">📝</span><span class="nav-label">Обратная связь</span>
             </button>
             <button class="settings-nav-item" data-tab="about">
                 <span class="nav-icon">ℹ️</span><span class="nav-label">О программе</span>
@@ -635,6 +645,38 @@
                 </div>
             </section>
 
+                        <!-- ============ ОБРАТНАЯ СВЯЗЬ ============ -->
+            <section class="settings-tab" data-tab="feedback">
+                <div class="settings-card">
+                    <div class="card-title">📝 Связаться с разработчиком</div>
+                    <div class="settings-grid">
+                        <div class="setting-item full-width">
+                            <div class="feedback-rating-display" id="feedbackStars">⭐⭐⭐⭐⭐</div>
+                            <input type="range" id="feedbackRating" min="0.5" max="5" step="0.5" value="5" class="feedback-slider">
+                            <div style="text-align: center; font-size: 12px; color: var(--text-secondary); margin-bottom: 16px;">
+                                Оценка: <span id="feedbackRatingValue">5.0</span>
+                            </div>
+                        </div>
+                        
+                        <div class="setting-item full-width">
+                            <label>Что понравилось / не понравилось? (баги, идеи)</label>
+                            <textarea id="feedbackText" class="feedback-textarea" placeholder="Опиши проблему или предложение..."></textarea>
+                        </div>
+
+                        <div class="setting-item full-width">
+                            <label>Ссылки на скриншоты (Imgur, Gyazo и т.д.)</label>
+                            <input type="text" id="feedbackLinks" class="feedback-input" placeholder="https://imgur.com/... , https://...">
+                            <div class="setting-hint">Вставь ссылки через запятую, если есть визуальные баги.</div>
+                        </div>
+
+                        <div class="setting-item full-width">
+                            <button id="submitFeedbackBtn" class="btn-primary" style="width: 100%; padding: 12px;">🚀 Отправить отзыв</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            
             <!-- ============ О ПРОГРАММЕ ============ -->
             <section class="settings-tab" data-tab="about">
 
@@ -658,7 +700,25 @@
         </div>
     </div>
 </div>
-
+<div class="settings-card" style="border-color: rgba(255, 68, 68, 0.3);">
+    <h3 style="color: #ff4444;">⚠️ Сброс настроек</h3>
+    <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">
+        Вернуть все настройки приложения к стандартным. Статистика, история треков и аккаунт сохранятся.
+    </p>
+    <button id="resetSettingsBtn" style="
+        background: #ff4444;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 10px 20px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 600;
+        transition: all 0.2s;
+    " onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
+        🗑️ Сбросить настройки к дефолтным
+    </button>
+</div>
                 <div class="settings-card">
                     <div class="card-title">ℹ️ О MusicHub</div>
                     <div class="about-info">
@@ -686,14 +746,21 @@
     
 
      
-<div id="chat-panel">
-    <div class="chat-header">
-        <h3>MusicHub Chat</h3>
-        <button class="chat-close-btn" onclick="closeChat()">✕</button>
+<div id="chat-panel" class="mh-drawer">
+    <div class="mh-modal-header">
+        <h3 class="mh-modal-title">
+            <span class="emoji">💬</span>
+            MusicHub Chat
+        </h3>
+        <div class="mh-modal-actions">
+            <button class="mh-modal-close" onclick="closeChat()" title="Закрыть">✕</button>
+        </div>
     </div>
+
     <div class="chat-status" id="chat-status">
         🔌 Подключение...
     </div>
+
     <div class="chat-messages" id="chat-messages">
         <div class="chat-message incoming">
             <div class="message-sender">🎵 MusicHub Bot</div>
@@ -701,12 +768,15 @@
             <div class="message-time">только что</div>
         </div>
         <div class="chat-typing" id="chatTyping" style="display: none;">
-    <span>✍️</span>
-    <span id="typingUser"></span> печатает...
-</div>
+            <span>✍️</span>
+            <span id="typingUser"></span> печатает...
+        </div>
     </div>
+
     <div class="chat-input-area">
-        <input type="text" class="chat-input" id="chat-input" placeholder="Введите сообщение..." onkeypress="handleChatKeypress(event)">
+        <input type="text" class="chat-input" id="chat-input"
+               placeholder="Введите сообщение..."
+               onkeypress="handleChatKeypress(event)">
         <button class="chat-send-btn" onclick="sendChatMessage()">➤</button>
     </div>
 </div>
@@ -725,7 +795,181 @@
     </div>
 </div>
 
+<!-- ============ ONBOARDING ============ -->
+<div id="onboarding">
+    <button class="onb-skip" id="onbSkip">Пропустить →</button>
+    
+    <div class="onb-container">
+        <div class="onb-dots" id="onbDots">
+            <div class="onb-dot active"></div>
+            <div class="onb-dot"></div>
+            <div class="onb-dot"></div>
+            <div class="onb-dot"></div>
+        </div>
 
+<!-- ШАГ 1: Приветствие -->
+<div class="onb-card active" data-step="0">
+    <div class="onb-icon">🎵</div>
+    <h1 class="onb-title">Добро пожаловать в MusicHub</h1>
+    <p class="onb-subtitle">
+        Твой музыкальный хаб в одном окне. Все сервисы, визуализации и умное управление — здесь.
+    </p>
+    
+    <div class="onb-features">
+        <div class="onb-feature">
+            <span class="onb-feature-icon">🎧</span>
+            <div class="onb-feature-text">
+                <span class="onb-feature-name">Все сервисы</span>
+                <span class="onb-feature-desc">Яндекс, YouTube, VK, SoundCloud</span>
+            </div>
+        </div>
+        <div class="onb-feature">
+            <span class="onb-feature-icon">🎨</span>
+            <div class="onb-feature-text">
+                <span class="onb-feature-name">10+ визуализаций</span>
+                <span class="onb-feature-desc">Реагируют на музыку в реальном времени</span>
+            </div>
+        </div>
+        <div class="onb-feature">
+            <span class="onb-feature-icon">🤖</span>
+            <div class="onb-feature-text">
+                <span class="onb-feature-name">AI-помощник</span>
+                <span class="onb-feature-desc">Поиск, команды, статистика</span>
+            </div>
+        </div>
+        <div class="onb-feature">
+            <span class="onb-feature-icon">🔌</span>
+            <div class="onb-feature-text">
+                <span class="onb-feature-name">Плагины</span>
+                <span class="onb-feature-desc">Расширяй возможности</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Блок соглашения ВЫНЕСЕН ИЗ onb-features, чтобы не ломать сетку -->
+    <div class="onb-agree-box">
+        <input type="checkbox" id="onbAgree">
+        <label for="onbAgree" style="cursor:pointer;">
+            Я согласен с <a href="#" onclick="event.preventDefault(); event.stopPropagation(); showTermsModal();">условиями использования</a> и даю согласие на сбор анонимной статистики (клики, ошибки, использование функций) для улучшения приложения.
+        </label>
+    </div>
+</div>
+
+        <!-- ШАГ 2: Сервисы -->
+        <div class="onb-card" data-step="1">
+            <div class="onb-icon">🎼</div>
+            <h1 class="onb-title">Выбери сервисы</h1>
+            <p class="onb-subtitle">
+                Какие музыкальные сервисы ты используешь? Можно выбрать до двух основных.
+            </p>
+            <div class="onb-services" id="onbServices">
+                <button class="onb-service selected" data-service="yandex">
+                    <span class="onb-service-icon">Y</span>
+                    <span class="onb-service-name">Яндекс Музыка</span>
+                </button>
+                <button class="onb-service selected" data-service="youtube">
+                    <span class="onb-service-icon">YT</span>
+                    <span class="onb-service-name">YouTube Music</span>
+                </button>
+                <button class="onb-service" data-service="soundcloud">
+                    <span class="onb-service-icon">SC</span>
+                    <span class="onb-service-name">SoundCloud</span>
+                </button>
+                <button class="onb-service" data-service="apple music">
+                    <span class="onb-service-icon">AM</span>
+                    <span class="onb-service-name">Apple Music</span>
+                </button>
+                <button class="onb-service" data-service="vk">
+                    <span class="onb-service-icon">VK</span>
+                    <span class="onb-service-name">VK Music</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- ШАГ 3: Внешний вид -->
+        <div class="onb-card" data-step="2">
+            <div class="onb-icon">🎨</div>
+            <h1 class="onb-title">Настрой под себя</h1>
+            <p class="onb-subtitle">
+                Выбери акцентный цвет и тему. Всё можно изменить позже в настройках.
+            </p>
+            <div class="onb-settings-grid">
+                <div class="onb-setting">
+                    <div class="onb-setting-label">Акцентный цвет</div>
+                    <div class="onb-color-picker" id="onbColors">
+                        <div class="onb-color-swatch selected" data-color="#1DB954" style="background:#1DB954; color:#1DB954;"></div>
+                        <div class="onb-color-swatch" data-color="#bc4240" style="background:#bc4240; color:#bc4240;"></div>
+                        <div class="onb-color-swatch" data-color="#ffc85b" style="background:#ffc85b; color:#ffc85b;"></div>
+                        <div class="onb-color-swatch" data-color="#4a90e2" style="background:#4a90e2; color:#4a90e2;"></div>
+                        <div class="onb-color-swatch" data-color="#9b59b6" style="background:#9b59b6; color:#9b59b6;"></div>
+                        <div class="onb-color-swatch" data-color="#e5b5bd" style="background:#e5b5bd; color:#e5b5bd;"></div>
+                    </div>
+                </div>
+                <div class="onb-setting">
+                    <div class="onb-setting-label">Тема интерфейса</div>
+                    <div class="onb-toggle-row">
+                        <span>Тёмная</span>
+                        <label class="onb-switch">
+                            <input type="checkbox" id="onbLightTheme">
+                            <span class="onb-switch-slider"></span>
+                        </label>
+                        <span>Светлая</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ШАГ 4: Готово (Карусель) -->
+        <div class="onb-card" data-step="3">
+            <div class="onb-icon">🚀</div>
+            <h1 class="onb-title">Всё готово!</h1>
+            <p class="onb-subtitle">
+                Нажми «Начать» — и вперёд за музыкой. Вот несколько советов, которые пригодятся.
+            </p>
+            
+            <div class="onb-carousel-wrap">
+                <div class="onb-carousel">
+                    <div class="onb-carousel-item">
+                        <span class="onb-carousel-icon">⌨️</span>
+                        <span class="onb-carousel-title">Ctrl+Tab</span>
+                        <span class="onb-carousel-desc">Переключение между сервисами, даже когда окно неактивно</span>
+                    </div>
+                    <div class="onb-carousel-item">
+                        <span class="onb-carousel-icon">🖱️</span>
+                        <span class="onb-carousel-title">Hover Click</span>
+                        <span class="onb-carousel-desc">Наведи и задержи курсор на кнопке, чтобы кликнуть</span>
+                    </div>
+                    <div class="onb-carousel-item">
+                        <span class="onb-carousel-icon">📌</span>
+                        <span class="onb-carousel-title">Поверх окон</span>
+                        <span class="onb-carousel-desc">Закрепи окно поверх остальных кнопкой в сайдбаре</span>
+                    </div>
+                    <div class="onb-carousel-item">
+                        <span class="onb-carousel-icon">💬</span>
+                        <span class="onb-carousel-title">AI-чат</span>
+                        <span class="onb-carousel-desc">Пиши "включи музыку" или "найди трек" прямо в чат</span>
+                    </div>
+                    <div class="onb-carousel-item">
+                        <span class="onb-carousel-icon">🎨</span>
+                        <span class="onb-carousel-title">Визуализации</span>
+                        <span class="onb-carousel-desc">Разверни на весь экран кнопкой ⤢ в сайдбаре</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Навигация -->
+        <div class="onb-nav">
+            <div class="onb-nav-left">
+                <button class="onb-btn onb-btn-ghost" id="onbBack" disabled>← Назад</button>
+            </div>
+            <div class="onb-nav-right">
+                <button class="onb-btn onb-btn-primary" id="onbNext">Далее →</button>
+                <button class="onb-btn onb-btn-primary" id="onbFinish" style="display:none;">🚀 Начать</button>
+            </div>
+        </div>
+    </div>
+</div>
 
     <script src="renderer.js"></script>
 </body>

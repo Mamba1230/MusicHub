@@ -1,6 +1,6 @@
 {
   "name": "musichub",
-  "version": "3.4.0",
+  "version": "3.4.5",
   "description": "MusicHub - десктопный музыкальный плеер-агрегатор",
   "author": "Mamba1230",
   "main": "main.js",
@@ -46,7 +46,7 @@
       "!node_modules/.cache",
       "!*.py",
       "!__pycache__",
-      "!media_watcher.py",
+      "!device.id", 
       "!*.map"
     ],
     "extraResources": [

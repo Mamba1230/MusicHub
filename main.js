@@ -23,7 +23,7 @@ let authProcess = null;
 let authRestartCount = 0;
 const MAX_RESTARTS = 5;
 
-const APP_VERSION = '3.4.0';
+const APP_VERSION = '3.4.5';
 
 // Константы
 const CHROME_STORE_API = 'https://clients2.google.com/service/update2/crx';
