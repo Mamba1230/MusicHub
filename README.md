@@ -8,6 +8,19 @@
 
 ![MusicHub Preview](screenshot/main.png)
 
+<div align="center">
+  <br/>
+  <a href="https://download.mawba-1230.workers.dev/">
+    <img src="https://img.shields.io/badge/Скачать_для_Windows-1DB954?style=flat&logo=windows11&logoColor=white&labelColor=0a0a0a" alt="Скачать MusicHub" height="45">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://mamba1230.github.io/">
+    <img src="https://img.shields.io/badge/Официальный_сайт-333333?style=flat&logo=googlechrome&logoColor=white&labelColor=0a0a0a" alt="Сайт MusicHub" height="45">
+  </a>
+  <br/>
+  <br/>
+</div>
+
 ---
 
 ## 🚀 Ключевые возможности
