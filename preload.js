@@ -89,6 +89,11 @@ const api = {
     executeAICommand: (command) => ipcRenderer.invoke('execute-ai-command', command),
     getGigaAuthKey: () => ipcRenderer.invoke('get-giga-auth-key'),
 
+    // AI
+    askAI: (question, history, context) => ipcRenderer.invoke('ask-ai', question, history, context),
+    askAICommentary: (prompt) => ipcRenderer.invoke('ask-ai-commentary', prompt),
+    getAILimitStatus: () => ipcRenderer.invoke('ai-limit-status'),
+
     // Страница запуска
     setStartupPage: (page) => ipcRenderer.send('set-startup-page', page),
     getStartupPage: () => ipcRenderer.invoke('get-startup-page'),

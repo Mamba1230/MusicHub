@@ -23,7 +23,7 @@ let authProcess = null;
 let authRestartCount = 0;
 const MAX_RESTARTS = 5;
 
-const APP_VERSION = '3.4.5';
+const APP_VERSION = '3.5.0';
 
 // Константы
 const CHROME_STORE_API = 'https://clients2.google.com/service/update2/crx';
@@ -263,6 +263,37 @@ function requestAuthKey() {
     });
 }
 
+// Универсальный запрос к exe через Named Pipe
+function requestAI(payload) {
+    return new Promise((resolve, reject) => {
+        const client = net.connect(PIPE_NAME, () => {
+            client.write(JSON.stringify(payload) + '\n');
+        });
+
+        let buffer = '';
+        client.on('data', (data) => {
+            buffer += data.toString();
+        });
+
+        client.on('end', () => {
+            try {
+                const response = JSON.parse(buffer.trim());
+                resolve(response);
+            } catch (e) {
+                reject(new Error('Invalid JSON: ' + buffer));
+            }
+        });
+
+        client.on('error', (err) => reject(err));
+
+        setTimeout(() => {
+            client.destroy();
+            reject(new Error('AI request timeout'));
+        }, 30000);
+    });
+}
+
+
 // IPC-обработчик для renderer
 ipcMain.handle('get-giga-auth-key', async () => {
     try {
@@ -274,6 +305,58 @@ ipcMain.handle('get-giga-auth-key', async () => {
         throw err;
     }
 });
+
+
+// Запрос к AI (чат)
+ipcMain.handle('ask-ai', async (event, question, history, context) => {
+    try {
+        const response = await requestAI({
+            type: 'ai-request',
+            question,
+            history: Array.isArray(history) ? history : [],  // ← массив
+            context: context || {}
+        });
+        return response;
+    } catch (err) {
+        console.error('[IPC] ask-ai error:', err.message);
+        return { ok: false, error: err.message };
+    }
+});
+
+// AI-комментарий (статистика)
+ipcMain.handle('ask-ai-commentary', async (event, prompt) => {
+    try {
+        const response = await requestAI({
+            type: 'ai-commentary',
+            prompt
+        });
+        return response;
+    } catch (err) {
+        console.error('[IPC] ask-ai-commentary error:', err.message);
+        return { ok: false, error: err.message };
+    }
+});
+
+// Статус лимитов
+ipcMain.handle('ai-limit-status', async () => {
+    try {
+        const response = await requestAI({ type: 'limit-status' });
+        return response;
+    } catch (err) {
+        console.error('[IPC] ai-limit-status error:', err.message);
+        return { ok: false, error: err.message };
+    }
+});
+
+
+
+
+
+
+
+
+
+
 
 // Запуск при старте приложения
 app.on('ready', () => {

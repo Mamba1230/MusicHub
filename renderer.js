@@ -43,7 +43,7 @@
 
         let lastMentionedArtist = null; // Хранит последнего упомянутого исполнителя
 let chatHistory = []; // История диалога для контекста
-const MAX_HISTORY = 10; // Сколько последних сообщений хранить
+const MAX_HISTORY = 40; // Сколько последних сообщений хранить
 
         const services = [
             { id: 'yandex', name: 'Яндекс Музыка', url: 'https://music.yandex.ru', icon: 'Y' },
@@ -83,7 +83,7 @@ window.testStartupPage = function(page) {
 // ============================================================
 // ЕДИНАЯ ВЕРСИЯ ПРИЛОЖЕНИЯ
 // ============================================================
-const APP_VERSION = '3.4.5';
+const APP_VERSION = '3.5.0';
 
 const DEFAULT_SETTINGS = {
     // Внешний вид
@@ -430,28 +430,34 @@ async function handlePrevious() {
 
 function parseAICommand(text) {
     if (!text) return [];
-    
+
+    // Снимаем markdown-обёртки и невидимые символы
+    const clean = String(text)
+        .replace(/\*\*/g, '')
+        .replace(/`/g, '')
+        .replace(/\u200B/g, '');
+
     const commands = [];
-    
-    if (text.includes(COMMAND_CODES.PLAY)) commands.push({ command: 'play', raw: COMMAND_CODES.PLAY });
-    if (text.includes(COMMAND_CODES.PAUSE)) commands.push({ command: 'pause', raw: COMMAND_CODES.PAUSE });
-    if (text.includes(COMMAND_CODES.STOP)) commands.push({ command: 'stop', raw: COMMAND_CODES.STOP });
-    if (text.includes(COMMAND_CODES.NEXT)) commands.push({ command: 'next', raw: COMMAND_CODES.NEXT });
-    if (text.includes(COMMAND_CODES.PREV)) commands.push({ command: 'prev', raw: COMMAND_CODES.PREV });
-    if (text.includes(COMMAND_CODES.VOLUME_UP)) commands.push({ command: 'volume_up', raw: COMMAND_CODES.VOLUME_UP });
-    if (text.includes(COMMAND_CODES.VOLUME_DOWN)) commands.push({ command: 'volume_down', raw: COMMAND_CODES.VOLUME_DOWN });
-    if (text.includes(COMMAND_CODES.MUTE)) commands.push({ command: 'mute', raw: COMMAND_CODES.MUTE });
-    if (text.includes(COMMAND_CODES.UNMUTE)) commands.push({ command: 'unmute', raw: COMMAND_CODES.UNMUTE });
-    if (text.includes(COMMAND_CODES.TOGGLE)) commands.push({ command: 'toggle', raw: COMMAND_CODES.TOGGLE });
-    
-    const volMatch = text.match(/🎵\[CMD:VOLSET:(\d+)\]/);
+
+    if (clean.includes(COMMAND_CODES.PLAY))        commands.push({ command: 'play',        raw: COMMAND_CODES.PLAY });
+    if (clean.includes(COMMAND_CODES.PAUSE))       commands.push({ command: 'pause',       raw: COMMAND_CODES.PAUSE });
+    if (clean.includes(COMMAND_CODES.STOP))        commands.push({ command: 'stop',        raw: COMMAND_CODES.STOP });
+    if (clean.includes(COMMAND_CODES.NEXT))        commands.push({ command: 'next',        raw: COMMAND_CODES.NEXT });
+    if (clean.includes(COMMAND_CODES.PREV))        commands.push({ command: 'prev',        raw: COMMAND_CODES.PREV });
+    if (clean.includes(COMMAND_CODES.VOLUME_UP))   commands.push({ command: 'volume_up',   raw: COMMAND_CODES.VOLUME_UP });
+    if (clean.includes(COMMAND_CODES.VOLUME_DOWN)) commands.push({ command: 'volume_down', raw: COMMAND_CODES.VOLUME_DOWN });
+    if (clean.includes(COMMAND_CODES.MUTE))        commands.push({ command: 'mute',        raw: COMMAND_CODES.MUTE });
+    if (clean.includes(COMMAND_CODES.UNMUTE))      commands.push({ command: 'unmute',      raw: COMMAND_CODES.UNMUTE });
+    if (clean.includes(COMMAND_CODES.TOGGLE))      commands.push({ command: 'toggle',      raw: COMMAND_CODES.TOGGLE });
+
+    const volMatch = clean.match(/🎵\[CMD:VOLSET:(\d+)\]/);
     if (volMatch) {
-        const vol = parseInt(volMatch[1]);
+        const vol = parseInt(volMatch[1], 10);
         if (!isNaN(vol) && vol >= 0 && vol <= 100) {
             commands.push({ command: 'volume_set', value: vol, raw: volMatch[0] });
         }
     }
-    
+
     return commands;
 }
 
@@ -890,15 +896,6 @@ async function getDeviceId() {
 async function checkPremiumStatus() {
     premiumStatus = { isPremium: true, daysLeft: 999 }; // Всегда Премиум
     return premiumStatus;
-}
-
-async function checkAILimit() {
-    return { canUse: true, remaining: 999 };
-}
-
-
-async function incrementAICount() {
-    return { canUse: true };
 }
 
 function hasFeature(feature) {
@@ -3009,42 +3006,17 @@ ${trend}
 
 Будь остроумным, используй эмодзи. Пиши как человек.`;
     
-    
     try {
-        const limit = await checkAILimit();
-        const isPremium = premiumStatus?.isPremium || false;
+        const result = await window.electronAPI.askAICommentary(prompt);
         
-        if (!isPremium && limit.count >= 10) {
-            return getFallbackCommentary(total, topArtists, trend);
+        if (!result.ok) {
+            return getFallbackCommentary(totalMinutes, topArtists, trend);
         }
         
-        // ← НОВОЕ: получаем ключ через exe
-        const authKey = await getGigaAuthKey();
-        
-        const tokenResponse = await fetch('https://ngw.devices.sberbank.ru:9443/api/v2/oauth', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Accept': 'application/json',
-                'RqUID': crypto.randomUUID(),
-                'Authorization': `Basic ${authKey}`,
-            },
-            body: 'scope=GIGACHAT_API_PERS',
-        });
-        const tokenData = await tokenResponse.json();
-        const token = tokenData.access_token;
-        
-        const aiResponse = await fetch('https://gigachat.devices.sberbank.ru/api/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model: 'GigaChat', messages: [{ role: 'user', content: prompt }], temperature: 0.9, max_tokens: 150 })
-        });
-        const data = await aiResponse.json();
-        await incrementAICount();
-        return data.choices?.[0]?.message?.content || getFallbackCommentary(total, topArtists, trend);
+        return result.text;
     } catch (err) {
-        console.log('AI ошибка:', err);
-        return getFallbackCommentary(total, topArtists, trend);
+        console.log('AI commentary error:', err);
+        return getFallbackCommentary(totalMinutes, topArtists, trend);
     }
 }
 
@@ -10237,47 +10209,89 @@ window.forceCheckUpdates = function() {
 // ============================================================
 
 // Функция поиска (может вызываться из AI или вручную)
+/**
+ * Поиск трека/исполнителя в музыкальном сервисе.
+ * Приоритет:
+ *   1. YouTube Music (если активен) — основной
+ *   2. Текущий активный сервис (soundcloud / vk / yandex / custom)
+ *   3. Если ничего не активно — временный webview с YouTube Music
+ */
 function searchYoutubeMusic(query) {
     if (!query || query.trim() === '') {
         showToast('❌ Введите запрос для поиска', 'error');
         return;
     }
-    
-    const encodedQuery = encodeURIComponent(query.trim());
-    const searchUrl = `https://music.youtube.com/search?q=${encodedQuery}`;
-    
-    console.log(`🔍 Поиск: ${searchUrl}`);
-    
-    // Проверяем, активен ли YouTube Music
+
+    const q = query.trim();
+    const encoded = encodeURIComponent(q);
+    const doubleEncoded = encodeURIComponent(encoded); // для VK
+
+    console.log(`🔍 Поиск: "${q}"`);
+
+    // === 1. Проверяем YouTube Music ===
+    const ytBtn = document.getElementById('btn-youtube');
     const activeWv = document.querySelector('webview.active');
-    
+
     if (activeWv && activeWv.id === 'youtube') {
-        // Если уже на YouTube - просто загружаем
-        activeWv.loadURL(searchUrl);
-        showToast(`🔍 Поиск: "${query}"`, 'success');
-    } else {
-        // Иначе переключаемся на YouTube Music
-        const ytBtn = document.getElementById('btn-youtube');
-        if (ytBtn) {
-            // Переключаемся
-            sw('youtube', ytBtn);
-            
-            // Через секунду загружаем поиск
-            setTimeout(() => {
-                const wv = document.querySelector('webview.active');
-                if (wv && wv.id === 'youtube') {
-                    wv.loadURL(searchUrl);
-                    showToast(`🔍 Поиск: "${query}"`, 'success');
-                }
-            }, 500);
-        } else {
-            // Если YouTube Music не в активных сервисах - открываем во временном webview
-            const tempUrl = `musichub://${searchUrl}`;
-            if (window.electronAPI && window.electronAPI.openExternalUrl) {
-                window.electronAPI.openExternalUrl(tempUrl);
+        // Уже на YouTube — просто грузим поиск
+        activeWv.loadURL(`https://music.youtube.com/search?q=${encoded}`);
+        showToast(`🔍 Поиск: "${q}"`, 'success');
+        return;
+    }
+
+    if (ytBtn && activeServices.includes('youtube')) {
+        // YouTube активен в сервисах — переключаемся и грузим
+        sw('youtube', ytBtn);
+        setTimeout(() => {
+            const wv = document.querySelector('webview.active');
+            if (wv && wv.id === 'youtube') {
+                wv.loadURL(`https://music.youtube.com/search?q=${encoded}`);
+                showToast(`🔍 Поиск: "${q}"`, 'success');
+            }
+        }, 500);
+        return;
+    }
+
+    // === 2. YouTube нет — используем текущий активный сервис ===
+    if (activeWv && activeWv.id) {
+        const serviceId = activeWv.id;
+
+        // Карта URL-шаблонов для каждого сервиса
+        const searchUrls = {
+            'soundcloud':    `https://soundcloud.com/search?q=${encoded}`,
+            'vk':            `https://vk.ru/audio?q=${doubleEncoded}`,       // двойное кодирование
+            'yandex':        `https://music.yandex.ru/search?text=${encoded}`,
+            'apple music':   `https://music.apple.com/search?term=${encoded}`,
+        };
+
+        // Кастомные сайты (custom_N)
+        if (serviceId.startsWith('custom_')) {
+            const idx = parseInt(serviceId.split('_')[1]);
+            const site = customSites[idx];
+            if (site && site.url) {
+                try {
+                    const base = new URL(site.url);
+                    // Пытаемся угадать поиск: /search?q=
+                    const searchUrl = `${base.origin}/search?q=${encoded}`;
+                    activeWv.loadURL(searchUrl);
+                    showToast(`🔍 Поиск: "${q}" на ${base.hostname}`, 'success');
+                    return;
+                } catch (e) {}
             }
         }
+
+        if (searchUrls[serviceId]) {
+            activeWv.loadURL(searchUrls[serviceId]);
+            const svc = services.find(s => s.id === serviceId);
+            showToast(`🔍 Поиск: "${q}" в ${svc?.name || serviceId}`, 'success');
+            return;
+        }
     }
+
+    // === 3. Fallback: ничего не активно — временный webview с YouTube Music ===
+    console.log('🔍 Нет активного сервиса — открываю temp webview');
+    openInTempWebview(`https://music.youtube.com/search?q=${encoded}`);
+    showToast(`🔍 Поиск: "${q}"`, 'success');
 }
 
 // Обработка команд от AI
@@ -12255,39 +12269,6 @@ function sendTyping() {
     }
 }
 
-const APP_KEY = 'musichub-secret-key-2024';
-const WORKER_URL = 'https://gigachat-proxy.170610maksim.workers.dev';
-
-
-
- 
-async function getGigaAuthKey() {
-    try {
-        const authKey = await window.electronAPI.getGigaAuthKey();
-        return authKey;
-    } catch (err) {
-        console.error('Failed to get GigaChat key:', err);
-        throw err;
-    }
-}
-
- 
-async function getGigaToken(authKey) {
-  const response = await fetch('https://ngw.devices.sberbank.ru:9443/api/v2/oauth', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Accept': 'application/json',
-      'RqUID': crypto.randomUUID(),
-      'Authorization': `Basic ${authKey}`,
-    },
-    body: 'scope=GIGACHAT_API_PERS',
-  });
-  
-  const data = await response.json();
-  return data.access_token;
-}
-
 const KNOWLEDGE_URL = 'https://gigachattips.170610maksim.workers.dev/knowledge.txt';
 let knowledgeCache = null;
 
@@ -12386,144 +12367,118 @@ async function getRandomFact() {
 
  
 async function askGigaChat(question) {
-    const limit = await checkAILimit();
-    const isPremium = premiumStatus?.isPremium || false;
-    
-    if (!isPremium && limit.count >= 10) {
-        addChatMessage(`❌ Достигнут лимит AI запросов (10/день). Подпишитесь на Premium для неограниченного доступа.`, false, 'system');
-        return;
+    // === 1. ИСТОРИЯ КАК МАССИВ ===
+    const recentHistory = chatHistory
+        .filter(m => m && m.content && (m.role === 'user' || m.role === 'assistant'))
+        .slice(-12)
+        .map(msg => ({
+            role: msg.role === 'user' ? 'user' : 'assistant',
+            content: String(msg.content)
+        }));
+
+    // === 2. ТРЕК ИЗ МЕДИАФАЙЛОВ ===
+    let trackText = null;
+    try {
+        if (window.electronAPI && window.electronAPI.getMediaFromFiles) {
+            const media = await window.electronAPI.getMediaFromFiles();
+            if (media && media.title && media.title !== 'Не играет' && media.title !== 'null') {
+                trackText = media.artist
+                    ? `${media.title} — ${media.artist}`
+                    : media.title;
+            }
+        }
+    } catch (e) {
+        console.warn('[AI] getMediaFromFiles error:', e);
+    }
+    // Fallback: DOM home
+    if (!trackText) {
+        const titleEl = document.getElementById('homeTrackTitle');
+        const artistEl = document.getElementById('homeTrackArtist');
+        if (titleEl && titleEl.textContent && titleEl.textContent !== '—' && titleEl.textContent !== 'Не играет') {
+            trackText = artistEl?.textContent && artistEl.textContent !== '—'
+                ? `${titleEl.textContent} — ${artistEl.textContent}`
+                : titleEl.textContent;
+        }
+    }
+
+    // === 3. АКТУАЛЬНАЯ ВЕРСИЯ + TIP из воркера ===
+    let latestVersionInfo = null;
+    let tip = null;
+    try {
+        const [u, t] = await Promise.allSettled([
+            fetch('https://tips-proxy.170610maksim.workers.dev/check-update', { cache: 'no-store' }),
+            fetch('https://tips-proxy.170610maksim.workers.dev/tip', { cache: 'no-store' })
+        ]);
+
+        if (u.status === 'fulfilled' && u.value.ok) {
+            const d = await u.value.json();
+            console.log('[AI] /check-update raw:', d);
+            if (d && d.latestVersion) {
+                latestVersionInfo = {
+                    latestVersion: d.latestVersion,
+                    releaseDate: d.releaseDate || null,
+                    releaseNotes: Array.isArray(d.releaseNotes) ? d.releaseNotes : []
+                };
+            }
+        } else {
+            console.warn('[AI] /check-update fetch failed:', u.status === 'rejected' ? u.reason : u.value?.status);
+        }
+
+        if (t.status === 'fulfilled' && t.value.ok) {
+            const d = await t.value.json();
+            if (d && d.tip) tip = d.tip;
+        }
+    } catch (e) {
+        console.warn('[AI] context fetch error:', e.message);
     }
     
-    addChatMessage(`🤖 Думаю над: "${question.slice(0, 50)}..."`, false, 'system');
-    
+    // Топ-3 исполнителя пользователя по времени
+let userTopArtists = [];
+try {
+    if (typeof getTopArtistsByTime === 'function') {
+        userTopArtists = getTopArtistsByTime(3).map(a => a.name);
+    }
+} catch (e) {}
+
+
+
+    // === 4. СОБИРАЕМ CONTEXT ===
+const context = {
+    track: trackText,
+    appVersion: APP_VERSION,
+    latestVersionInfo,
+    tip,
+    userTopArtists
+};
+
+    console.log('🎯 [AI] context:', context);
+
+    // === 5. Временное сообщение «Думаю...» ===
+    const statusMsgEl = addChatMessage(
+        `🤖 Думаю над: "${question.slice(0, 50)}..."`,
+        false,
+        'system'
+    );
+
+    // === 6. Запрос ===
     try {
-        // ← НОВОЕ: получаем ключ через exe
-        const authKey = await getGigaAuthKey();
-        
-        const tokenResponse = await fetch('https://ngw.devices.sberbank.ru:9443/api/v2/oauth', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Accept': 'application/json',
-                'RqUID': crypto.randomUUID(),
-                'Authorization': `Basic ${authKey}`,
-            },
-            body: 'scope=GIGACHAT_API_PERS',
-        });
-        
-        const tokenData = await tokenResponse.json();
-        const token = tokenData.access_token;
-        
-        const aiResponse = await fetch('https://gigachat.devices.sberbank.ru/api/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Accept': 'application/json',
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                model: 'GigaChat',
-                messages: [
-    { 
-        role: 'system', 
-        content: `Ты — AI-помощник в приложении MusicHub. Отвечай кратко (2-3 предложения), дружелюбно, по делу.
+        const result = await window.electronAPI.askAI(question, recentHistory, context);
+        if (statusMsgEl) statusMsgEl.remove();
 
-О MusicHub:
-MusicHub — это десктопный музыкальный плеер с визуализациями, который объединяет несколько стриминговых сервисов в одном окне.
+        if (!result.ok) {
+            addChatMessage(`❌ Не удалось получить ответ от AI. Попробуйте позже.`, false, 'system');
+            console.error('AI error:', result.error);
+            return;
+        }
 
-🔊 МУЗЫКАЛЬНЫЕ СЕРВИСЫ:
-- Встроенные сервисы: Яндекс Музыка, YouTube Music, SoundCloud, Apple Music, VK Music (одновременно можно выбрать до 2 основных)
-- Кастомные сайты: можно добавить до 5 любых музыкальных сайтов.
-- Переключение между сервисами: Ctrl+Tab (даже когда окно не активно)
-
-🎨 ВИЗУАЛИЗАЦИИ (10 режимов):
-Базовые (бесплатно): Полоски, Волна, Круг, Точки, Частицы, Радиальный, Галактика, Северное сияние, Вихрь, Звездный взрыв, GIF анимация
-- Полноэкранный режим визуализации (кнопка ⤢)
-
-🎤 ЗАХВАТ ЗВУКА:
-- Можно выбрать устройство захвата (микрофон или Virtual Audio Cable) или использовать modern режим
-- Визуализации реагируют на громкость в реальном времени
-- Чувствительность регулируется ползунком
-
-🖥️ ИНТЕРФЕЙС И УПРАВЛЕНИЕ:
-- Мини-режим (кнопка M) — окно поверх всех окон
-- Адаптивная ширина боковой панели (перетаскиванием)
-- Настройка масштаба (80%, 100%, 120%)
-- Тёмная и светлая тема
-- Акцентный цвет (любой на выбор)
-- Эффекты кнопок: Пульсация, Свечение, Нет
-- Звуки переключения: Короткий писк, Двойной писк, Щелчок, Вжух, Выключен
-- Звуки уведомлений (отдельная настройка)
-- Всплывающие уведомления (вкл/выкл)
-
-💬 ЧАТ И КОМАНДЫ:
-Доступные команды:
-/ai [вопрос] — спросить у AI
-/clear — очистить чат
-/coin — орёл/решка
-/help — показать справку
-
-🎮 ДОПОЛНИТЕЛЬНО:
-- Запуск с системой (опция)
-- Запуск свёрнутым (опция)
-- Сброс сервисов до стандартных
-- GIF для визуализатора (свой файл)
-
-ВАЖНО: Если пользователь просит найти песню, исполнителя или альбом, ты ОБЯЗАН использовать команду для открытия поиска:
-
-🔍[SEARCH:текст запроса]
-
-Эту команду я обработаю и открою поиск в YouTube Music.
-
-ПРИМЕРЫ ПРАВИЛЬНЫХ ОТВЕТОВ:
-- Пользователь: "найди Shape of You"
-  Ты: 🔍[SEARCH:Shape of You]
-  
-- Пользователь: "включи Queen"
-  Ты: 🔍[SEARCH:Queen]
-  
-- Пользователь: "поищи расслабляющую музыку"
-  Ты: 🔍[SEARCH:relaxing music]
-
-Команды:
-        '🎵[CMD:PLAY]': 'Включить воспроизведение',
-        '🎵[CMD:PAUSE]': 'Поставить на паузу',
-        '🎵[CMD:STOP]': 'Полностью остановить',
-        '🎵[CMD:NEXT]': 'Следующий трек',
-        '🎵[CMD:PREV]': 'Предыдущий трек',
-        '🎵[CMD:VOLUP]': 'Увеличить громкость на 10%',
-        '🎵[CMD:VOLDOWN]': 'Уменьшить громкость на 10%',
-        '🎵[CMD:VOLSET:X]': 'Установить громкость X% (где X от 0 до 100)',
-        '🎵[CMD:MUTE]': 'Выключить звук',
-        '🎵[CMD:UNMUTE]': 'Включить звук',
-        '🎵[CMD:TOGGLE]': 'Переключить Play/Pause'
-
-ПРАВИЛА:
-1. ВСЕГДА используй 🔍[SEARCH:запрос] когда просят найти музыку
-2. НЕ пиши лишнего текста, только команду
-3. Запрос должен быть на том же языке, что и просил пользователь
-
-Если запрос не про поиск музыки — отвечай как обычно.
-
-Если спрашивают о возможностях — рассказывай о них. Если спрашивают о Premium — говори, что стоит 50 ₽ и даёт доступ ко всем визуализациям, безлимитному AI и кастомным сайтам.`
-    },
-    { role: 'user', content: question }
-],
-                temperature: 0.7,
-                max_tokens: 500,
-            })
-        });
-        
-        const data = await aiResponse.json();
-        const answer = data.choices?.[0]?.message?.content || 'Не удалось получить ответ';
-        
-        await incrementAICount();
-        const processed = await processAIResponse(answer);
-        addChatMessage(`🤖 ${processed}`, false, 'AI');
-        
+const processed = await processAIResponse(result.text);
+if (processed && processed.trim()) {
+    addChatMessage(`🤖 ${processed}`, false, 'AI');
+}
     } catch (err) {
         console.error('AI error:', err);
-        addChatMessage(`❌ Ошибка: ${err.message}`, false, 'system');
+        if (statusMsgEl) statusMsgEl.remove();
+        addChatMessage(`❌ Не удалось получить ответ от AI. Попробуйте позже.`, false, 'system');
     }
 }
 
@@ -14369,11 +14324,11 @@ function updateChatBadge() {
 
 function addToHistory(role, content) {
     chatHistory.push({ role, content });
-    // Оставляем только последние MAX_HISTORY сообщений
     if (chatHistory.length > MAX_HISTORY) {
         chatHistory = chatHistory.slice(-MAX_HISTORY);
     }
-    console.log(`📝 История (${chatHistory.length}):`, chatHistory);
+    console.log(`📝 В историю: ${role} → ${String(content).slice(0, 60)}`);
+    console.log(`📝 История (${chatHistory.length}/${MAX_HISTORY})`);
 }
 
 // Функция получения истории для контекста
@@ -14398,10 +14353,23 @@ function addChatMessage(message, isOutgoing = false, sender = null) {
     
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-        const role = isOutgoing ? 'user' : 'assistant';
+    const role = isOutgoing ? 'user' : 'assistant';
     // Для системных сообщений не добавляем в историю
     if (sender !== 'system') {
-        addToHistory(role, message);
+        const cleanContent = sender === 'AI'
+            ? String(message).replace(/^🤖\s*/, '')
+            : String(message);
+
+        // === НЕ ПИШЕМ В ИСТОРИЮ ОТВЕТЫ AI ПРО ТЕКУЩИЙ ТРЕК ===
+        // Иначе модель в следующий раз видит свой старый ответ и повторяет его,
+        // игнорируя актуальный контекст.
+        const isTrackAnswer = sender === 'AI' && /(сейчас\s+играет|текущий\s+трек|прямо\s+сейчас\s+играет)/i.test(cleanContent);
+
+        if (!isTrackAnswer) {
+            addToHistory(role, cleanContent);
+        } else {
+            console.log('⏭️ Не пишу в историю track-ответ AI:', cleanContent.slice(0, 60));
+        }
     }
     
     let senderName = sender || (isOutgoing ? 'Вы' : 'Пользователь');
@@ -14411,10 +14379,8 @@ function addChatMessage(message, isOutgoing = false, sender = null) {
         messageDiv.style.fontStyle = 'italic';
     }
     
-     
-const formattedMessage = formatMessageWithLinks ? formatMessageWithLinks(message) : escapeHtml(message);
+    const formattedMessage = formatMessageWithLinks ? formatMessageWithLinks(message) : escapeHtml(message);
     
-     
     let html = `
         <div class="message-sender">${escapeHtml(senderName)}</div>
         <div class="message-text">${formattedMessage}</div>
@@ -14423,8 +14389,6 @@ const formattedMessage = formatMessageWithLinks ? formatMessageWithLinks(message
     
     messageDiv.innerHTML = html;
     
-     
-     
     if (!isOutgoing && sender !== 'system') {
         const messageId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
         messageDiv.setAttribute('data-message-id', messageId);
@@ -14566,110 +14530,120 @@ async function sendChatMessage() {
     askGigaChat(message);
 }
 
+// ============================================================
+// ОСНОВНАЯ ФУНКЦИЯ ОТПРАВКИ СООБЩЕНИЯ В AI
+// ============================================================
 async function askGigaChat(question) {
-    const limit = await checkAILimit();
-    const isPremium = premiumStatus?.isPremium || false;
-    
-    if (!isPremium && limit.count >= 10) {
-        addChatMessage(`❌ Достигнут лимит AI запросов (10/день). Подпишитесь на Premium для неограниченного доступа.`, false, 'system');
-        return;
+    // === 1. ИСТОРИЯ КАК МАССИВ ===
+    const recentHistory = chatHistory
+        .filter(m => m && m.content && (m.role === 'user' || m.role === 'assistant'))
+        .slice(-12)
+        .map(msg => ({
+            role: msg.role === 'user' ? 'user' : 'assistant',
+            content: String(msg.content)
+        }));
+
+    // === 2. ТРЕК ИЗ МЕДИАФАЙЛОВ ===
+    let trackText = null;
+    try {
+        if (window.electronAPI && window.electronAPI.getMediaFromFiles) {
+            const media = await window.electronAPI.getMediaFromFiles();
+            if (media && media.title && media.title !== 'Не играет' && media.title !== 'null') {
+                trackText = media.artist
+                    ? `${media.title} — ${media.artist}`
+                    : media.title;
+            }
+        }
+    } catch (e) {
+        console.warn('[AI] getMediaFromFiles error:', e);
+    }
+    // Fallback: DOM home
+    if (!trackText) {
+        const titleEl = document.getElementById('homeTrackTitle');
+        const artistEl = document.getElementById('homeTrackArtist');
+        if (titleEl && titleEl.textContent && titleEl.textContent !== '—' && titleEl.textContent !== 'Не играет') {
+            trackText = artistEl?.textContent && artistEl.textContent !== '—'
+                ? `${titleEl.textContent} — ${artistEl.textContent}`
+                : titleEl.textContent;
+        }
+    }
+
+    // === 3. АКТУАЛЬНАЯ ВЕРСИЯ + TIP из воркера ===
+    let latestVersionInfo = null;
+    let tip = null;
+    try {
+        const [u, t] = await Promise.allSettled([
+            fetch('https://tips-proxy.170610maksim.workers.dev/check-update', { cache: 'no-store' }),
+            fetch('https://tips-proxy.170610maksim.workers.dev/tip', { cache: 'no-store' })
+        ]);
+
+        if (u.status === 'fulfilled' && u.value.ok) {
+            const d = await u.value.json();
+            console.log('[AI] /check-update raw:', d);
+            if (d && d.latestVersion) {
+                latestVersionInfo = {
+                    latestVersion: d.latestVersion,
+                    releaseDate: d.releaseDate || null,
+                    releaseNotes: Array.isArray(d.releaseNotes) ? d.releaseNotes : []
+                };
+            }
+        } else {
+            console.warn('[AI] /check-update fetch failed:', u.status === 'rejected' ? u.reason : u.value?.status);
+        }
+
+        if (t.status === 'fulfilled' && t.value.ok) {
+            const d = await t.value.json();
+            if (d && d.tip) tip = d.tip;
+        }
+    } catch (e) {
+        console.warn('[AI] context fetch error:', e.message);
     }
     
-    addChatMessage(`🤖 Думаю над: "${question.slice(0, 50)}..."`, false, 'system');
-    
+    // Топ-3 исполнителя пользователя по времени
+let userTopArtists = [];
+try {
+    if (typeof getTopArtistsByTime === 'function') {
+        userTopArtists = getTopArtistsByTime(3).map(a => a.name);
+    }
+} catch (e) {}
+
+
+
+    // === 4. СОБИРАЕМ CONTEXT ===
+const context = {
+    track: trackText,
+    appVersion: APP_VERSION,
+    latestVersionInfo,
+    tip,
+    userTopArtists
+};
+
+    console.log('🎯 [AI] context:', context);
+
+    // === 5. Временное сообщение «Думаю...» ===
+    const statusMsgEl = addChatMessage(
+        `🤖 Думаю над: "${question.slice(0, 50)}..."`,
+        false,
+        'system'
+    );
+
+    // === 6. Запрос ===
     try {
-        const authKey = await getGigaAuthKey();
-        
-        const tokenResponse = await fetch('https://ngw.devices.sberbank.ru:9443/api/v2/oauth', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Accept': 'application/json',
-                'RqUID': crypto.randomUUID(),
-                'Authorization': `Basic ${authKey}`,
-            },
-            body: 'scope=GIGACHAT_API_PERS',
-        });
-        
-        const tokenData = await tokenResponse.json();
-        const token = tokenData.access_token;
-        
-        // === ПОЛУЧАЕМ ИСТОРИЮ ДЛЯ КОНТЕКСТА ===
-        const historyContext = getHistoryContext();
-        
-        // === ПРОМПТ С ИСТОРИЕЙ ===
-        const systemPrompt = `Ты — AI-помощник в MusicHub ${APP_VERSION}.
+        const result = await window.electronAPI.askAI(question, recentHistory, context);
+        if (statusMsgEl) statusMsgEl.remove();
 
-${historyContext}
+        if (!result.ok) {
+            addChatMessage(`❌ Не удалось получить ответ от AI. Попробуйте позже.`, false, 'system');
+            console.error('AI error:', result.error);
+            return;
+        }
 
-=== ИНСТРУКЦИИ ===
-1. Используй историю диалога, чтобы понимать, о ком идёт речь.
-2. Если пользователь говорит "этот исполнитель", "его песни" — вспомни, о ком говорили ранее.
-3. Если пользователь спрашивает "а ты помнишь..." — ответь на основе истории.
-
-=== КОМАНДЫ ===
-- 📚[KNOWLEDGE:запрос] — когда спрашивают "кто такой ..."
-- 🔍[SEARCH:запрос] — когда просят найти песни
-        '🎵[CMD:PLAY]': 'Включить воспроизведение',
-        '🎵[CMD:PAUSE]': 'Поставить на паузу',
-        '🎵[CMD:STOP]': 'Полностью остановить',
-        '🎵[CMD:NEXT]': 'Следующий трек', 'дальше', 'вперед'
-        '🎵[CMD:PREV]': 'Предыдущий трек', 'назад', 'прошлое значит включить прошлый трек'
-        '🎵[CMD:VOLUP]': 'Увеличить громкость на 10%',
-        '🎵[CMD:VOLDOWN]': 'Уменьшить громкость на 10%',
-        '🎵[CMD:VOLSET:X]': 'Установить громкость X% (где X от 0 до 100)',
-        '🎵[CMD:MUTE]': 'Выключить звук',
-        '🎵[CMD:UNMUTE]': 'Включить звук',
-        '🎵[CMD:TOGGLE]': 'Переключить Play/Pause'
-=== ПРИМЕРЫ ===
-Пользователь: "кто такой MORGENSHTERN?"
-Ты: 📚[KNOWLEDGE:MORGENSHTERN]
-
-Пользователь: "найди песни этого исполнителя"
-Ты: 🔍[SEARCH:MORGENSHTERN] (используя историю)
-
-Пользователь: "включи его песни"
-Ты: 🎵[CMD:PLAY] 🔍[SEARCH:MORGENSHTERN] (используя историю)
-
-Пользователь: "а ты помнишь что я просил?"
-Ты: Да, ты спрашивал о MORGENSHTERN. Хочешь найти его песни?
-
-=== ПРАВИЛА ===
-1. Отвечай дружелюбно, используй эмодзи
-2. Используй историю для понимания контекста
-3. Если не знаешь ответа — честно скажи об этом`;
-
-        const aiResponse = await fetch('https://gigachat.devices.sberbank.ru/api/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Accept': 'application/json',
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                model: 'GigaChat',
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: question }
-                ],
-                temperature: 0.7,
-                max_tokens: 500,
-            })
-        });
-        
-        const data = await aiResponse.json();
-        let answer = data.choices?.[0]?.message?.content || 'Не удалось получить ответ';
-        
-        console.log('📥 Ответ AI:', answer);
-        
-        const processed = await processAIResponse(answer);
+        const processed = await processAIResponse(result.text);
         addChatMessage(`🤖 ${processed}`, false, 'AI');
-        
-        await incrementAICount();
-        
     } catch (err) {
         console.error('AI error:', err);
-        addChatMessage(`❌ Ошибка: ${err.message}`, false, 'system');
+        if (statusMsgEl) statusMsgEl.remove();
+        addChatMessage(`❌ Не удалось получить ответ от AI. Попробуйте позже.`, false, 'system');
     }
 }
 
@@ -14681,146 +14655,85 @@ function clearContext() {
 
 async function processAIResponse(text) {
     if (!text) return 'Не понял запрос';
-    
-    // === 1. ПОИСК В БАЗЕ ЗНАНИЙ ===
-    const knowledgeMatch = text.match(/📚\[KNOWLEDGE:(.+?)\]/);
-    if (knowledgeMatch) {
-        let query = knowledgeMatch[1].trim();
-        console.log(`📚 AI запросил базу знаний: "${query}"`);
-        
-        // Если запрос пустой или "этот" — пытаемся взять из истории
-        if (!query || query === 'этот' || query === 'этого') {
-            // Ищем последнего исполнителя в истории
-            for (let i = chatHistory.length - 1; i >= 0; i--) {
-                const msg = chatHistory[i];
-                // Ищем упоминание исполнителя в сообщениях пользователя
-                if (msg.role === 'user') {
-                    const match = msg.content.match(/кто такой\s+([^\s?]+)/i);
-                    if (match) {
-                        query = match[1];
-                        console.log(`🧠 Нашёл в истории: "${query}"`);
-                        break;
-                    }
-                }
-            }
-        }
-        
-        const result = await searchKnowledge(query);
-        if (result) {
-            lastMentionedArtist = query;
-            return result;
-        } else {
-            searchYoutubeMusic(query);
-            return `🔍 Ищу "${query}" в YouTube Music... (в базе ничего нет)`;
-        }
-    }
-    
-    // === 2. ПОИСК В YOUTUBE ===
+
+    // === 1. ПОИСК (SEARCH) ===
     const searchMatch = text.match(/🔍\[SEARCH:(.+?)\]/);
     if (searchMatch) {
         let query = searchMatch[1].trim();
         console.log(`🔍 AI запросил поиск: "${query}"`);
-        
-        // Если "этого исполнителя" — берём из истории
-        if (query.toLowerCase().includes('этого исполнителя') || 
-            query === 'его' || 
-            query === 'него' ||
-            query === '') {
+
+        // «этого исполнителя» / «его» / «из топа моего» — берём из контекста
+        const lowQuery = query.toLowerCase();
+        const needsContext = (
+            lowQuery.includes('этого исполнителя') ||
+            lowQuery.includes('из топа') ||
+            lowQuery.includes('моего топа') ||
+            lowQuery.includes('моих любимых') ||
+            query === 'его' || query === 'него' || query === ''
+        );
+
+        if (needsContext) {
             if (lastMentionedArtist) {
                 query = lastMentionedArtist;
-                console.log(`🧠 Использую контекст: "${query}"`);
             } else {
-                // Ищем в истории
-                for (let i = chatHistory.length - 1; i >= 0; i--) {
-                    const msg = chatHistory[i];
-                    if (msg.role === 'user') {
-                        const match = msg.content.match(/кто такой\s+([^\s?]+)/i);
-                        if (match) {
-                            query = match[1];
-                            lastMentionedArtist = query;
-                            console.log(`🧠 Нашёл в истории: "${query}"`);
-                            break;
+                // Пытаемся взять из userTopArtists
+                let topArtists = [];
+                try {
+                    if (typeof getTopArtistsByTime === 'function') {
+                        topArtists = getTopArtistsByTime(5).map(a => a.name);
+                    }
+                } catch (e) {}
+
+                if (topArtists.length > 0) {
+                    query = topArtists[0];
+                    console.log(`🧠 Беру из топа: "${query}"`);
+                } else {
+                    // Пробуем из истории
+                    for (let i = chatHistory.length - 1; i >= 0; i--) {
+                        const msg = chatHistory[i];
+                        if (msg.role === 'user') {
+                            const m = msg.content.match(/кто такой\s+([^\s?]+)/i);
+                            if (m) { query = m[1]; lastMentionedArtist = query; break; }
                         }
                     }
-                }
-                if (!lastMentionedArtist) {
-                    return '❌ Я не знаю, о ком речь. Скажи имя исполнителя.';
+                    if (!query) {
+                        return '❌ Не понял, кого искать. Скажи имя исполнителя или песни.';
+                    }
                 }
             }
         }
-        
-        const knowledgeResult = await searchKnowledge(query);
-        if (knowledgeResult) {
-            searchYoutubeMusic(query);
-            return `${knowledgeResult}\n\n🔍 Открываю поиск в YouTube Music...`;
-        }
-        
+
+        lastMentionedArtist = query;
         searchYoutubeMusic(query);
-        return `🔍 Ищу "${query}" в YouTube Music...`;
+
+        // Текст от AI (без команды)
+        let cleanText = text.replace(/🔍\[SEARCH:.+?\]/g, '').replace(/\s+/g, ' ').trim();
+
+        // Если AI ничего не написал — подставляем шаблон
+        if (!cleanText) {
+            cleanText = `🔍 Ищу "${query}"…`;
+        }
+
+        return cleanText;
     }
-    
-    // === 3. КОМАНДЫ УПРАВЛЕНИЯ ===
+
+    // === 2. КОМАНДЫ УПРАВЛЕНИЯ ===
     const cmdMatch = text.match(/🎵\[CMD:[^\]]+\]/);
     if (cmdMatch) {
         if (text.includes('включи') && lastMentionedArtist) {
             searchYoutubeMusic(lastMentionedArtist);
-            return `🎵 Включаю "${lastMentionedArtist}" в YouTube Music...`;
+            return `🎵 Включаю "${lastMentionedArtist}"…`;
         }
         const result = handleAIResponse(text);
         return result.text || '✅ Команда выполнена!';
     }
-    
-    // === 4. ОБЫЧНЫЙ ОТВЕТ ===
+
+    // === 3. ОБЫЧНЫЙ ОТВЕТ ===
     return text;
 }
 
 
-function searchYoutubeMusic(query) {
-    if (!query || query.trim() === '') {
-        showToast('❌ Введите запрос для поиска', 'error');
-        return;
-    }
-    
-    const encodedQuery = encodeURIComponent(query.trim());
-    const searchUrl = `https://music.youtube.com/search?q=${encodedQuery}`;
-    
-    console.log(`🔍 Открываю поиск: ${searchUrl}`);
-    
-    // Проверяем, есть ли YouTube Music в активных сервисах
-    const activeWv = document.querySelector('webview.active');
-    
-    if (activeWv && activeWv.id === 'youtube') {
-        // Уже на YouTube - просто грузим поиск
-        activeWv.loadURL(searchUrl);
-        showToast(`🔍 Поиск: "${query}"`, 'success');
-        return;
-    }
-    
-    // Ищем кнопку YouTube
-    const ytBtn = document.getElementById('btn-youtube');
-    if (ytBtn) {
-        // Переключаемся на YouTube
-        sw('youtube', ytBtn);
-        
-        // Через секунду грузим поиск
-        setTimeout(() => {
-            const wv = document.querySelector('webview.active');
-            if (wv && wv.id === 'youtube') {
-                wv.loadURL(searchUrl);
-                showToast(`🔍 Поиск: "${query}"`, 'success');
-            }
-        }, 500);
-    } else {
-        // Если YouTube не в сервисах - открываем через musichub://
-        const musichubUrl = `musichub://${searchUrl}`;
-        if (window.electronAPI && window.electronAPI.openExternalUrl) {
-            window.electronAPI.openExternalUrl(musichubUrl);
-            showToast(`🔍 Поиск: "${query}"`, 'success');
-        } else {
-            showToast('❌ YouTube Music не добавлен в сервисы', 'error');
-        }
-    }
-}
+
 
 // ============================================================
 // ДЕЛАЕМ ФУНКЦИИ ГЛОБАЛЬНЫМИ
