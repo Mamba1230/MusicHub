@@ -23,7 +23,7 @@ let authProcess = null;
 let authRestartCount = 0;
 const MAX_RESTARTS = 5;
 
-const APP_VERSION = '3.5.0';
+const APP_VERSION = '3.5.5';
 
 // Константы
 const CHROME_STORE_API = 'https://clients2.google.com/service/update2/crx';
@@ -144,44 +144,18 @@ setTimeout(() => {
 
 
 function getArtworkFromFile() {
-    const appData = process.env.APPDATA;
-    const coverPath = path.join(appData, 'musichub', 'cover.jpg');
-    
-    if (fs.existsSync(coverPath)) {
-        try {
-            const coverBuffer = fs.readFileSync(coverPath);
-            const base64 = coverBuffer.toString('base64');
-            return `data:image/jpeg;base64,${base64}`;
-        } catch (err) {
-            return '';
-        }
-    }
-    return '';
+    return mediaState.coverBase64
+        ? `data:${mediaState.coverMime};base64,${mediaState.coverBase64}`
+        : '';
 }
 
-// Функция получения информации о треке из файла
 function getTrackInfoFromFile() {
-    const appData = process.env.APPDATA;
-    const infoPath = path.join(appData, 'musichub', 'media_info.json');
-    
-    try {
-        if (fs.existsSync(infoPath)) {
-            let content = fs.readFileSync(infoPath, 'utf8');
-            // Удаляем BOM если есть
-            if (content.charCodeAt(0) === 0xFEFF || content.startsWith('я╗┐')) {
-                content = content.replace(/^[\uFEFFя╗┐]/, '');
-            }
-            const info = JSON.parse(content);
-            return {
-                title: info.title || 'Не играет',
-                artist: info.artist || '—',
-                album: info.album || '—'
-            };
-        }
-    } catch (err) {
-        console.log('Ошибка чтения media_info.json:', err.message);
-    }
-    return null;
+    if (!mediaState.title) return null;
+    return {
+        title: mediaState.title || 'Не играет',
+        artist: mediaState.artist || '—',
+        album: mediaState.album || '—'
+    };
 }
 
 
@@ -1155,6 +1129,12 @@ function startMobileServerInternal() {
     }
     }));
 
+    app.get('/artwork', (req, res) => {
+        if (!mediaState.cover) return res.status(404).end();
+        res.setHeader('Content-Type', mediaState.coverMime);
+        res.send(mediaState.cover);
+    });
+
     app.get('/api/status', (req, res) => {
         res.json(currentMobileStatus);
     });
@@ -1348,7 +1328,8 @@ ipcMain.on('mobile-update-status', (event, status) => {
     }
     
     // Обложка (НЕ ЗАТИРАЕТ НАЗВАНИЕ И АВТОРА)
-    if (status.artwork !== undefined) {
+    // Если есть обложка от watcher — она главнее (renderer шлёт то, что было в DOM в момент смены трека, т.е. старую)
+    if (status.artwork !== undefined && !mediaState.cover) {
         currentMobileStatus.artwork = status.artwork;
     }
     
@@ -2950,47 +2931,155 @@ ipcMain.on('update-artwork-for-tray', (event, imageData) => {
 });
 
 
-let pythonProcess = null;
+// ========== MEDIA WATCHER (media_watcher.exe -> stdout, JSON по строкам) ==========
+let mediaWatcherProcess = null;
+let mediaWatcherStopping = false;
 
+// Последнее известное состояние (хранится в памяти, файлов больше нет)
+const mediaState = {
+    title: '', artist: '', album: '', is_playing: false,
+    cover: null,          // Buffer
+    coverBase64: null,    // string
+    coverHash: '',
+    coverMime: 'image/jpeg'
+};
 
+function resetMediaState() {
+    mediaState.title = ''; mediaState.artist = ''; mediaState.album = '';
+    mediaState.is_playing = false;
+    mediaState.cover = null; mediaState.coverBase64 = null;
+    mediaState.coverHash = ''; mediaState.coverMime = 'image/jpeg';
+}
+
+// ========== OBS-ОВЕРЛЕЙ (тот же порт 3456, SSE) ==========
+const overlayClients = new Set();
+
+function overlayState() {
+    return {
+        title: mediaState.title,
+        artist: mediaState.artist,
+        album: mediaState.album,
+        is_playing: mediaState.is_playing,
+        cover: mediaState.cover && mediaState.coverHash ? `/artwork?v=${mediaState.coverHash}` : ''
+    };
+}
+
+function overlaySend(res, state) {
+    try { res.write(`event: state\ndata: ${JSON.stringify(state)}\n\n`); }
+    catch (e) { overlayClients.delete(res); }
+}
+
+function overlayBroadcast() {
+    if (overlayClients.size === 0) return;
+    const state = overlayState();
+    for (const res of overlayClients) overlaySend(res, state);
+}
+
+// Пинг, чтобы соединение не считалось мёртвым
+setInterval(() => {
+    for (const res of overlayClients) {
+        try { res.write(': ping\n\n'); } catch (e) { overlayClients.delete(res); }
+    }
+}, 25000).unref();
+
+function sendToRenderer(channel, payload) {
+    try {
+        if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+            win.webContents.send(channel, payload);
+        }
+    } catch (e) { /* окно закрывается */ }
+}
+
+function handleWatcherMessage(msg) {
+    switch (msg.type) {
+        case 'info':
+            mediaState.title = msg.title || '';
+            mediaState.artist = msg.artist || '';
+            mediaState.album = msg.album || '';
+            mediaState.is_playing = !!msg.is_playing;
+            sendToRenderer('media-info', {
+                title: mediaState.title, artist: mediaState.artist,
+                album: mediaState.album, is_playing: mediaState.is_playing
+            });
+            break;
+
+        case 'cover': {
+            if (msg.data) {
+                mediaState.cover = Buffer.from(msg.data, 'base64');
+                mediaState.coverBase64 = msg.data;
+                mediaState.coverMime = (mediaState.cover[0] === 0x89) ? 'image/png' : 'image/jpeg';
+            } else {
+                mediaState.cover = null;
+                mediaState.coverBase64 = null;
+            }
+            mediaState.coverHash = msg.hash || '';
+            updateCurrentArtwork();
+            // Мобильный интерфейс: лёгкая ссылка вместо base64, версия = хеш (кеш не мешает)
+            currentMobileStatus.artwork = mediaState.coverHash && mediaState.cover
+                ? `/artwork?v=${mediaState.coverHash}` : '';
+            try { broadcastMobileStatus(); } catch (e) {}
+            sendToRenderer('media-cover', {
+                hash: mediaState.coverHash,
+                data: mediaState.coverBase64,
+                mime: mediaState.coverMime
+            });
+            break;
+        }
+
+        case 'clear':
+            resetMediaState();
+            updateCurrentArtwork();
+            sendToRenderer('media-clear', null);
+            break;
+    }
+    overlayBroadcast();
+}
 
 function getWatcherPath() {
-    if (app.isPackaged) {
-        // В собранном приложении
-        return path.join(process.resourcesPath, 'media_watcher.exe');
-    } else {
-        // В разработке
-        return path.join(__dirname, 'media_watcher.exe');
-    }
+    return app.isPackaged
+        ? path.join(process.resourcesPath, 'media_watcher.exe')
+        : path.join(__dirname, 'media_watcher.exe');
 }
 
 function startMediaWatcher() {
+    if (mediaWatcherStopping || mediaWatcherProcess) return;
+
     const exePath = getWatcherPath();
-    console.log('🔍 Looking for watcher at:', exePath);
-    
-    if (fs.existsSync(exePath)) {
-        console.log('✅ Starting Media Watcher...');
-        pythonProcess = spawn(exePath, [], {
-            cwd: app.getPath('userData'),  // Сохраняем файлы в папку пользователя
-            detached: false
-        });
-        
-        pythonProcess.stdout.on('data', (data) => {
-            console.log('📦 Watcher:', data.toString().trim());
-        });
-        
-        pythonProcess.stderr.on('data', (data) => {
-            console.error('⚠️ Watcher error:', data.toString());
-        });
-        
-        pythonProcess.on('close', (code) => {
-            console.log('💀 Watcher exited with code:', code);
-            setTimeout(startMediaWatcher, 5000);
-        });
-    } else {
-        console.log('❌ Watcher not found at:', exePath);
+    if (!fs.existsSync(exePath)) {
+        console.log('❌ MediaInfoWatcher не найден:', exePath);
+        return;
     }
+    console.log('✅ Starting MediaInfoWatcher:', exePath);
+
+    const child = spawn(exePath, [String(process.pid)], { windowsHide: true });
+    mediaWatcherProcess = child;
+
+    const rl = require('readline').createInterface({ input: child.stdout });
+    rl.on('line', (line) => {
+        let msg;
+        try { msg = JSON.parse(line); } catch { return; }
+        try { handleWatcherMessage(msg); } catch (e) { console.error('Watcher msg error:', e); }
+    });
+
+    child.stderr.on('data', (d) => console.error('⚠️ Watcher stderr:', d.toString()));
+    child.stdin.on('error', () => {});
+
+    child.on('close', (code) => {
+        console.log('💀 Watcher exited with code:', code);
+        if (mediaWatcherProcess === child) mediaWatcherProcess = null;
+        resetMediaState();
+        sendToRenderer('media-clear', null);
+        overlayBroadcast();
+        if (!mediaWatcherStopping) setTimeout(startMediaWatcher, 3000);
+    });
 }
+
+function stopMediaWatcher() {
+    mediaWatcherStopping = true;
+    try { mediaWatcherProcess?.kill(); } catch {}
+    mediaWatcherProcess = null;
+}
+
 function getMediaFilesPath() {
     if (app.isPackaged) {
         return app.getPath('userData');  // %APPDATA%/MusicHub
@@ -3034,49 +3123,16 @@ ipcMain.on('set-all-webviews-volume', (event, volume) => {
 
 
 function getMediaFromFiles() {
-    const appData = process.env.APPDATA;
-    const basePath = path.join(appData, 'musichub');
-    const infoPath = path.join(basePath, 'media_info.json');
-    const coverPath = path.join(basePath, 'cover.jpg');
-    
-    console.log('🔍 Looking for files in:', basePath);
-    
-    try {
-        if (!fs.existsSync(infoPath)) {
-            return null;
-        }
-        
-        // Читаем файл как буфер и удаляем BOM
-        let content = fs.readFileSync(infoPath, 'utf8');
-        // Удаляем BOM если есть (символы \uFEFF или я╗┐)
-        if (content.charCodeAt(0) === 0xFEFF || content.startsWith('я╗┐')) {
-            content = content.replace(/^[\uFEFFя╗┐]/, '');
-        }
-        
-        const info = JSON.parse(content);
-        
-        if (!info.title) {
-            return null;
-        }
-        
-        if (fs.existsSync(coverPath)) {
-            const coverBuffer = fs.readFileSync(coverPath);
-            info.artwork_base64 = coverBuffer.toString('base64');
-            console.log('✅ Cover loaded, size:', coverBuffer.length);
-        }
-        if (process.defaultApp) {
-    if (process.argv.length >= 2) {
-        app.setAsDefaultProtocolClient('musichub', process.execPath, [path.resolve(process.argv[1])]);
-    }
-} else {
-    app.setAsDefaultProtocolClient('musichub');
-}
-        
-        return info;
-    } catch (err) {
-        console.log('Ошибка чтения:', err.message);
-        return null;
-    }
+    if (!mediaState.title) return null;
+    const info = {
+        title: mediaState.title,
+        artist: mediaState.artist,
+        album: mediaState.album,
+        is_playing: mediaState.is_playing,
+        cover_hash: mediaState.coverHash
+    };
+    if (mediaState.coverBase64) info.artwork_base64 = mediaState.coverBase64;
+    return info;
 }
 
 ipcMain.on('set-master-volume', (event, volume) => {
@@ -3107,21 +3163,7 @@ ipcMain.handle('get-system-volume', async () => {
 });
 
 
-ipcMain.handle('get-artwork-from-server', async () => {
-    const appData = process.env.APPDATA;
-    const coverPath = path.join(appData, 'musichub', 'cover.jpg');
-    
-    if (fs.existsSync(coverPath)) {
-        try {
-            const coverBuffer = fs.readFileSync(coverPath);
-            return coverBuffer.toString('base64');
-        } catch (err) {
-            console.log('Error reading cover:', err);
-            return null;
-        }
-    }
-    return null;
-});
+ipcMain.handle('get-artwork-from-server', async () => mediaState.coverBase64 || null);
 // IPC для renderer
 ipcMain.handle('get-media-from-files', async () => {
     console.log('📥 Запрос из renderer в', new Date().toLocaleTimeString());
@@ -3137,45 +3179,8 @@ ipcMain.handle('get-media-from-files', async () => {
     return result;
 });
 
-// Функция чтения информации из файлов
-function readMediaInfo() {
-    const infoPath = path.join(__dirname, 'media_info.json');
-    const coverPath = path.join(__dirname, 'cover.jpg');
-    
-    console.log('🔍 Проверка файлов:');
-    console.log('   infoPath:', infoPath, 'exists:', fs.existsSync(infoPath));
-    console.log('   coverPath:', coverPath, 'exists:', fs.existsSync(coverPath));
-    
-    try {
-        if (fs.existsSync(infoPath)) {
-            const info = JSON.parse(fs.readFileSync(infoPath, 'utf8'));
-            console.log('📄 Прочитан info:', info);
-            
-            // Читаем обложку
-            if (fs.existsSync(coverPath)) {
-                const coverBuffer = fs.readFileSync(coverPath);
-                info.artwork_base64 = coverBuffer.toString('base64');
-                console.log('🖼️ Обложка прочитана, размер:', coverBuffer.length, 'bytes');
-            } else {
-                console.log('❌ Обложка не найдена');
-            }
-            
-            return info;
-        } else {
-            console.log('❌ media_info.json не существует');
-        }
-    } catch (err) {
-        console.log('Ошибка чтения медиа-файлов:', err);
-    }
-    return null;
-}
-
-// IPC для получения информации
-ipcMain.handle('get-windows-media-info', async () => {
-    const result = readMediaInfo();
-    console.log('📤 Возвращаем в renderer:', result ? 'есть данные' : 'нет данных');
-    return result;
-});
+// Совместимость: то же самое, что get-media-from-files
+ipcMain.handle('get-windows-media-info', async () => getMediaFromFiles());
 
 
 // Запускаем при старте
@@ -3217,23 +3222,42 @@ function startArtworkServer() {
 </html>`);
         }
         else if (url === '/artwork') {
-            // Читаем обложку из папки musichub
-            const appData = process.env.APPDATA;
-            const coverPath = path.join(appData, 'musichub', 'cover.jpg');
-            
-            if (fs.existsSync(coverPath)) {
-                const imageBuffer = fs.readFileSync(coverPath);
+            // Обложка берётся из памяти
+            if (mediaState.cover) {
                 res.writeHead(200, {
-                    'Content-Type': 'image/jpeg',
-                    'Cache-Control': 'no-cache'
+                    'Content-Type': mediaState.coverMime,
+                    'Cache-Control': 'no-store',
+                    'ETag': mediaState.coverHash
                 });
-                res.end(imageBuffer);
+                res.end(mediaState.cover);
             } else {
                 // Заглушка
                 const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="1"><path d="M3 10H21M7 15H11M7 4V20M17 4V20"/></svg>';
                 res.writeHead(200, { 'Content-Type': 'image/svg+xml' });
                 res.end(svg);
             }
+        }
+        else if (url === '/overlay') {
+            try {
+                const html = fs.readFileSync(path.join(__dirname, 'overlay.html'));
+                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+                res.end(html);
+            } catch (e) {
+                res.writeHead(500);
+                res.end('overlay.html not found');
+            }
+        }
+        else if (url === '/overlay/events') {
+            res.writeHead(200, {
+                'Content-Type': 'text/event-stream; charset=utf-8',
+                'Cache-Control': 'no-store',
+                'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no'
+            });
+            res.write('retry: 2000\n\n');
+            overlayClients.add(res);
+            overlaySend(res, overlayState());          // сразу текущее состояние
+            req.on('close', () => overlayClients.delete(res));
         }
         else {
             res.writeHead(404);
@@ -3249,13 +3273,9 @@ function startArtworkServer() {
 
 
 function updateCurrentArtwork() {
-    const appData = process.env.APPDATA;
-    const coverPath = path.join(appData, 'musichub', 'cover.jpg');
-    
-    if (fs.existsSync(coverPath)) {
-        const coverBuffer = fs.readFileSync(coverPath);
-        currentArtworkBase64 = coverBuffer.toString('base64');
-        currentArtworkUrl = `data:image/jpeg;base64,${currentArtworkBase64}`;
+    if (mediaState.coverBase64) {
+        currentArtworkBase64 = mediaState.coverBase64;
+        currentArtworkUrl = `data:${mediaState.coverMime};base64,${mediaState.coverBase64}`;
     } else {
         currentArtworkBase64 = null;
         currentArtworkUrl = null;
@@ -3742,6 +3762,7 @@ app.whenReady().then(() => {
 });
 
 app.on('will-quit', () => {
+    stopMediaWatcher();
         if (volumeControllerProcess) {
         volumeControllerProcess.kill();
         console.log('❌ VolumeController.exe остановлен');

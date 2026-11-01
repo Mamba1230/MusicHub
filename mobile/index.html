@@ -911,7 +911,7 @@ function updateUI(data) {
 
         if (isSafeArtwork) {
             lastTrackData.artwork = data.artwork;
-            if (artwork.src !== data.artwork) {
+            if (artwork.src !== new URL(data.artwork, location.href).href) {
                 artwork.src = data.artwork;
             }
             artwork.classList.remove('placeholder');

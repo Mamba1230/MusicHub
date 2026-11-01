@@ -83,7 +83,7 @@ window.testStartupPage = function(page) {
 // ============================================================
 // ЕДИНАЯ ВЕРСИЯ ПРИЛОЖЕНИЯ
 // ============================================================
-const APP_VERSION = '3.5.0';
+const APP_VERSION = '3.5.5';
 
 const DEFAULT_SETTINGS = {
     // Внешний вид
@@ -6161,7 +6161,68 @@ function hexToRgb(hex) {
     } : null;
 }
 
+// ===== OBS Оверлей =====
+(function initOverlayCard() {
+    const baseInput = document.getElementById('overlayUrlInput');
+    const scaleSel  = document.getElementById('overlayScale');
+    const posSel    = document.getElementById('overlayPos');
+    const showInput = document.getElementById('overlayShow');
+    const copyBtn   = document.getElementById('overlayCopyBtn');
+    const openBtn   = document.getElementById('overlayOpenBtn');
 
+    if (!baseInput) return; // секция не в DOM
+
+    const BASE = 'http://127.0.0.1:3456/overlay';
+
+    function buildUrl() {
+        const params = new URLSearchParams();
+        if (scaleSel.value) params.set('scale', scaleSel.value);
+        if (posSel.value)   params.set('pos', posSel.value);
+        if (showInput.value !== '' && Number(showInput.value) > 0) {
+            params.set('show', showInput.value);
+        }
+        const qs = params.toString();
+        return qs ? `${BASE}?${qs}` : BASE;
+    }
+
+    function refresh() {
+        baseInput.value = buildUrl();
+    }
+
+    [scaleSel, posSel, showInput].forEach(el => {
+        if (el) el.addEventListener('change', refresh);
+    });
+    if (showInput) showInput.addEventListener('input', refresh);
+
+    if (copyBtn) {
+        copyBtn.addEventListener('click', async () => {
+            refresh();
+            try {
+                await navigator.clipboard.writeText(baseInput.value);
+                const old = copyBtn.textContent;
+                copyBtn.textContent = '✅ Скопировано';
+                setTimeout(() => { copyBtn.textContent = old; }, 1500);
+            } catch (e) {
+                // fallback
+                baseInput.select();
+                document.execCommand && document.execCommand('copy');
+            }
+        });
+    }
+
+    if (openBtn) {
+        openBtn.addEventListener('click', () => {
+            refresh();
+            if (window.electronAPI && window.electronAPI.openExternal) {
+                window.electronAPI.openExternal(baseInput.value);
+            } else {
+                window.open(baseInput.value, '_blank');
+            }
+        });
+    }
+
+    refresh();
+})();
 
 document.getElementById('openArtworkLinkBtn')?.addEventListener('click', () => {
     // Открываем страницу с обложкой (не картинку напрямую)
@@ -6456,52 +6517,69 @@ function updateUrlBarForHomePage() {
 
 
 
-// ========== НОВАЯ СИСТЕМА ОБЛОЖЕК ЧЕРЕЗ ФАЙЛЫ ==========
+// ========== СИСТЕМА ОБЛОЖЕК: PUSH-СОБЫТИЯ ОТ MediaInfoWatcher ==========
+// Название и обложка приходят НЕЗАВИСИМО друг от друга.
 let lastTrackKey = '';
+let lastCoverHash = '';
+let currentMedia = { title: '', artist: '' };
 
-async function pollMediaFiles() {
-    try {
-        const mediaInfo = await window.electronAPI.getMediaFromFiles();
-        
-        if (mediaInfo && mediaInfo.title) {
-            const trackKey = `${mediaInfo.artist}|${mediaInfo.title}`;
-            
-            if (trackKey !== lastTrackKey) {
-                lastTrackKey = trackKey;
-                console.log('🎵 Трек:', mediaInfo.artist, '-', mediaInfo.title);
-                
-                // Сохраняем в историю
+async function handleMediaInfo(info) {
+    if (!info || !info.title) return;
+    currentMedia = { title: info.title, artist: info.artist || '' };
 
-                
-        const activeService = document.querySelector('webview.active')?.id || 'unknown';
-        saveTrackToHistory(mediaInfo.title, mediaInfo.artist || 'Неизвестен', activeService);
-                
-                // Обновляем UI домашней страницы если она открыта
-                if (typeof globalIsOnHomePage !== 'undefined' && globalIsOnHomePage && typeof updateStatsUI === 'function') {
-                    updateStatsUI();
-                }
-                
-                // Получаем обложку из MAIN
-                const artworkBase64 = await window.electronAPI.getArtworkFromServer();
-                
-                if (artworkBase64) {
-                    const artworkUrl = `data:image/jpeg;base64,${artworkBase64}`;
-                    updateNowPlayingArtwork(artworkUrl);
-                    updatePanelArtwork(artworkUrl, mediaInfo.title, mediaInfo.artist);
-                    
-                    if (window.electronAPI.updateArtworkForTray) {
-                        window.electronAPI.updateArtworkForTray(artworkUrl);
-                    }
-                    
-                    if (simpleGradientEnabled) await updateSimpleGradient(artworkUrl);
-                    await applyColorFromArtwork(artworkUrl);
-                }
-            }
-        }
-    } catch (err) {
-        console.log('Ошибка:', err);
+    const trackKey = `${info.artist}|${info.title}`;
+    if (trackKey === lastTrackKey) return;   // play/pause и прочие изменения без смены трека
+    lastTrackKey = trackKey;
+    console.log('🎵 Трек:', info.artist, '-', info.title);
+
+    const activeService = document.querySelector('webview.active')?.id || 'unknown';
+    saveTrackToHistory(info.title, info.artist || 'Неизвестен', activeService);
+
+    if (typeof globalIsOnHomePage !== 'undefined' && globalIsOnHomePage && typeof updateStatsUI === 'function') {
+        updateStatsUI();
     }
 }
+
+async function handleMediaCover(c) {
+    if (!c) return;
+    const hash = c.hash || '';
+    if (hash && hash === lastCoverHash) return;   // та же картинка
+    lastCoverHash = hash;
+    if (!c.data) return;                          // обложки нет
+
+    const artworkUrl = `data:${c.mime || 'image/jpeg'};base64,${c.data}`;
+    updateNowPlayingArtwork(artworkUrl);
+    updatePanelArtwork(artworkUrl, currentMedia.title, currentMedia.artist);
+
+    if (window.electronAPI.updateArtworkForTray) {
+        window.electronAPI.updateArtworkForTray(artworkUrl);
+    }
+    if (simpleGradientEnabled) await updateSimpleGradient(artworkUrl);
+    await applyColorFromArtwork(artworkUrl);
+}
+
+function handleMediaClear() {
+    lastTrackKey = '';
+    lastCoverHash = '';
+    currentMedia = { title: '', artist: '' };
+}
+
+window.electronAPI.onMediaInfo(handleMediaInfo);
+window.electronAPI.onMediaCover(handleMediaCover);
+window.electronAPI.onMediaClear(handleMediaClear);
+
+// Начальное состояние (если окно открылось позже, чем пришли события)
+(async () => {
+    try {
+        const m = await window.electronAPI.getMediaFromFiles();
+        if (m && m.title) {
+            await handleMediaInfo(m);
+            if (m.artwork_base64) await handleMediaCover({ hash: m.cover_hash, data: m.artwork_base64 });
+        }
+    } catch (err) {
+        console.log('Ошибка начальной загрузки медиа:', err);
+    }
+})();
 
 // Новая функция получения обложки через сервер
 async function getArtworkFromServer() {
@@ -6514,8 +6592,6 @@ async function getArtworkFromServer() {
         return null;
     }
 }
-// Запускаем проверку каждую секунду
-setInterval(pollMediaFiles, 1000);
 
 function isSoundPlayingFromAnalyser() {
     if (!analyser || useFakeVisualizer) return false;
@@ -13625,7 +13701,17 @@ console.log('🔌 Панель расширений инициализирова
 
 
 
-
+document.addEventListener('DOMContentLoaded', () => {
+    const settingsNav = document.querySelector('.settings-nav');
+    if (settingsNav) {
+        settingsNav.addEventListener('wheel', (e) => {
+            if (e.deltaY !== 0) {
+                e.preventDefault();
+                settingsNav.scrollLeft += e.deltaY;
+            }
+        }, { passive: false });
+    }
+});
 
 
 
@@ -14773,6 +14859,7 @@ function safeChatSend(data) {
 function sendTyping() {
     safeChatSend({ type: 'typing' });
 }
+
 
 // Исправленный обработчик ввода в чате
 document.getElementById('chat-input')?.addEventListener('input', () => {

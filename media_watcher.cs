@@ -1,7 +1,7 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
-using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -13,49 +13,29 @@ namespace MediaInfoWatcher
 {
     class Program
     {
-        [DllImport("kernel32.dll")]
-        static extern IntPtr GetConsoleWindow();
-
-        [DllImport("user32.dll")]
-        static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-        const int SW_HIDE = 0;
-
-        static string saveDir;
-        static string infoFile;
-        static string coverFile;
-
-        static string lastTrackKey = "";
-        static string coverSavedForKey = "";
-
-        static readonly SemaphoreSlim coverLock = new SemaphoreSlim(1, 1);
-        static CancellationTokenSource coverCts;
+        // Паузы между попытками получить обложку (мс)
+        static readonly int[] Delays = { 150, 300, 500, 800, 1200, 2000, 3000 };
 
         static GlobalSystemMediaTransportControlsSessionManager sessionManager;
         static GlobalSystemMediaTransportControlsSession currentSession;
 
         static readonly object sessionLock = new object();
+        static readonly object pubLock = new object();
         static readonly CancellationTokenSource appCts = new CancellationTokenSource();
 
-        // Счетчик попыток для текущего трека
-        static int coverRetryCount = 0;
-        const int MAX_COVER_RETRIES = 8;
-        static DateTime lastCoverAttemptTime = DateTime.MinValue;
+        static CancellationTokenSource runCts;
 
+        // Что уже отправлено клиенту (меняется только под pubLock)
+        static string publishedInfo = null;
+        static string publishedHash = "";
+        static string handledTrack = "";
+
+        static Stream stdout;
+
+        // Запуск: MediaInfoWatcher.exe [parentPid]
         static async Task Main(string[] args)
         {
-            var handle = GetConsoleWindow();
-            if (handle != IntPtr.Zero)
-                ShowWindow(handle, SW_HIDE);
-
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            saveDir = Path.Combine(appData, "musichub");
-            Directory.CreateDirectory(saveDir);
-            infoFile = Path.Combine(saveDir, "media_info.json");
-            coverFile = Path.Combine(saveDir, "cover.jpg");
-
-            if (!IsMusicHubRunning())
-                return;
+            stdout = Console.OpenStandardOutput();
 
             try
             {
@@ -66,443 +46,263 @@ namespace MediaInfoWatcher
                 return;
             }
 
-            sessionManager.CurrentSessionChanged += OnCurrentSessionChanged;
-            await RefreshCurrentSessionAsync();
+            sessionManager.CurrentSessionChanged += (s, e) => OnSessionChanged();
+            OnSessionChanged();
 
-            _ = MonitorMusicHubProcessAsync(appCts.Token);
+            // Условия завершения
+            if (args.Length > 0 && int.TryParse(args[0], out int pid))
+                _ = WatchParentPidAsync(pid);
+            _ = WatchStdinAsync();
 
-            try
-            {
-                await Task.Delay(Timeout.Infinite, appCts.Token);
-            }
+            try { await Task.Delay(Timeout.Infinite, appCts.Token); }
             catch (OperationCanceledException) { }
             finally
             {
-                sessionManager.CurrentSessionChanged -= OnCurrentSessionChanged;
-                UnsubscribeCurrentSession();
-                coverCts?.Cancel();
-                CleanupFiles();
+                runCts?.Cancel();
+                lock (sessionLock) { UnsubscribeSession(); }
             }
         }
 
-        static async Task MonitorMusicHubProcessAsync(CancellationToken token)
-        {
-            while (!token.IsCancellationRequested)
-            {
-                try
-                {
-                    await Task.Delay(500, token);
-                }
-                catch (OperationCanceledException)
-                {
-                    return;
-                }
+        // ---------- Завершение ----------
 
-                if (!IsMusicHubRunning())
-                {
-                    appCts.Cancel();
-                    return;
-                }
-            }
-        }
-
-        static void OnCurrentSessionChanged(
-            GlobalSystemMediaTransportControlsSessionManager sender,
-            CurrentSessionChangedEventArgs args)
+        static async Task WatchParentPidAsync(int pid)
         {
-            _ = RefreshCurrentSessionAsync();
-        }
-
-        static async Task RefreshCurrentSessionAsync()
-        {
-            GlobalSystemMediaTransportControlsSession newSession;
             try
             {
-                newSession = sessionManager.GetCurrentSession();
+                using var p = Process.GetProcessById(pid);
+                await p.WaitForExitAsync();
             }
-            catch
-            {
-                newSession = null;
-            }
-
-            lock (sessionLock)
-            {
-                UnsubscribeCurrentSession();
-                currentSession = newSession;
-
-                if (currentSession != null)
-                    currentSession.MediaPropertiesChanged += OnMediaPropertiesChanged;
-            }
-
-            if (newSession != null)
-                await HandleMediaPropertiesAsync();
-            else
-                ClearCurrentTrack();
+            catch { }
+            appCts.Cancel();
         }
 
-        static void UnsubscribeCurrentSession()
+        // Когда Electron закрывается, stdin у дочернего процесса закрывается -> EOF
+        static async Task WatchStdinAsync()
+        {
+            try
+            {
+                var input = Console.OpenStandardInput();
+                var buf = new byte[256];
+                while (await input.ReadAsync(buf, 0, buf.Length) > 0) { }
+            }
+            catch { }
+            appCts.Cancel();
+        }
+
+        // ---------- Сессии и события ----------
+
+        static void OnSessionChanged()
+        {
+            lock (sessionLock)
+            {
+                UnsubscribeSession();
+                try { currentSession = sessionManager.GetCurrentSession(); }
+                catch { currentSession = null; }
+
+                if (currentSession != null)
+                {
+                    currentSession.MediaPropertiesChanged += OnSessionEvent;
+                    currentSession.PlaybackInfoChanged += OnSessionEvent;
+                }
+            }
+            Schedule();
+        }
+
+        static void UnsubscribeSession()
         {
             if (currentSession != null)
             {
-                currentSession.MediaPropertiesChanged -= OnMediaPropertiesChanged;
+                currentSession.MediaPropertiesChanged -= OnSessionEvent;
+                currentSession.PlaybackInfoChanged -= OnSessionEvent;
                 currentSession = null;
             }
         }
 
-        static void OnMediaPropertiesChanged(
-            GlobalSystemMediaTransportControlsSession sender,
-            MediaPropertiesChangedEventArgs args)
+        static void OnSessionEvent(GlobalSystemMediaTransportControlsSession s, object args) => Schedule();
+
+        // Новое событие отменяет предыдущий прогон: одновременно живёт только один
+        static void Schedule()
         {
-            _ = HandleMediaPropertiesAsync();
+            CancellationTokenSource cts;
+            lock (sessionLock)
+            {
+                runCts?.Cancel();
+                runCts = cts = CancellationTokenSource.CreateLinkedTokenSource(appCts.Token);
+            }
+            _ = RunAsync(cts.Token);
         }
 
-        static async Task HandleMediaPropertiesAsync()
-        {
-            GlobalSystemMediaTransportControlsSession session;
-            lock (sessionLock) { session = currentSession; }
-            if (session == null) return;
+        // ---------- Основная логика ----------
 
-            GlobalSystemMediaTransportControlsSessionMediaProperties props;
+        static async Task RunAsync(CancellationToken ct)
+        {
             try
             {
-                props = await session.TryGetMediaPropertiesAsync();
+                for (int i = 0; i < Delays.Length; i++)
+                {
+                    await Task.Delay(Delays[i], ct);
+
+                    GlobalSystemMediaTransportControlsSession s;
+                    lock (sessionLock) { s = currentSession; }
+                    if (s == null) { PublishClear(ct); return; }
+
+                    GlobalSystemMediaTransportControlsSessionMediaProperties props;
+                    try { props = await s.TryGetMediaPropertiesAsync(); }
+                    catch { PublishClear(ct); return; }
+
+                    if (props == null || string.IsNullOrEmpty(props.Title))
+                    {
+                        PublishClear(ct);
+                        return;
+                    }
+
+                    // 1) INFO: независимо от обложки, сразу
+                    bool playing = false;
+                    try
+                    {
+                        playing = s.GetPlaybackInfo()?.PlaybackStatus ==
+                                  GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+                    }
+                    catch { }
+
+                    PublishInfo(props.Title ?? "", props.Artist ?? "", props.AlbumTitle ?? "", playing, ct);
+
+                    // 2) COVER: по хешу, название нужно только чтобы понять "это новый трек?"
+                    string trackKey = $"{props.Artist}|{props.Title}|{props.AlbumTitle}";
+                    bool newTrack = trackKey != handledTrack;
+                    bool last = i == Delays.Length - 1;
+
+                    byte[] cover = await ReadThumbAsync(props.Thumbnail);
+                    string hash = cover == null ? "" : Convert.ToHexString(SHA256.HashData(cover));
+
+                    // Обложка реально изменилась -> публикуем, что бы там ни было с названием
+                    if (cover != null && hash != publishedHash)
+                    {
+                        PublishCover(hash, cover, trackKey, ct);
+                        return;
+                    }
+
+                    // Событие не про смену трека (например, пауза/плей) -> делать нечего
+                    if (!newTrack) return;
+
+                    // Новый трек, но обложка та же самая или её нет:
+                    // возможно, плеер ещё не обновил её -> ждём
+                    if (!last) continue;
+
+                    // Последняя попытка: принимаем как есть
+                    if (cover == null && publishedHash != "")
+                        PublishCover("", null, trackKey, ct);   // обложки нет, сбрасываем старую
+                    else
+                        MarkHandled(trackKey, ct);              // тот же альбом, обложка совпала
+                    return;
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { Debug.WriteLine($"RunAsync error: {ex}"); }
+        }
+
+        // ---------- Публикация (все проверки отмены под pubLock) ----------
+
+        static void PublishInfo(string title, string artist, string album, bool playing, CancellationToken ct)
+        {
+            var msg = new { type = "info", title, artist, album, is_playing = playing };
+            string json = JsonSerializer.Serialize(msg);
+
+            lock (pubLock)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (json == publishedInfo) return;
+                WriteLine(json);
+                publishedInfo = json;
+            }
+        }
+
+        static void PublishCover(string hash, byte[] data, string trackKey, CancellationToken ct)
+        {
+            var msg = new
+            {
+                type = "cover",
+                hash,
+                data = data == null ? null : Convert.ToBase64String(data)
+            };
+            string json = JsonSerializer.Serialize(msg);
+
+            lock (pubLock)
+            {
+                ct.ThrowIfCancellationRequested();
+                WriteLine(json);
+                publishedHash = hash;
+                handledTrack = trackKey;
+            }
+        }
+
+        static void MarkHandled(string trackKey, CancellationToken ct)
+        {
+            lock (pubLock)
+            {
+                ct.ThrowIfCancellationRequested();
+                handledTrack = trackKey;
+            }
+        }
+
+        static void PublishClear(CancellationToken ct)
+        {
+            lock (pubLock)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (publishedInfo == null && publishedHash == "" && handledTrack == "") return;
+                WriteLine("{\"type\":\"clear\"}");
+                publishedInfo = null;
+                publishedHash = "";
+                handledTrack = "";
+            }
+        }
+
+        static void WriteLine(string json)
+        {
+            try
+            {
+                var bytes = Encoding.UTF8.GetBytes(json + "\n");
+                stdout.Write(bytes, 0, bytes.Length);
+                stdout.Flush();
             }
             catch
             {
-                ClearCurrentTrack();
-                return;
-            }
-
-            if (props == null || string.IsNullOrEmpty(props.Title))
-            {
-                ClearCurrentTrack();
-                return;
-            }
-
-            string trackKey = $"{props.Artist ?? ""}|{props.Title ?? ""}";
-
-            // Проверяем смену трека
-            bool isTrackChanged = trackKey != lastTrackKey;
-
-            if (isTrackChanged)
-            {
-                // Сброс состояния при смене трека
-                coverRetryCount = 0;
-                coverSavedForKey = "";
-
-                // Останавливаем старую загрузку
-                lock (sessionLock)
-                {
-                    coverCts?.Cancel();
-                    coverCts?.Dispose();
-                    coverCts = new CancellationTokenSource();
-                }
-
-                // Удаляем старую обложку ПРИНУДИТЕЛЬНО
-                TryDeleteFile(coverFile);
-                TryDeleteFile(coverFile + ".tmp");
-
-                Debug.WriteLine($"[MediaInfo] Track changed: {trackKey}");
-            }
-
-            CancellationToken token;
-            lock (sessionLock)
-            {
-                if (coverCts == null || coverCts.IsCancellationRequested)
-                {
-                    coverCts?.Dispose();
-                    coverCts = new CancellationTokenSource();
-                }
-                token = coverCts.Token;
-            }
-
-            try
-            {
-                // Записываем JSON всегда
-                bool isPlaying = false;
-                try
-                {
-                    isPlaying = session.GetPlaybackInfo()?.PlaybackStatus
-                                == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
-                }
-                catch { }
-
-                var info = new
-                {
-                    title = props.Title ?? "",
-                    artist = props.Artist ?? "",
-                    album = props.AlbumTitle ?? "",
-                    is_playing = isPlaying
-                };
-
-                await WriteFileAtomicAsync(infoFile, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(info)), token);
-                lastTrackKey = trackKey;
-
-                // Обложку сохраняем, если трек изменился или ещё не сохранена
-                if (isTrackChanged || coverSavedForKey != trackKey)
-                {
-                    Debug.WriteLine($"[MediaInfo] Attempting cover save for: {trackKey}");
-
-                    bool ok = await SaveCoverAtomicAsync(props.Thumbnail, token);
-
-                    if (ok)
-                    {
-                        coverSavedForKey = trackKey;
-                        coverRetryCount = 0;
-                        Debug.WriteLine($"[MediaInfo] Cover saved successfully");
-                    }
-                    else
-                    {
-                        Debug.WriteLine($"[MediaInfo] Cover save failed, starting retry");
-                        // Запускаем агрессивный ретрай
-                        _ = AggressiveRetryCoverAsync(trackKey);
-                    }
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                Debug.WriteLine($"[MediaInfo] Operation cancelled");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"HandleMediaProperties error: {ex}");
+                // stdout закрыт -> родителя больше нет
+                appCts.Cancel();
             }
         }
 
-        static async Task WriteFileAtomicAsync(string targetPath, byte[] data, CancellationToken token)
+        // ---------- Чтение картинки ----------
+
+        static async Task<byte[]> ReadThumbAsync(IRandomAccessStreamReference thumb)
         {
-            string tmp = targetPath + ".tmp";
+            if (thumb == null) return null;
             try
             {
-                await File.WriteAllBytesAsync(tmp, data, token);
-                token.ThrowIfCancellationRequested();
-                File.Move(tmp, targetPath, overwrite: true);
+                using var stream = await thumb.OpenReadAsync();
+                if (stream == null || stream.Size == 0) return null;
+
+                var buf = new byte[stream.Size];
+                using var reader = new DataReader(stream);
+                uint loaded = await reader.LoadAsync((uint)stream.Size);
+                if (loaded != stream.Size) return null;
+                reader.ReadBytes(buf);
+
+                return IsValidImageHeader(buf) ? buf : null;
             }
-            catch (OperationCanceledException)
+            catch
             {
-                TryDeleteFile(tmp);
-                throw;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"WriteFileAtomic error ({targetPath}): {ex.Message}");
-                TryDeleteFile(tmp);
+                return null;
             }
         }
 
-        static async Task<bool> SaveCoverAtomicAsync(
-            IRandomAccessStreamReference thumbnail,
-            CancellationToken token)
+        static bool IsValidImageHeader(byte[] d)
         {
-            if (thumbnail == null)
-            {
-                Debug.WriteLine($"[Cover] Thumbnail is null");
-                return false;
-            }
-
-            await coverLock.WaitAsync(token);
-            try
-            {
-                token.ThrowIfCancellationRequested();
-
-                IRandomAccessStreamWithContentType stream;
-                try
-                {
-                    stream = await thumbnail.OpenReadAsync();
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"[Cover] OpenRead failed: {ex.Message}");
-                    return false;
-                }
-
-                using (stream)
-                {
-                    if (stream == null || stream.Size == 0)
-                    {
-                        Debug.WriteLine($"[Cover] Stream is empty");
-                        return false;
-                    }
-
-                    byte[] buffer = new byte[stream.Size];
-                    using (var reader = new DataReader(stream))
-                    {
-                        uint loaded = await reader.LoadAsync((uint)stream.Size);
-                        if (loaded != stream.Size)
-                        {
-                            Debug.WriteLine($"[Cover] Incomplete read: {loaded}/{stream.Size}");
-                            return false;
-                        }
-                        reader.ReadBytes(buffer);
-                    }
-
-                    token.ThrowIfCancellationRequested();
-
-                    if (buffer.Length < 4 || !IsValidImageHeader(buffer))
-                    {
-                        Debug.WriteLine($"[Cover] Invalid image header");
-                        return false;
-                    }
-
-                    await WriteFileAtomicAsync(coverFile, buffer, token);
-                    Debug.WriteLine($"[Cover] Cover saved, size: {buffer.Length} bytes");
-                    return true;
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Cover save error: {ex.Message}");
-                return false;
-            }
-            finally
-            {
-                coverLock.Release();
-            }
-        }
-
-        static bool IsValidImageHeader(byte[] data)
-        {
-            if (data.Length < 4) return false;
-            if (data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF) return true;
-            if (data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47) return true;
+            if (d.Length < 4) return false;
+            if (d[0] == 0xFF && d[1] == 0xD8 && d[2] == 0xFF) return true;                          // JPEG
+            if (d[0] == 0x89 && d[1] == 0x50 && d[2] == 0x4E && d[3] == 0x47) return true;          // PNG
             return false;
-        }
-
-        // Агрессивный ретрай с увеличивающимися интервалами
-        static async Task AggressiveRetryCoverAsync(string trackKey)
-        {
-            int[] delays = { 300, 500, 800, 1200, 2000, 3000, 5000 };
-
-            for (int i = 0; i < delays.Length && coverRetryCount < MAX_COVER_RETRIES; i++)
-            {
-                // Проверяем, не изменился ли трек
-                if (trackKey != lastTrackKey)
-                {
-                    Debug.WriteLine($"[Retry] Track changed, stopping retry");
-                    return;
-                }
-
-                // Проверяем, не сохранена ли уже обложка
-                if (coverSavedForKey == trackKey)
-                {
-                    Debug.WriteLine($"[Retry] Cover already saved");
-                    return;
-                }
-
-                coverRetryCount++;
-                Debug.WriteLine($"[Retry] Attempt {coverRetryCount}/{MAX_COVER_RETRIES}, waiting {delays[i]}ms");
-
-                try
-                {
-                    await Task.Delay(delays[i]);
-                }
-                catch
-                {
-                    return;
-                }
-
-                // Повторно проверяем трек после задержки
-                if (trackKey != lastTrackKey || coverSavedForKey == trackKey)
-                    return;
-
-                GlobalSystemMediaTransportControlsSession s;
-                lock (sessionLock) { s = currentSession; }
-                if (s == null)
-                {
-                    Debug.WriteLine($"[Retry] Session lost");
-                    return;
-                }
-
-                GlobalSystemMediaTransportControlsSessionMediaProperties p;
-                try
-                {
-                    p = await s.TryGetMediaPropertiesAsync();
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"[Retry] Get props failed: {ex.Message}");
-                    continue;
-                }
-
-                if (p == null)
-                {
-                    Debug.WriteLine($"[Retry] Props is null");
-                    continue;
-                }
-
-                CancellationToken token;
-                lock (sessionLock)
-                {
-                    if (coverCts == null || coverCts.IsCancellationRequested)
-                    {
-                        coverCts?.Dispose();
-                        coverCts = new CancellationTokenSource();
-                    }
-                    token = coverCts.Token;
-                }
-
-                Debug.WriteLine($"[Retry] Attempting to save cover (attempt {coverRetryCount})");
-                if (await SaveCoverAtomicAsync(p.Thumbnail, token))
-                {
-                    coverSavedForKey = trackKey;
-                    coverRetryCount = 0;
-                    Debug.WriteLine($"[Retry] Cover saved successfully on attempt {coverRetryCount}");
-                    return;
-                }
-            }
-
-            Debug.WriteLine($"[Retry] All retry attempts exhausted for: {trackKey}");
-        }
-
-        static void ClearCurrentTrack()
-        {
-            lastTrackKey = "";
-            coverSavedForKey = "";
-            coverRetryCount = 0;
-            TryDeleteFile(infoFile);
-            TryDeleteFile(coverFile);
-        }
-
-        static void TryDeleteFile(string path)
-        {
-            try { if (File.Exists(path)) File.Delete(path); } catch { }
-        }
-
-        static bool IsMusicHubRunning()
-        {
-            try
-            {
-                var procs = Process.GetProcesses();
-                foreach (var proc in procs)
-                {
-                    try
-                    {
-                        string name = proc.ProcessName;
-                        if (name.IndexOf("musichub", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                            name.IndexOf("electron", StringComparison.OrdinalIgnoreCase) >= 0)
-                        {
-                            proc.Dispose();
-                            return true;
-                        }
-                    }
-                    catch { }
-                    finally { proc.Dispose(); }
-                }
-            }
-            catch { }
-            return false;
-        }
-
-        static void CleanupFiles()
-        {
-            TryDeleteFile(infoFile);
-            TryDeleteFile(coverFile);
-            TryDeleteFile(coverFile + ".tmp");
-            TryDeleteFile(infoFile + ".tmp");
         }
     }
 }
