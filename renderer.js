@@ -83,7 +83,7 @@ window.testStartupPage = function(page) {
 // ============================================================
 // ЕДИНАЯ ВЕРСИЯ ПРИЛОЖЕНИЯ
 // ============================================================
-const APP_VERSION = '3.5.5';
+const APP_VERSION = '3.6.0';
 
 const DEFAULT_SETTINGS = {
     // Внешний вид
@@ -364,17 +364,58 @@ function updatePlayButton(isPlayingState) {
 // ========== ОСНОВНЫЕ ДЕЙСТВИЯ ==========
 
 async function handlePlayPause() {
+    const before = isMediaPlaying;
     const success = await sendMediaCommand('playpause');
-    if (success) {
-        updatePlayButton(!isMediaPlaying);
-        if (typeof showToast === 'function') {
-            showToast(isMediaPlaying ? '⏸ Пауза' : '▶️ Воспроизведение', 'success');
-        }
-    } else {
-        if (typeof showToast === 'function') {
-            showToast('❌ Не удалось переключить воспроизведение', 'error');
-        }
+    if (!success) {
+        if (typeof showToast === 'function') showToast('❌ Не удалось переключить воспроизведение', 'error');
+        return false;
     }
+
+    // Оптимистичный UI: мгновенно отражаем ожидаемое состояние
+    updatePlayButton(!before);
+    if (typeof showToast === 'function') {
+        showToast(!before ? '▶️ Воспроизведение' : '⏸ Пауза', 'success');
+    }
+
+    // Через 700 мс спрашиваем реальное состояние — если расходится, применяем его.
+    // Это лечит баг «после стопа Play показывает играет, хотя плеер стоит».
+    setTimeout(async () => {
+        try {
+            const st = await window.electronAPI.mediaGetState();
+            if (typeof st?.is_playing === 'boolean' && st.is_playing !== isMediaPlaying) {
+                applySystemPlayState(st.is_playing);
+            }
+        } catch (e) { /* нет IPC — не критично */ }
+    }, 700);
+
+    return success;
+}
+
+async function handleStop() {
+    const success = await sendMediaCommand('stop');
+    if (!success) {
+        if (typeof showToast === 'function') showToast('❌ Не удалось остановить', 'error');
+        return false;
+    }
+
+    updatePlayButton(false);
+    const statusEl = document.getElementById('mediaStatus');
+    if (statusEl) {
+        statusEl.textContent = '⏹ Остановлено';
+        statusEl.className = 'media-status-stopped';
+    }
+    if (typeof showToast === 'function') showToast('⏹ Воспроизведение полностью остановлено', 'info');
+
+    // После стопа тоже сверяемся: keybd_event асинхронный, watcher шлёт info с задержкой
+    setTimeout(async () => {
+        try {
+            const st = await window.electronAPI.mediaGetState();
+            if (typeof st?.is_playing === 'boolean' && st.is_playing !== isMediaPlaying) {
+                applySystemPlayState(st.is_playing);
+            }
+        } catch (e) {}
+    }, 700);
+
     return success;
 }
 
@@ -766,6 +807,8 @@ window.mediaControls = {
     stop: handleStop,
     next: handleNext,
     prev: handlePrevious,
+    seekBy: (ms) => seekByMs(ms),     // например mediaControls.seekBy(10000)
+    seekTo: (ms) => seekToMs(ms),     // абсолютная позиция в мс
     volume: (percent) => {
         setMediaVolume(percent);
         updateVolumeUI(percent);
@@ -2754,17 +2797,7 @@ let lastSoundCheckTime = null;
 
 // Проверка, играет ли звук
 async function isSoundActuallyPlaying() {
-    if (!analyser || useFakeVisualizer) return false;
-    
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
-    analyser.getByteFrequencyData(dataArray);
-    
-    let sum = 0;
-    for (let i = 0; i < Math.min(dataArray.length, 32); i++) {
-        sum += dataArray[i];
-    }
-    const avg = sum / 32;
-    return avg > 8; // порог наличия звука
+    return !!(mediaIsPlaying && mediaSource && mediaSource.isOwn);
 }
 
 function isValidArtist(artist) {
@@ -2907,9 +2940,9 @@ function isValidTrack(title, artist) {
 }
 
 function saveTrackToHistory(title, artist, service) {
-    // ← ФИЛЬТР: не пишем мусор
-    if (!isValidTrack(title, artist)) {
-        console.log(`⏭️ Пропущен мусорный трек: "${artist}" - "${title}"`);
+
+    if (!(mediaSource && mediaSource.isOwn)) {
+        console.log(`⏭️ Чужой источник (${mediaSource?.name || 'не определён'}): "${artist}" - "${title}" в статистику не пишем`);
         return;
     }
     
@@ -6526,9 +6559,18 @@ let currentMedia = { title: '', artist: '' };
 async function handleMediaInfo(info) {
     if (!info || !info.title) return;
     currentMedia = { title: info.title, artist: info.artist || '' };
+    mediaSource = {
+        pid: info.source_pid || 0,
+        name: info.source_name || '',
+        path: info.source_path || '',
+        isOwn: !!info.is_own_source          // решает main: electron (dev) / musichub (сборка)
+    };
+    applySystemPlayState(!!info.is_playing);   // play/pause — из системной сессии, а не по звуку
 
-    const trackKey = `${info.artist}|${info.title}`;
-    if (trackKey === lastTrackKey) return;   // play/pause и прочие изменения без смены трека
+    // Признак «свой источник» входит в ключ: если источник определился позже или трек
+    // переключился с чужого плеера на наш, запись в статистику не пропадёт
+    const trackKey = `${info.artist}|${info.title}|${mediaSource.isOwn ? 'own' : 'ext'}`;
+    if (trackKey === lastTrackKey) return;
     lastTrackKey = trackKey;
     console.log('🎵 Трек:', info.artist, '-', info.title);
 
@@ -6559,14 +6601,19 @@ async function handleMediaCover(c) {
 }
 
 function handleMediaClear() {
-    lastTrackKey = '';
-    lastCoverHash = '';
+    lastTrackKey = ''; lastCoverHash = '';
     currentMedia = { title: '', artist: '' };
+    applySystemPlayState(false);
+    mediaSource = { pid: 0, name: '', path: '', isOwn: false };
+    mediaTimeline = null;
+    refreshProgressUI();
+    sendProgressToMain();
 }
 
 window.electronAPI.onMediaInfo(handleMediaInfo);
 window.electronAPI.onMediaCover(handleMediaCover);
 window.electronAPI.onMediaClear(handleMediaClear);
+window.electronAPI.onMediaTimeline(handleMediaTimeline);
 
 // Начальное состояние (если окно открылось позже, чем пришли события)
 (async () => {
@@ -6574,6 +6621,7 @@ window.electronAPI.onMediaClear(handleMediaClear);
         const m = await window.electronAPI.getMediaFromFiles();
         if (m && m.title) {
             await handleMediaInfo(m);
+            if (m.timeline) handleMediaTimeline(m.timeline);
             if (m.artwork_base64) await handleMediaCover({ hash: m.cover_hash, data: m.artwork_base64 });
         }
     } catch (err) {
@@ -6609,6 +6657,259 @@ function isSoundPlayingFromAnalyser() {
     // Если средний уровень выше порога - звук есть
     return avg > 5; // порог можно настроить
 }
+
+
+// ===== ТАЙМЛАЙН, ИСТОЧНИК И ПЕРЕМОТКА (данные GSMTC через media_watcher) =====
+// Play/pause и позиция берутся из системной медиа-сессии, а не из звука и не из таймеров.
+// Watcher шлёт таймлайн не на каждый тик, а когда плеер его обновил (play/pause/перемотка/смена трека),
+// между событиями позицию интерполируем сами: position + (now - updated).
+let mediaSource = { pid: 0, name: '', path: '', isOwn: false };   // isOwn: electron (dev) / musichub (сборка)
+let mediaTimeline = null;      // { position_ms, start_ms, end_ms, min_seek_ms, max_seek_ms, updated_ms }
+let mediaAnchorMs = 0;         // Date.now(), к которому относится position_ms
+let mediaIsPlaying = false;
+let lastSystemPlaying = null;  // чтобы реагировать (трей, мобильный) только на реальную смену
+let seekDragging = false;      // пользователь тащит ползунок — не перезаписываем его позицию
+const SEEK_STEP_MS = 10000;    // шаг кнопок «−10 / +10»
+
+function getMediaPositionMs() {
+    if (!mediaTimeline) return 0;
+    let pos = mediaTimeline.position_ms;
+    if (mediaIsPlaying) pos += Date.now() - mediaAnchorMs;
+    const { start_ms, end_ms } = mediaTimeline;
+    if (end_ms > start_ms) pos = Math.min(Math.max(pos, start_ms), end_ms);
+    return pos;
+}
+
+function getMediaDurationMs() {
+    if (!mediaTimeline) return 0;
+    return Math.max(0, mediaTimeline.end_ms - mediaTimeline.start_ms);
+}
+
+// Перематывать можно, только если плеер сообщил длительность и диапазон перемотки
+function isMediaSeekable() {
+    return !!mediaTimeline && getMediaDurationMs() > 0 && mediaTimeline.max_seek_ms > mediaTimeline.min_seek_ms;
+}
+
+function setMediaPlaying(next) {
+    if (next === mediaIsPlaying) return;
+    if (mediaTimeline) {
+        if (!next) mediaTimeline.position_ms = getMediaPositionMs();  // пауза: фиксируем позицию
+        mediaAnchorMs = Date.now();                                    // play: отсчёт заново
+    }
+    mediaIsPlaying = next;
+}
+
+// Единая точка применения play/pause из системной сессии
+function applySystemPlayState(isPlaying) {
+    setMediaPlaying(isPlaying);
+    isMediaPlaying = isPlaying;
+    updatePlayButton(isPlaying);
+
+    // Не выходим по одинаковому состоянию: UI мог разойтись с реальностью
+    // (например, после handleStop + повторного Play). Синхронизируем всегда.
+    if (lastSystemPlaying === isPlaying) {
+        refreshProgressUI();
+        return;
+    }
+    lastSystemPlaying = isPlaying;
+    console.log(`🎵 ${isPlaying ? '▶️ PLAY' : '⏸️ PAUSE'} (системная медиа-сессия)`);
+
+    if (window.electronAPI && window.electronAPI.sendMobileStatus) {
+        window.electronAPI.sendMobileStatus({ isPlaying });
+    }
+    if (window.electronAPI && window.electronAPI.playerStateChanged) {
+        window.electronAPI.playerStateChanged(isPlaying);
+    }
+    updateSoundIndicator(isPlaying);
+    refreshProgressUI();
+}
+
+function handleMediaTimeline(tl) {
+    if (!tl) return;
+    mediaTimeline = tl;
+    // updated_ms main заполняет всегда; на всякий случай — момент получения
+    mediaAnchorMs = tl.updated_ms > 0 ? tl.updated_ms : Date.now();
+    refreshProgressUI();
+    sendProgressToMain();
+}
+
+// Универсальный поиск «позиции» внутри webview. Возвращает { ok, reason, now, dur }
+// Порядок: <audio>/<video> → элементы плеера по aria-label/role=slider → переменные плеера.
+const WEBVIEW_SEEK_SCRIPT = (targetSec) => `
+(function() {
+    var target = ${targetSec};
+    // 1) HTMLMediaElement (audio/video)
+    var m = document.querySelector('audio, video');
+    if (m && isFinite(m.duration) && m.duration > 0) {
+        var t1 = Math.min(Math.max(target, 0), m.duration);
+        try { m.currentTime = t1; return { ok: true, via: 'media', now: m.currentTime, dur: m.duration }; }
+        catch (e) { /* пробуем дальше */ }
+    }
+    // 2) role=slider (многие плееры делают прогресс-бар как slider с aria-valuenow)
+    var slider = document.querySelector('[role="slider"][aria-valuemax]');
+    if (slider) {
+        var max = parseFloat(slider.getAttribute('aria-valuemax'));
+        if (isFinite(max) && max > 0) {
+            // клик по slider в позицию target
+            var r = slider.getBoundingClientRect();
+            var frac = Math.min(1, Math.max(0, target / max));
+            var x = r.left + r.width * frac;
+            var y = r.top + r.height / 2;
+            ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(function(ev){
+                slider.dispatchEvent(new MouseEvent(ev, { clientX: x, clientY: y, bubbles: true, cancelable: true, view: window, button: 0 }));
+            });
+            return { ok: true, via: 'slider', frac: frac, max: max };
+        }
+    }
+    // 3) Яндекс.Музыка и похожие: ищем по aria-label "Перемотка"/"Seek"/"Progress"
+    var seekBtn = document.querySelector('input[type="range"][class*="progress"], .progress__bar, [class*="player-progress"]');
+    if (seekBtn && seekBtn.setAttribute) {
+        try {
+            if (seekBtn.tagName === 'INPUT') {
+                seekBtn.value = String(target);
+                seekBtn.dispatchEvent(new Event('input', { bubbles: true }));
+                seekBtn.dispatchEvent(new Event('change', { bubbles: true }));
+                return { ok: true, via: 'input-range' };
+            }
+        } catch (e) {}
+    }
+    return { ok: false, reason: 'no supported seek element' };
+})();
+`;
+
+async function seekToMs(targetMs) {
+    if (!isMediaSeekable()) return false;
+    const tl = mediaTimeline;
+    const before = getMediaPositionMs();
+    const t = Math.min(Math.max(targetMs, tl.min_seek_ms), tl.max_seek_ms);
+    const sec = (t - tl.start_ms) / 1000;
+
+    // Оптимистично двигаем UI
+    tl.position_ms = t;
+    mediaAnchorMs = Date.now();
+    refreshProgressUI();
+    sendProgressToMain();
+
+    let gsmtc = null, webview = null;
+
+    // 1) webview — главный путь для own-источника (electron/musichub)
+    if (mediaSource && mediaSource.isOwn) {
+        const wv = document.querySelector('webview.active');
+        if (wv) {
+            try {
+                webview = await wv.executeJavaScript(WEBVIEW_SEEK_SCRIPT(sec));
+                console.log('🌐 webview seek:', webview);
+            } catch (e) {
+                console.log('❌ webview seek error:', e);
+            }
+        }
+    }
+
+    // 2) GSMTC через watcher (Spotify/Яндекс.десктоп; для webview почти всегда false)
+    try {
+        gsmtc = await window.electronAPI.mediaSeek(t);
+        console.log(`🔧 mediaSeek(${Math.round(t)}): ${gsmtc}`);
+    } catch (e) {
+        console.log('❌ mediaSeek error:', e);
+    }
+
+    // 3) Проверка через 900 мс: реальная позиция сдвинулась?
+    //    Если и webview, и GSMTC не сработали — откатываем UI, чтобы не было фантома.
+    setTimeout(() => {
+        const after = getMediaPositionMs();
+        const moved = Math.abs(after - before) > 1500 || Math.abs(after - t) < 2000;
+        if (!moved) {
+            console.warn(`⚠️ Перемотка не применилась (было ${Math.round(before)}, ждали ${Math.round(t)}, стало ${Math.round(after)}) — откат UI`);
+            if (mediaTimeline) {
+                mediaTimeline.position_ms = before;
+                mediaAnchorMs = Date.now();
+            }
+            refreshProgressUI();
+        }
+    }, 900);
+
+    return !!(webview && webview.ok) || gsmtc === true;
+}
+
+function seekByMs(deltaMs) {
+    if (!mediaTimeline) return Promise.resolve(false);
+    return seekToMs(getMediaPositionMs() + deltaMs);
+}
+
+function formatClock(ms) {
+    const total = Math.floor(Math.max(0, ms) / 1000);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const sec = String(total % 60).padStart(2, '0');
+    return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+}
+
+// Полоса прогресса на домашней странице (элементы создаются в createHomePage)
+function refreshProgressUI() {
+    const slider = document.getElementById('homeSeekSlider');
+    if (!slider) return;
+
+    const curEl = document.getElementById('homeTimeCur');
+    const totalEl = document.getElementById('homeTimeTotal');
+    const back = document.getElementById('mediaBackBtn');
+    const fwd = document.getElementById('mediaFwdBtn');
+    const seekable = isMediaSeekable();
+    const dur = getMediaDurationMs();
+
+    slider.disabled = !seekable;
+    if (back) back.disabled = !seekable;
+    if (fwd) fwd.disabled = !seekable;
+
+    if (dur <= 0) {
+        slider.value = 0;
+        slider.style.setProperty('--seek-fill', '0%');
+        if (curEl) curEl.textContent = '0:00';
+        if (totalEl) totalEl.textContent = '--:--';
+        return;
+    }
+
+    const frac = seekDragging
+        ? Number(slider.value) / 1000
+        : Math.min(1, Math.max(0, (getMediaPositionMs() - mediaTimeline.start_ms) / dur));
+    if (!seekDragging) slider.value = Math.round(frac * 1000);
+    slider.style.setProperty('--seek-fill', (frac * 100).toFixed(2) + '%');
+    if (curEl) curEl.textContent = formatClock(frac * dur);
+    if (totalEl) totalEl.textContent = formatClock(dur);
+}
+
+// Делегирование: не зависит от момента создания домашней страницы
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest ? e.target.closest('#mediaBackBtn, #mediaFwdBtn') : null;
+    if (!btn || btn.disabled) return;
+    seekByMs(btn.id === 'mediaBackBtn' ? -SEEK_STEP_MS : SEEK_STEP_MS);
+});
+
+document.addEventListener('input', (e) => {
+    if (e.target.id !== 'homeSeekSlider') return;
+    seekDragging = true;          // пока пользователь двигает ползунок, показываем его позицию
+    refreshProgressUI();
+});
+
+document.addEventListener('change', (e) => {
+    if (e.target.id !== 'homeSeekSlider') return;
+    const dur = getMediaDurationMs();
+    seekDragging = false;
+    if (dur > 0) seekToMs(mediaTimeline.start_ms + (Number(e.target.value) / 1000) * dur);
+});
+
+document.addEventListener('focusout', (e) => {
+    if (e.target.id === 'homeSeekSlider') seekDragging = false;
+});
+
+setInterval(() => {
+    if (!document.hidden) refreshProgressUI();
+}, 250);
+
+
+
+
+
+
 
 // ========== ИНИЦИАЛИЗАЦИЯ ДОМАШНЕЙ СТРАНИЦЫ (В КОНЦЕ ФАЙЛА) ==========
 document.addEventListener('DOMContentLoaded', () => {
@@ -6666,11 +6967,22 @@ function createHomePage() {
                         <div id="homeService" class="home-track-badge">Готов к воспроизведению</div>
 
                         <!-- Контролы -->
+                        <!-- Прогресс и перемотка -->
+                        <div class="home-progress">
+                            <span id="homeTimeCur" class="home-time">0:00</span>
+                            <input type="range" id="homeSeekSlider" class="home-seek-slider"
+                                   min="0" max="1000" step="1" value="0" disabled title="Перемотка">
+                            <span id="homeTimeTotal" class="home-time">--:--</span>
+                        </div>
+
+                        <!-- Контролы -->
                         <div class="home-controls">
                             <button class="ctrl-btn" id="mediaPrevBtn" title="Предыдущий (Ctrl+Shift+←)">⏮</button>
+                            <button class="ctrl-btn seek-btn" id="mediaBackBtn" title="Назад на 10 секунд" disabled>−10</button>
                             <button class="ctrl-btn primary" id="mediaPlayBtn" title="Play/Pause (Ctrl+Shift+Space)">
                                 <span id="playIcon">▶</span>
                             </button>
+                            <button class="ctrl-btn seek-btn" id="mediaFwdBtn" title="Вперёд на 10 секунд" disabled>+10</button>
                             <button class="ctrl-btn" id="mediaStopBtn" title="Стоп">⏹</button>
                             <button class="ctrl-btn" id="mediaNextBtn" title="Следующий (Ctrl+Shift+→)">⏭</button>
                         </div>
@@ -8383,51 +8695,51 @@ loadTrayControlsSetting();
 
 
 
-
 // ============================================================
-// ТАЙМЕР ПРОГРЕССА ТРЕКА
+// ПРОГРЕСС ТРЕКА ДЛЯ МОБИЛЬНОГО (реальная позиция из GSMTC, без накрутки таймером)
 // ============================================================
 
 let trackProgressSeconds = 0;
+let trackDurationSeconds = 0;
 let trackProgressTimer = null;
 let currentTrackTitle = '';
 let currentTrackArtist = '';
 
-// Запуск/остановка таймера
-function updateTrackTimer(isPlaying) {
-    if (isPlaying) {
-        if (!trackProgressTimer) {
-            trackProgressTimer = setInterval(() => {
-                trackProgressSeconds++;
-                sendProgressToMain();
-            }, 1000);
-            console.log('⏱️ Таймер прогресса запущен');
-        }
+// Пересчёт секунд из реального таймлайна
+function syncTrackProgress() {
+    if (mediaTimeline) {
+        trackProgressSeconds = Math.floor(Math.max(0, getMediaPositionMs() - mediaTimeline.start_ms) / 1000);
+        trackDurationSeconds = Math.floor(getMediaDurationMs() / 1000);
     } else {
-        if (trackProgressTimer) {
-            clearInterval(trackProgressTimer);
-            trackProgressTimer = null;
-            console.log('⏱️ Таймер прогресса остановлен');
-        }
+        trackProgressSeconds = 0;
+        trackDurationSeconds = 0;
     }
 }
 
-// Сброс прогресса
-function resetTrackProgress() {
-    trackProgressSeconds = 0;
-    if (trackProgressTimer) {
+// Раз в секунду отдаём позицию на мобильный, пока трек играет
+// (имя сохранено для совместимости с перехватом updatePlayButton ниже)
+function updateTrackTimer(isPlaying) {
+    if (isPlaying) {
+        if (!trackProgressTimer) trackProgressTimer = setInterval(sendProgressToMain, 1000);
+    } else if (trackProgressTimer) {
         clearInterval(trackProgressTimer);
         trackProgressTimer = null;
     }
+    sendProgressToMain();   // сразу актуальная позиция (старт/пауза)
+}
+
+// При смене трека новая позиция придёт из таймлайна — просто отдаём текущую
+function resetTrackProgress() {
     sendProgressToMain();
-    console.log('🔄 Прогресс сброшен');
 }
 
 // Отправка прогресса в main
 function sendProgressToMain() {
+    syncTrackProgress();
     if (window.electronAPI && window.electronAPI.sendMobileStatus) {
         window.electronAPI.sendMobileStatus({
             progress: trackProgressSeconds,
+            duration: trackDurationSeconds,
             isPlaying: isMediaPlaying || false
         });
     }
@@ -8442,22 +8754,18 @@ const originalSaveTrack = window.saveTrackToHistory;
 if (originalSaveTrack) {
     window.saveTrackToHistory = function(title, artist, service) {
         originalSaveTrack(title, artist, service);
-        
-        // Сбрасываем прогресс
-        resetTrackProgress();
+
+        // Позицию сбрасывать не надо: она придёт из таймлайна нового трека
         currentTrackTitle = title || 'Не играет';
         currentTrackArtist = artist || '—';
-        
+
         // === ОТПРАВЛЯЕМ ПОЛНЫЙ СТАТУС ===
         if (window.electronAPI && window.electronAPI.sendMobileStatus) {
-            // Получаем акцентный цвет
             const accentColor = getComputedStyle(document.documentElement)
                 .getPropertyValue('--accent-color').trim() || '#1DB954';
-            
-            // Получаем обложку
             const artworkEl = document.getElementById('homeArtwork') || document.getElementById('panelArtwork');
             const artwork = artworkEl?.src || '';
-            
+
             window.electronAPI.sendMobileStatus({
                 title: title || 'Не играет',
                 artist: artist || '—',
@@ -8465,14 +8773,12 @@ if (originalSaveTrack) {
                 service: service || 'unknown',
                 accentColor: accentColor,
                 isPlaying: isMediaPlaying || false,
-                progress: 0 // Сбрасываем прогресс
+                progress: trackProgressSeconds,
+                duration: trackDurationSeconds
             });
         }
-        
-        // Если трек играет — запускаем таймер
-        if (isMediaPlaying) {
-            updateTrackTimer(true);
-        }
+
+        if (isMediaPlaying) updateTrackTimer(true);
     };
 }
 
@@ -8489,14 +8795,14 @@ if (originalUpdatePlay) {
 window.getTrackProgress = function() {
     return {
         seconds: trackProgressSeconds,
-        isPlaying: isMediaPlaying || false,
+        duration: trackDurationSeconds,
+        isPlaying: mediaIsPlaying || false,
         title: currentTrackTitle,
         artist: currentTrackArtist
     };
 };
 
-console.log('⏱️ Таймер прогресса инициализирован');
-
+console.log('⏱️ Прогресс трека берётся из системной медиа-сессии');
 
 
 
@@ -10653,16 +10959,6 @@ function updateSoundIndicator(isPlaying) {
 
 
 
-// Подключаемся к аудиопотоку
-setTimeout(connectToAudioStream, 2000);
-
-// Переподключение при переключении вкладок
-document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && !audioConnected) {
-        console.log('🔄 Вкладка активна, переподключаюсь...');
-        connectToAudioStream();
-    }
-});
 
 // Остановка при закрытии
 window.addEventListener('beforeunload', () => {
@@ -10698,6 +10994,7 @@ function sendMobileStatusUpdate() {
             ...(currentTrackTitle && currentTrackTitle !== 'Не играет' && { title: currentTrackTitle }),
             ...(currentTrackArtist && currentTrackArtist !== '—' && { artist: currentTrackArtist }),
             ...(currentArtwork && { artwork: currentArtwork }),
+            duration: trackDurationSeconds || 0,
             isPlaying: isMediaPlaying || false,
             volume: currentMediaVolume / 100 || 0.5,
             progress: trackProgressSeconds || 0,
@@ -10756,8 +11053,6 @@ function sendMobileStatus() {
         isPlaying: isMediaPlaying || false,
         volume: currentMediaVolume / 100,
         service: document.querySelector('webview.active')?.id || 'unknown',
-        progress: 0,
-        duration: 0,
         accentColor: accentColor // ← Добавляем акцентный цвет
     };
     
@@ -10795,6 +11090,36 @@ if (window.electronAPI && window.electronAPI.onMobileCommand) {
                 handlePrevious();
                 break;
         }
+    });
+}
+
+if (window.electronAPI && window.electronAPI.onApiControl) {
+    window.electronAPI.onApiControl((data) => {
+        console.log('🔌 API control:', data);
+        switch (data?.action) {
+            case 'playpause': handlePlayPause(); break;
+            case 'next': handleNext(); break;
+            case 'previous': handlePrevious(); break;
+            case 'stop': handleStop(); break;
+        }
+    });
+}
+
+// ========== ПЕРЕМОТКА С МОБИЛЬНОГО ==========
+if (window.electronAPI && window.electronAPI.onMobileSeek) {
+    window.electronAPI.onMobileSeek((sec) => {
+        if (!mediaTimeline) return;
+        const targetMs = mediaTimeline.start_ms + sec * 1000;
+        console.log(`📱 Мобильная перемотка на ${sec.toFixed(1)} сек → ${Math.round(targetMs)} мс`);
+        seekToMs(targetMs);
+    });
+}
+
+if (window.electronAPI && window.electronAPI.onMobileSeekBy) {
+    window.electronAPI.onMobileSeekBy((deltaSec) => {
+        if (!mediaTimeline) return;
+        console.log(`📱 Мобильная перемотка на ${deltaSec} сек`);
+        seekByMs(deltaSec * 1000);
     });
 }
 
@@ -14300,7 +14625,107 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 
+// ============================================================
+// ПОМОЩЬ ПО ЛОКАЛЬНОМУ API
+// ============================================================
+document.addEventListener('DOMContentLoaded', function initApiHelp() {
+    const openBtn = document.getElementById('apiHelpBtn');
+    const modal = document.getElementById('apiHelpModal');
+    const closeBtn = document.getElementById('apiHelpClose');
+    const closeBtn2 = document.getElementById('apiHelpCloseBtn');
+    const insertKeyBtn = document.getElementById('apiHelpInsertKey');
 
+    if (!openBtn || !modal) return;
+
+    let currentKey = '';
+
+    // Загружаем ключ один раз (чтобы подставлять в примеры)
+    (async () => {
+        try {
+            if (window.electronAPI && window.electronAPI.getLocalApiKey) {
+                currentKey = await window.electronAPI.getLocalApiKey() || '';
+            }
+        } catch (e) {
+            console.warn('Не удалось получить API-ключ:', e);
+        }
+    })();
+
+    function openModal() {
+        modal.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeModal() {
+        modal.style.display = 'none';
+        document.body.style.overflow = '';
+    }
+
+    openBtn.addEventListener('click', openModal);
+    closeBtn?.addEventListener('click', closeModal);
+    closeBtn2?.addEventListener('click', closeModal);
+
+    // Клик по фону — закрыть
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+
+    // Esc — закрыть
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.style.display === 'flex') closeModal();
+    });
+
+    // Подставить ключ в примеры
+    insertKeyBtn?.addEventListener('click', () => {
+        if (!currentKey) {
+            if (typeof showToast === 'function') showToast('❌ Ключ ещё не загружен', 'error');
+            return;
+        }
+
+        // Меняем KEY и <key> на реальный ключ в примерах
+        modal.querySelectorAll('pre').forEach(pre => {
+            pre.textContent = pre.textContent
+                .replace(/<key>/g, currentKey)
+                .replace(/KEY/g, currentKey);
+        });
+
+        // Подставляем в data-copy
+        modal.querySelectorAll('.api-copy-example').forEach(btn => {
+            const original = btn.dataset.copy || '';
+            btn.dataset.copy = original
+                .replace(/<key>/g, currentKey)
+                .replace(/KEY/g, currentKey);
+        });
+
+        if (typeof showToast === 'function') showToast('🔑 Ключ подставлен в примеры', 'success');
+    });
+
+    // Копирование примеров
+    modal.querySelectorAll('.api-copy-example').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const text = btn.dataset.copy || '';
+            if (!text) return;
+
+            try {
+                await navigator.clipboard.writeText(text);
+                const original = btn.textContent;
+                btn.textContent = '✅ Скопировано';
+                setTimeout(() => { btn.textContent = original; }, 1500);
+                if (typeof showToast === 'function') showToast('📋 Пример скопирован', 'success');
+            } catch (e) {
+                // Fallback
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                ta.remove();
+                if (typeof showToast === 'function') showToast('📋 Пример скопирован', 'success');
+            }
+        });
+    });
+
+    console.log('🧭 Помощь по API готова (кнопка ❓ рядом с ключом)');
+});
 
 
 
@@ -15071,7 +15496,73 @@ function getOrCreateUserId() {
 }
 
 
+// Заполняем API-ключ в настройках
+(async () => {
+    try {
+        if (!window.electronAPI || !window.electronAPI.getLocalApiKey) return;
+        const key = await window.electronAPI.getLocalApiKey();
+        const input = document.getElementById('localApiKey');
+        const toggleBtn = document.getElementById('toggleApiKeyBtn');
+        const copyBtn = document.getElementById('copyApiKeyBtn');
+        if (!input || !key) return;
 
+        let fullKey = key;
+        let revealed = false;
+
+        function render() {
+            if (!fullKey) {
+                input.value = '';
+                return;
+            }
+            if (revealed) {
+                input.value = fullKey;
+            } else {
+                // первые 5 символов + звёздочки
+                input.value = fullKey.slice(0, 5) + '•'.repeat(Math.max(0, fullKey.length - 5));
+            }
+        }
+
+        render();
+
+        if (toggleBtn) {
+            toggleBtn.addEventListener('click', () => {
+                revealed = !revealed;
+                toggleBtn.textContent = revealed ? '🙈' : '👁';
+                render();
+                // Автоскрытие через 10 сек
+                if (revealed) {
+                    clearTimeout(toggleBtn._hideTimer);
+                    toggleBtn._hideTimer = setTimeout(() => {
+                        revealed = false;
+                        toggleBtn.textContent = '👁';
+                        render();
+                    }, 10000);
+                }
+            });
+        }
+
+        if (copyBtn) {
+            copyBtn.addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(fullKey);
+                    copyBtn.textContent = '✅';
+                    setTimeout(() => { copyBtn.textContent = '📋'; }, 1500);
+                    if (typeof showToast === 'function') showToast('🔑 API-ключ скопирован', 'success');
+                } catch (e) {
+                    // fallback
+                    const ta = document.createElement('textarea');
+                    ta.value = fullKey;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    ta.remove();
+                }
+            });
+        }
+    } catch (e) {
+        console.warn('Не удалось получить API-ключ:', e);
+    }
+})();
 
 
 function initChat() {

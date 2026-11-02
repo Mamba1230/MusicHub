@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -5,10 +6,27 @@
     <title>MusicHub Mobile</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        
+
+        :root {
+            --accent: #1DB954;
+            --accent-shadow: rgba(29, 185, 84, 0.15);
+            --accent-dim: rgba(29, 185, 84, 0.15);
+            --bg: #0a0a0a;
+            --card: #141414;
+            --text: #fff;
+            --text-secondary: #999;
+        }
+
+        html, body {
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
         body {
-            background: #0a0a0a;
-            color: #fff;
+            background: var(--bg);
+            color: var(--text);
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             display: flex;
             justify-content: center;
@@ -19,17 +37,9 @@
             transition: background 0.5s;
             touch-action: manipulation;
         }
-        
-        :root {
-            --accent: #1DB954;
-            --accent-shadow: rgba(29, 185, 84, 0.15); 
-            --accent-dim: rgba(29, 185, 84, 0.15);
-            --bg: #0a0a0a;
-            --card: #141414;
-            --text: #fff;
-            --text-secondary: #999;
-        }
-        
+
+        img { -webkit-user-drag: none; }
+
         .container {
             width: 100%;
             max-width: 500px;
@@ -41,7 +51,7 @@
             justify-content: center;
             gap: 8px;
         }
-        
+
         .icon-btn {
             background: none;
             border: none;
@@ -55,44 +65,30 @@
             justify-content: center;
             align-items: center;
         }
-        
-        .icon-btn:active {
-            transform: scale(0.85);
-        }
-        
+
+        .icon-btn:active { transform: scale(0.85); }
+
         .icon-btn svg {
             width: 100%;
             height: 100%;
             fill: currentColor;
             transition: fill 0.3s;
         }
-        
-        .header {
-            text-align: center;
-            padding: 2px 0;
-            flex-shrink: 0;
-        }
-        
-        .header .status {
-            font-size: 11px;
-            color: #666;
-            letter-spacing: 1px;
-        }
-        
-        .header .service {
-            font-size: 10px;
-            color: var(--accent, #1DB954);
-            transition: color 0.3s;
-        }
-        
+
+        .header { text-align: center; padding: 2px 0; flex-shrink: 0; }
+        .header .status { font-size: 11px; color: #666; letter-spacing: 1px; }
+        .header .service { font-size: 10px; color: var(--accent); transition: color 0.3s; }
+
         .artwork-container {
             display: flex;
             justify-content: center;
             align-items: center;
             padding: 8px 0;
             flex-shrink: 0;
+            position: relative;
+            overflow: visible;
         }
-        
+
         .artwork {
             width: 260px;
             height: 260px;
@@ -103,8 +99,9 @@
             object-fit: cover;
             box-shadow: 0 20px 60px rgba(0,0,0,0.8);
             transition: all 0.5s;
+            pointer-events: none;
         }
-        
+
         .artwork.placeholder {
             display: flex;
             justify-content: center;
@@ -112,17 +109,11 @@
             font-size: 70px;
             background: linear-gradient(135deg, #1a1a1a, #2a2a2a);
         }
-        
-        .artwork.placeholder::after {
-            content: '🎵';
-        }
-        
-        .track-info {
-            text-align: center;
-            padding: 4px 0;
-            flex-shrink: 0;
-        }
-        
+
+        .artwork.placeholder::after { content: '🎵'; }
+
+        .track-info { text-align: center; padding: 4px 0; flex-shrink: 0; }
+
         .track-title {
             font-size: 20px;
             font-weight: 700;
@@ -132,7 +123,7 @@
             overflow: hidden;
             text-overflow: ellipsis;
         }
-        
+
         .track-artist {
             font-size: 15px;
             color: #aaa;
@@ -141,7 +132,7 @@
             overflow: hidden;
             text-overflow: ellipsis;
         }
-        
+
         .controls {
             display: flex;
             justify-content: center;
@@ -150,7 +141,7 @@
             padding: 8px 0;
             flex-shrink: 0;
         }
-        
+
         .controls .icon-btn {
             width: 52px;
             height: 52px;
@@ -158,32 +149,24 @@
             background: rgba(255,255,255,0.06);
             padding: 12px;
         }
-        
-        .controls .icon-btn svg {
-            width: 24px;
-            height: 24px;
+
+        .controls .icon-btn svg { width: 24px; height: 24px; }
+
+        .controls .play-btn {
+            width: 72px;
+            height: 72px;
+            background: var(--accent);
+            padding: 18px;
+            box-shadow: 0 0 30px var(--accent-shadow);
+            transition: background 0.3s, box-shadow 0.3s;
         }
-        
-.controls .play-btn {
-    width: 72px;
-    height: 72px;
-    background: var(--accent, #1DB954); /* уже стоит, ок */
-    padding: 18px;
-    /* Убираем захардкоженный rgba и делаем прозрачную тень */
-    box-shadow: 0 0 30px var(--accent-shadow, rgba(29, 185, 84, 0.15));
-    transition: background 0.3s, box-shadow 0.3s;
-}
-        
-        .controls .play-btn svg {
-            width: 32px;
-            height: 32px;
-            fill: #000;
-        }
-        
+
+        .controls .play-btn svg { width: 32px; height: 32px; fill: #000; }
+
         .controls .play-btn.playing {
             box-shadow: 0 0 40px var(--accent-glow-strong, rgba(29, 185, 84, 0.3));
         }
-        
+
         .volume-container {
             display: flex;
             align-items: center;
@@ -191,14 +174,14 @@
             padding: 4px 0;
             flex-shrink: 0;
         }
-        
+
         .volume-icon {
             font-size: 18px;
             color: #666;
             transition: color 0.3s;
             flex-shrink: 0;
         }
-        
+
         .volume-slider {
             flex: 1;
             height: 6px;
@@ -208,22 +191,20 @@
             outline: none;
             transition: background 0.3s;
         }
-        
-.volume-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background: var(--thumb-color, var(--accent, #1DB954)); /* Берем из JS */
-    cursor: pointer;
-    transition: background 0.3s, transform 0.15s;
-    box-shadow: 0 0 12px var(--thumb-shadow, rgba(29, 185, 84, 0.2));
-}
-        
-        .volume-slider::-webkit-slider-thumb:active {
-            transform: scale(1.1);
+
+        .volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--thumb-color, var(--accent));
+            cursor: pointer;
+            transition: background 0.3s, transform 0.15s;
+            box-shadow: 0 0 12px var(--thumb-shadow, rgba(29, 185, 84, 0.2));
         }
-        
+
+        .volume-slider::-webkit-slider-thumb:active { transform: scale(1.1); }
+
         .volume-percent {
             font-size: 12px;
             color: #666;
@@ -232,48 +213,78 @@
             transition: color 0.3s;
             flex-shrink: 0;
         }
-        
-        .footer {
-            text-align: center;
-            padding: 2px 0;
-            flex-shrink: 0;
-        }
-        
-        .footer .ip {
-            font-size: 11px;
-            color: #444;
-        }
-        
+
+        .footer { text-align: center; padding: 2px 0; flex-shrink: 0; }
+        .footer .ip { font-size: 11px; color: #444; }
+
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.7; }
         }
-        
-        .artwork.playing {
-            animation: pulse 2s ease-in-out infinite;
-        }
-        
-        .progress-container {
-            width: 100%;
-            padding: 8px 0;
-            flex-shrink: 0;
-        }
-        
-        .progress-bar {
-            width: 100%;
-            height: 4px;
-            background: #333;
-            border-radius: 2px;
-            overflow: hidden;
-        }
-        
+
+        .artwork.playing { animation: pulse 2s ease-in-out infinite; }
+
+        .progress-container { width: 100%; padding: 8px 0; flex-shrink: 0; }
+
+.progress-bar {
+    width: 100%;
+    height: 4px;
+    background: #333;
+    border-radius: 2px;
+    position: relative;
+    cursor: pointer;
+    touch-action: none;
+    /* визуально чуть выше для удобства */
+}
+
+.progress-bar::before {
+    /* зона тапа побольше, визуально не меняет */
+    content: '';
+    position: absolute;
+    inset: -12px 0;
+}
+
 .progress-fill {
     height: 100%;
-    background: var(--accent, #1DB954); /* тут уже правильно, но проверим */
+    background: var(--accent);
     width: 0%;
-    transition: width 0.3s ease, background 0.3s ease; /* добавили плавную смену цвета */
+    border-radius: 2px;
+    transition: background 0.3s ease;
+    /* width анимируем только когда не тащим — иначе лагает */
 }
-        
+
+
+/* === Кружок === */
+.progress-thumb {
+    position: absolute;
+    top: 50%;
+    left: 0%;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    transform: translate(-50%, -50%) scale(0.85);
+    box-shadow: 0 0 10px var(--accent-shadow);
+    pointer-events: none;            /* тапы ловит сам bar */
+    transition: transform 0.15s ease, box-shadow 0.3s ease, background 0.3s ease;
+    opacity: 0;                      /* спрятан по умолчанию */
+}
+
+.progress-bar:hover .progress-thumb,
+.progress-bar.dragging .progress-thumb,
+.progress-bar.playing .progress-thumb {
+    opacity: 1;
+}
+
+.progress-bar.dragging .progress-thumb {
+    transform: translate(-50%, -50%) scale(1.25);
+    box-shadow: 0 0 16px var(--accent-shadow);
+}
+
+@media (hover: none) {
+    .progress-thumb { opacity: 1; }
+}
+
         .progress-time {
             display: flex;
             justify-content: space-between;
@@ -281,10 +292,72 @@
             color: #888;
             margin-top: 4px;
         }
-        
+
+        /* === Тап-зоны по краям (невидимые) === */
+        .seek-tap-zone {
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            width: 18vw;
+            max-width: 120px;
+            z-index: 40;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+            /* не перекрываем центр — там кнопки */
+            pointer-events: auto;
+        }
+
+        .seek-tap-left  { left: 0; }
+        .seek-tap-right { right: 0; }
+
+        /* === Вспышка по краю === */
+        .seek-overlay {
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            width: 26vw;
+            max-width: 180px;
+            pointer-events: none;
+            opacity: 0;
+            z-index: 39;
+            transition: opacity 0.3s ease;
+        }
+
+        .seek-overlay.left {
+            left: 0;
+            background: linear-gradient(to right,
+                rgba(255,255,255,0.10) 0%,
+                rgba(255,255,255,0.03) 60%,
+                transparent 100%);
+        }
+
+        .seek-overlay.right {
+            right: 0;
+            background: linear-gradient(to left,
+                rgba(255,255,255,0.10) 0%,
+                rgba(255,255,255,0.03) 60%,
+                transparent 100%);
+        }
+
+        .seek-overlay.show { opacity: 1; }
+
+        .seek-overlay-label {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 20px;
+            font-weight: 600;
+            color: rgba(255,255,255,0.75);
+            letter-spacing: 0.5px;
+            text-shadow: 0 1px 6px rgba(0,0,0,0.5);
+        }
+
+        .seek-overlay.left  .seek-overlay-label { left: 14px; }
+        .seek-overlay.right .seek-overlay-label { right: 14px; }
+
+        /* === Landscape === */
         @media (orientation: landscape) and (max-height: 500px),
                (orientation: landscape) and (max-width: 800px) {
-            
             .container {
                 flex-direction: row;
                 max-width: 100%;
@@ -293,16 +366,11 @@
                 align-items: center;
                 justify-content: center;
             }
-            
             .artwork-container {
                 flex: 0 0 auto;
                 padding: 0;
                 height: 100%;
-                display: flex;
-                align-items: center;
-                justify-content: center;
             }
-            
             .artwork {
                 width: 72vmin;
                 height: 72vmin;
@@ -311,7 +379,6 @@
                 min-width: 100px;
                 min-height: 100px;
             }
-            
             .right-panel {
                 flex: 1;
                 display: flex;
@@ -324,96 +391,42 @@
                 padding: 4px 0;
                 max-width: 500px;
             }
-            
-            .header {
-                text-align: center;
-                padding: 0;
-            }
-            
+            .header { text-align: center; padding: 0; }
             .header .status { font-size: 10px; }
             .header .service { font-size: 9px; }
-            
-            .track-info {
-                text-align: center;
-                padding: 2px 0;
-                width: 100%;
-            }
-            
+            .track-info { text-align: center; padding: 2px 0; width: 100%; }
             .track-title {
                 font-size: 16px;
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
-            
             .track-artist {
                 font-size: 12px;
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
-            
-            .controls {
-                padding: 4px 0;
-                gap: 20px;
-            }
-            
-            .controls .icon-btn {
-                width: 44px;
-                height: 44px;
-                padding: 10px;
-            }
-            
-            .controls .icon-btn svg {
-                width: 20px;
-                height: 20px;
-            }
-            
-            .controls .play-btn {
-                width: 60px;
-                height: 60px;
-                padding: 14px;
-            }
-            
-            .controls .play-btn svg {
-                width: 28px;
-                height: 28px;
-            }
-            
+            .controls { padding: 4px 0; gap: 20px; }
+            .controls .icon-btn { width: 44px; height: 44px; padding: 10px; }
+            .controls .icon-btn svg { width: 20px; height: 20px; }
+            .controls .play-btn { width: 60px; height: 60px; padding: 14px; }
+            .controls .play-btn svg { width: 28px; height: 28px; }
             .volume-container {
-                display: flex;
                 flex-direction: row;
-                align-items: center;
                 gap: 12px;
                 padding: 2px 0;
                 width: 100%;
                 max-width: 300px;
                 justify-content: center;
             }
-            
-            .volume-icon {
-                font-size: 16px;
-            }
-            
-            .volume-slider {
-                flex: 1;
-                height: 6px;
-                max-width: 200px;
-            }
-            
-            .volume-percent {
-                font-size: 11px;
-                min-width: 32px;
-            }
-            
-            .footer {
-                text-align: center;
-                padding: 0;
-            }
-            
+            .volume-icon { font-size: 16px; }
+            .volume-slider { flex: 1; height: 6px; max-width: 200px; }
+            .volume-percent { font-size: 11px; min-width: 32px; }
+            .footer { text-align: center; padding: 0; }
             .footer .ip { font-size: 10px; }
         }
-        
+
         @media (max-width: 380px) {
             .artwork { width: 200px; height: 200px; }
             .controls .icon-btn { width: 44px; height: 44px; padding: 10px; }
@@ -423,7 +436,7 @@
             .track-title { font-size: 17px; }
             .track-artist { font-size: 13px; }
         }
-        
+
         @media (max-width: 380px) and (orientation: landscape) {
             .artwork { width: 25vmin; height: 25vmin; min-width: 80px; min-height: 80px; }
             .controls .icon-btn { width: 38px; height: 38px; padding: 8px; }
@@ -433,7 +446,7 @@
             .track-title { font-size: 14px; }
             .track-artist { font-size: 11px; }
         }
-        
+
         @media (min-width: 600px) and (orientation: portrait) {
             .artwork { width: 340px; height: 340px; }
             .track-title { font-size: 28px; }
@@ -443,7 +456,7 @@
             .controls .play-btn { width: 88px; height: 88px; padding: 22px; }
             .controls .play-btn svg { width: 40px; height: 40px; }
         }
-        
+
         @media (min-width: 800px) and (orientation: landscape) {
             .artwork { width: 38vmin; height: 38vmin; }
             .track-title { font-size: 22px; }
@@ -456,42 +469,40 @@
     </style>
 </head>
 <body>
+    <div class="seek-tap-zone seek-tap-left"  id="seekTapLeft"></div>
+    <div class="seek-tap-zone seek-tap-right" id="seekTapRight"></div>
+
+    <div class="seek-overlay" id="seekOverlay">
+        <span class="seek-overlay-label" id="seekOverlayLabel"></span>
+    </div>
+
     <div class="container" id="app">
         <div class="artwork-container">
             <img id="artwork" class="artwork placeholder" src="" alt="Обложка">
         </div>
-        
         <div class="right-panel">
             <div class="header">
                 <div class="status">🎵 MusicHub Mobile</div>
                 <div class="service" id="service">—</div>
             </div>
-            
+
             <div class="track-info">
                 <div class="track-title" id="title">—</div>
                 <div class="track-artist" id="artist">—</div>
             </div>
-            
+
             <div class="controls">
                 <button id="prevBtn" class="icon-btn" aria-label="Предыдущий">
-                    <svg viewBox="0 0 24 24">
-                        <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
-                    </svg>
+                    <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
                 </button>
-                
                 <button id="playBtn" class="icon-btn play-btn" aria-label="Воспроизвести">
-                    <svg viewBox="0 0 24 24" id="playIcon">
-                        <path d="M8 5v14l11-7z"/>
-                    </svg>
+                    <svg viewBox="0 0 24 24" id="playIcon"><path d="M8 5v14l11-7z"/></svg>
                 </button>
-                
                 <button id="nextBtn" class="icon-btn" aria-label="Следующий">
-                    <svg viewBox="0 0 24 24">
-                        <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
-                    </svg>
+                    <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
                 </button>
             </div>
-            
+
             <div class="volume-container">
                 <span class="volume-icon" id="volumeIcon">🔊</span>
                 <input type="range" id="volumeSlider" class="volume-slider" min="0" max="100" value="50">
@@ -499,98 +510,54 @@
             </div>
 
             <div class="progress-container">
-                <div class="progress-bar">
+                <div class="progress-bar" id="progressBar">
                     <div class="progress-fill" id="progressFill" style="width: 0%;"></div>
+                    <div class="progress-thumb" id="progressThumb"></div>
                 </div>
                 <div class="progress-time">
                     <span id="currentTime">0:00</span>
                     <span id="totalTime">0:00</span>
                 </div>
             </div>
-            
+
             <div class="footer">
                 <div class="ip" id="ipDisplay">Подключение...</div>
             </div>
         </div>
     </div>
-    
+
     <script>
-// === НАСТРОЙКИ ===
+// === КОНСТАНТЫ ===
+const STORAGE_KEY = 'musichub_mobile_track_data';
+const DOUBLE_TAP_WINDOW = 300;
+const ACCUMULATE_WINDOW = 600;
+const SEEK_STEP = 10;
+const SERVICE_NAMES = {
+    'yandex': 'Яндекс Музыка',
+    'youtube': 'YouTube Music',
+    'soundcloud': 'SoundCloud',
+    'spotify': 'Spotify',
+    'vk': 'VK Music'
+};
+
+// === СОСТОЯНИЕ ===
 let ws = null;
 let isConnected = false;
 let currentVolume = 50;
 let isPlayingState = false;
 let currentAccentColor = '#1DB954';
-let isFirstLoad = true;
 
-localStorage.removeItem('musichub_mobile_track_data');
+let seeking = false;
+let seekPreviewSec = 0;
+let durationSec = 0;
+let currentSec = 0;
 
-// === КЛЮЧ ДЛЯ localStorage ===
-const STORAGE_KEY = 'musichub_mobile_track_data';
+let lastTapTime = 0;
+let lastTapSide = null;
+let pendingSeekMs = 0;
+let flushTimer = null;
+let overlayHideTimer = null;
 
-// === ЗАГРУЗКА СОХРАНЁННЫХ ДАННЫХ ===
-function loadSavedTrackData() {
-    try {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-            const data = JSON.parse(saved);
-            if (data.title && data.title !== '—') {
-                lastTrackData.title = data.title;
-                document.getElementById('title').textContent = data.title;
-            }
-            if (data.artist && data.artist !== '—') {
-                lastTrackData.artist = data.artist;
-                document.getElementById('artist').textContent = data.artist;
-            }
-            if (data.artwork) {
-                lastTrackData.artwork = data.artwork;
-                document.getElementById('artwork').src = data.artwork;
-                document.getElementById('artwork').classList.remove('placeholder');
-                document.getElementById('artwork').style.display = 'block';
-            }
-            if (data.service) {
-                lastTrackData.service = data.service;
-                const serviceNames = {
-                    'yandex': 'Яндекс Музыка',
-                    'youtube': 'YouTube Music',
-                    'soundcloud': 'SoundCloud',
-                    'spotify': 'Spotify',
-                    'vk': 'VK Music'
-                };
-                document.getElementById('service').textContent = serviceNames[data.service] || data.service;
-            }
-            if (data.accentColor) {
-                lastTrackData.accentColor = data.accentColor;
-                currentAccentColor = data.accentColor;
-                document.documentElement.style.setProperty('--accent', currentAccentColor);
-                updatePlayButtonGlow(currentAccentColor);
-            }
-            console.log('💾 Загружены сохранённые данные:', data.title, '-', data.artist);
-            return true;
-        }
-    } catch (e) {
-        console.log('⚠️ Ошибка загрузки сохранённых данных:', e);
-    }
-    return false;
-}
-
-// === СОХРАНЕНИЕ ДАННЫХ ===
-function saveTrackData() {
-    try {
-        const data = {
-            title: lastTrackData.title,
-            artist: lastTrackData.artist,
-            artwork: lastTrackData.artwork,
-            service: lastTrackData.service,
-            accentColor: lastTrackData.accentColor
-        };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } catch (e) {
-        console.log('⚠️ Ошибка сохранения данных:', e);
-    }
-}
-
-// === СОХРАНЕНИЕ ПОСЛЕДНИХ ДАННЫХ ===
 let lastTrackData = {
     title: '—',
     artist: '—',
@@ -599,10 +566,6 @@ let lastTrackData = {
     accentColor: '#1DB954',
     isPlaying: false
 };
-
-// === ЗАЩИТА ОТ МИГАНИЯ ===
-let lastStatus = {};
-let statusUpdateTimeout = null;
 
 // === DOM ===
 const artwork = document.getElementById('artwork');
@@ -617,8 +580,19 @@ const volumeSlider = document.getElementById('volumeSlider');
 const volumePercent = document.getElementById('volumePercent');
 const volumeIcon = document.getElementById('volumeIcon');
 const ipDisplay = document.getElementById('ipDisplay');
+const progressBar = document.getElementById('progressBar');
+const progressFill = document.getElementById('progressFill');
+const currentTimeEl = document.getElementById('currentTime');
+const totalTimeEl = document.getElementById('totalTime');
 
-// === КОНВЕРТЕР HEX → RGBA ===
+const seekTapLeft = document.getElementById('seekTapLeft');
+const seekTapRight = document.getElementById('seekTapRight');
+const seekOverlay = document.getElementById('seekOverlay');
+const seekOverlayLabel = document.getElementById('seekOverlayLabel');
+
+const progressThumb = document.getElementById('progressThumb');
+
+// === УТИЛИТЫ ===
 function hexToRgba(hex, alpha) {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
     if (!result) return `rgba(29, 185, 84, ${alpha})`;
@@ -628,67 +602,128 @@ function hexToRgba(hex, alpha) {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-// === ОБНОВЛЕНИЕ GLOW КНОПКИ ===
-function updatePlayButtonGlow(color) {
-    if (!playBtn) return;
-    const useColor = color || lastTrackData.accentColor || '#1DB954';
-    currentAccentColor = useColor;
-    
-    // 1. Меняем переменные
-    document.documentElement.style.setProperty('--accent', useColor);
-    
-    const rgbaStrong = hexToRgba(useColor, 0.3);
-    const rgbaLight = hexToRgba(useColor, 0.15);
-    document.documentElement.style.setProperty('--accent-shadow', rgbaLight);
+function fmtTime(sec) {
+    const s = Math.max(0, Math.floor(sec));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${m}:${String(r).padStart(2, '0')}`;
+}
 
-    // 2. Перекрашиваем кнопку
-    playBtn.style.background = useColor;
-    if (playBtn.classList.contains('playing')) {
-        playBtn.style.boxShadow = `0 0 40px ${rgbaStrong}`;
-    } else {
-        playBtn.style.boxShadow = `0 0 30px ${rgbaLight}`;
-    }
-    
-    // 3. Перекрашиваем ползунок
-    const slider = document.getElementById('volumeSlider');
-    if (slider) {
-        slider.style.setProperty('--thumb-color', useColor);
-        slider.style.setProperty('--thumb-shadow', rgbaLight);
-    }
-    
-    // 4. Перекрашиваем прогресс
-    const fill = document.getElementById('progressFill');
-    if (fill) {
-        fill.style.background = useColor;
-    }
+function isValidString(v) {
+    return v && v !== 'null' && v !== 'undefined' && v !== '' && v !== '—' && v !== '-';
+}
 
-    // 5. ПЕРЕКРАШИВАЕМ НАЗВАНИЕ СЕРВИСА (Яндекс Музыка и т.д.)
-    const serviceEl = document.getElementById('service');
-    if (serviceEl) {
-        serviceEl.style.color = useColor;
+function isValidArtwork(v) {
+    return v && v !== '' && v !== 'null' && v !== 'undefined' && !v.startsWith('file://');
+}
+
+// === СОХРАНЕНИЕ / ЗАГРУЗКА ===
+function saveTrackData() {
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            title: lastTrackData.title,
+            artist: lastTrackData.artist,
+            artwork: lastTrackData.artwork,
+            service: lastTrackData.service,
+            accentColor: lastTrackData.accentColor
+        }));
+    } catch (e) {
+        console.warn('⚠️ Ошибка сохранения:', e);
     }
 }
 
-// === ПОДКЛЮЧЕНИЕ К СЕРВЕРУ ===
+function loadSavedTrackData() {
+    try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (!saved) return false;
+        const data = JSON.parse(saved);
+
+        if (isValidString(data.title)) {
+            lastTrackData.title = data.title;
+            title.textContent = data.title;
+        }
+        if (isValidString(data.artist)) {
+            lastTrackData.artist = data.artist;
+            artist.textContent = data.artist;
+        }
+        if (isValidArtwork(data.artwork)) {
+            lastTrackData.artwork = data.artwork;
+            artwork.src = data.artwork;
+            artwork.classList.remove('placeholder');
+            artwork.style.display = 'block';
+        }
+        if (data.service) {
+            lastTrackData.service = data.service;
+            service.textContent = SERVICE_NAMES[data.service] || data.service;
+        }
+        if (data.accentColor) {
+            lastTrackData.accentColor = data.accentColor;
+            currentAccentColor = data.accentColor;
+            applyAccentColor(data.accentColor);
+        }
+        console.log('💾 Загружены сохранённые данные:', data.title, '-', data.artist);
+        return true;
+    } catch (e) {
+        console.warn('⚠️ Ошибка загрузки:', e);
+        return false;
+    }
+}
+
+// === АКЦЕНТНЫЙ ЦВЕТ ===
+function applyAccentColor(color) {
+    if (!color) return;
+    currentAccentColor = color;
+    lastTrackData.accentColor = color;
+
+    document.documentElement.style.setProperty('--accent', color);
+    document.documentElement.style.setProperty('--accent-shadow', hexToRgba(color, 0.15));
+
+    // кнопка play
+    playBtn.style.background = color;
+    const rgbaStrong = hexToRgba(color, 0.3);
+    const rgbaLight = hexToRgba(color, 0.15);
+    playBtn.style.boxShadow = isPlayingState
+        ? `0 0 40px ${rgbaStrong}`
+        : `0 0 30px ${rgbaLight}`;
+
+    // слайдер громкости
+    volumeSlider.style.setProperty('--thumb-color', color);
+    volumeSlider.style.setProperty('--thumb-shadow', rgbaLight);
+
+    // прогресс
+    progressFill.style.background = color;
+    progressThumb.style.background = color;
+    progressThumb.style.boxShadow = `0 0 10px ${rgbaLight}`;
+
+    // название сервиса
+    service.style.color = color;
+
+    // фон страницы
+    document.body.style.background = '#0a0a0a';
+    document.body.style.backgroundImage =
+        `radial-gradient(circle at 50% 0%, ${color}22 0%, transparent 70%)`;
+}
+
+// === ПОДКЛЮЧЕНИЕ ===
 function connect() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws`;
-    
+
     ipDisplay.textContent = '⏳ Подключение...';
     ipDisplay.style.color = '#ffaa00';
     ipDisplay.style.opacity = '1';
-    
+
     try {
         ws = new WebSocket(wsUrl);
-        
+
         ws.onopen = () => {
             console.log('✅ Подключено к MusicHub');
             isConnected = true;
-            
+
             ipDisplay.textContent = '✅ Подключено';
             ipDisplay.style.color = '#1DB954';
             ipDisplay.style.transition = 'opacity 0.5s';
-            
+
             setTimeout(() => {
                 ipDisplay.style.opacity = '0';
                 setTimeout(() => {
@@ -696,45 +731,31 @@ function connect() {
                     ipDisplay.style.opacity = '1';
                 }, 500);
             }, 2000);
-            
-            // === ПРИ ПОДКЛЮЧЕНИИ ЗАПРАШИВАЕМ АКТУАЛЬНЫЙ СТАТУС ===
+
             sendSyncRequest();
             ws.send(JSON.stringify({ command: 'get_accent_color' }));
         };
-        
-ws.onmessage = (event) => {
-    try {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === 'status') {
-            // Просто обновляем всегда, без защиты
-            updateUI(data.data);
-        } else if (data.type === 'track_progress') {
-            updateProgressOnly(data);
-        } else if (data.type === 'track_changed') {
-            updateTrackOnly(data.data);
-} else if (data.type === 'accent_color') {
-    const newColor = data.color;
-    if (newColor) {
-        currentAccentColor = newColor;
-        lastTrackData.accentColor = newColor;
-        
-        // 1. Обновляем фон
-        document.documentElement.style.setProperty('--accent', newColor);
-        document.body.style.background = `#0a0a0a`;
-        document.body.style.backgroundImage = `radial-gradient(circle at 50% 0%, ${newColor}22 0%, transparent 70%)`;
-        
-        // 2. ВЫЗЫВАЕМ ФУНКЦИЮ, КОТОРАЯ КРАСИТ ВСЕ (кнопку, ползунок, прогресс)
-        updatePlayButtonGlow(newColor);
-        
-        saveTrackData();
-    }
-}
-    } catch (e) {
-        console.error('Ошибка:', e);
-    }
-};
-        
+
+        ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'status') {
+                    updateUI(data.data);
+                } else if (data.type === 'track_progress') {
+                    updateProgressOnly(data);
+                } else if (data.type === 'track_changed') {
+                    updateTrackOnly(data.data);
+                } else if (data.type === 'accent_color') {
+                    if (data.color) {
+                        applyAccentColor(data.color);
+                        saveTrackData();
+                    }
+                }
+            } catch (e) {
+                console.error('Ошибка парсинга WS:', e);
+            }
+        };
+
         ws.onclose = () => {
             isConnected = false;
             ipDisplay.textContent = '🔴 Отключено';
@@ -742,7 +763,7 @@ ws.onmessage = (event) => {
             ipDisplay.style.opacity = '1';
             setTimeout(connect, 3000);
         };
-        
+
         ws.onerror = () => {};
     } catch (e) {
         ipDisplay.textContent = '⚠️ Ошибка';
@@ -751,216 +772,120 @@ ws.onmessage = (event) => {
     }
 }
 
-// === ОТПРАВКА ЗАПРОСА НА СИНХРОНИЗАЦИЮ ===
 function sendSyncRequest() {
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ command: 'sync_status' }));
-        console.log('📤 Отправлен запрос синхронизации');
     }
 }
 
-// === ОБНОВЛЕНИЕ ТОЛЬКО ПРОГРЕССА ===
+// === ПРОГРЕСС ===
+function rememberProgress(sec, dur) {
+    currentSec = sec || 0;
+    if (dur > 0) durationSec = dur;
+}
+
+function renderProgress(sec, dur) {
+    const cur = Math.max(0, sec);
+    const total = dur > 0 ? dur : durationSec;
+    currentTimeEl.textContent = fmtTime(cur);
+    totalTimeEl.textContent = fmtTime(total);
+
+    const pct = total > 0 ? Math.min(100, (cur / total) * 100) : 0;
+    progressFill.style.width = `${pct}%`;
+    progressThumb.style.left = `${pct}%`;   // ← двигаем кружок
+}
+
 function updateProgressOnly(data) {
-    const seconds = data.progress || 0;
-    const minutes = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    document.getElementById('currentTime').textContent = `${minutes}:${secs.toString().padStart(2, '0')}`;
-    
-    const duration = data.duration || 180;
-    const totalMinutes = Math.floor(duration / 60);
-    const totalSecs = Math.floor(duration % 60);
-    document.getElementById('totalTime').textContent = `${totalMinutes}:${totalSecs.toString().padStart(2, '0')}`;
-    
-    const percent = duration > 0 ? Math.min(100, (seconds / duration) * 100) : 0;
-    document.getElementById('progressFill').style.width = `${percent}%`;
-    
-    restoreTrackData();
+    const sec = data.progress || 0;
+    const dur = data.duration || 0;
+    rememberProgress(sec, dur);
+    if (!seeking) renderProgress(sec, dur);
 }
 
-// === ВОССТАНОВЛЕНИЕ ДАННЫХ ===
-function restoreTrackData() {
-    if (lastTrackData.title && lastTrackData.title !== '—') {
-        title.textContent = lastTrackData.title;
-    }
-    if (lastTrackData.artist && lastTrackData.artist !== '—') {
-        artist.textContent = lastTrackData.artist;
-    }
-    if (lastTrackData.accentColor) {
-        currentAccentColor = lastTrackData.accentColor;
-        document.documentElement.style.setProperty('--accent', currentAccentColor);
-        updatePlayButtonGlow(currentAccentColor);
-    }
-    if (lastTrackData.service) {
-        const serviceNames = {
-            'yandex': 'Яндекс Музыка',
-            'youtube': 'YouTube Music',
-            'soundcloud': 'SoundCloud',
-            'spotify': 'Spotify',
-            'vk': 'VK Music'
-        };
-        service.textContent = serviceNames[lastTrackData.service] || lastTrackData.service;
-    }
-    
-    // ДОБАВЛЕНА ПРОВЕРКА НА file://
-    if (lastTrackData.artwork && 
-        lastTrackData.artwork !== '' && 
-        !lastTrackData.artwork.startsWith('file://')) {
-        artwork.src = lastTrackData.artwork;
-        artwork.classList.remove('placeholder');
-        artwork.style.display = 'block';
-    }
-}
-
-// === ОБНОВЛЕНИЕ ТОЛЬКО ТРЕКА ===
+// === ОБНОВЛЕНИЕ ТРЕКА ===
 function updateTrackOnly(data) {
-    if (data.title && data.title !== 'null' && data.title !== 'undefined' && data.title !== '' && data.title !== '—' && data.title !== '-') {
+    if (isValidString(data.title)) {
         lastTrackData.title = data.title;
         title.textContent = data.title;
-        saveTrackData();
-        console.log(`📝 Название обновлено: ${data.title}`);
+    } else if (isValidString(lastTrackData.title)) {
+        title.textContent = lastTrackData.title;
     }
-    
-    if (data.artist && data.artist !== 'null' && data.artist !== 'undefined' && data.artist !== '' && data.artist !== '—' && data.artist !== '-') {
+
+    if (isValidString(data.artist)) {
         lastTrackData.artist = data.artist;
         artist.textContent = data.artist;
-        saveTrackData();
-        console.log(`📝 Исполнитель обновлён: ${data.artist}`);
-    }
-    
-    if (!data.title || data.title === '' || data.title === 'null' || data.title === '-' || data.title === '—') {
-        if (lastTrackData.title && lastTrackData.title !== '—') {
-            title.textContent = lastTrackData.title;
-        }
-    }
-    if (!data.artist || data.artist === '' || data.artist === 'null' || data.artist === '-' || data.artist === '—') {
-        if (lastTrackData.artist && lastTrackData.artist !== '—') {
-            artist.textContent = lastTrackData.artist;
-        }
+    } else if (isValidString(lastTrackData.artist)) {
+        artist.textContent = lastTrackData.artist;
     }
 
     if (data.service) {
         lastTrackData.service = data.service;
-        const serviceNames = {
-            'yandex': 'Яндекс Музыка',
-            'youtube': 'YouTube Music',
-            'soundcloud': 'SoundCloud',
-            'spotify': 'Spotify',
-            'vk': 'VK Music'
-        };
-        service.textContent = serviceNames[data.service] || data.service;
-        saveTrackData();
+        service.textContent = SERVICE_NAMES[data.service] || data.service;
     }
-    
-    if (data.accentColor && data.accentColor !== 'null' && data.accentColor !== 'undefined') {
-        lastTrackData.accentColor = data.accentColor;
-        currentAccentColor = data.accentColor;
-        document.documentElement.style.setProperty('--accent', currentAccentColor);
-        document.body.style.backgroundImage = `
-            radial-gradient(circle at 50% 0%, ${currentAccentColor}22 0%, transparent 70%)
-        `;
-        updatePlayButtonGlow(currentAccentColor);
-        saveTrackData();
+
+    if (data.accentColor) {
+        applyAccentColor(data.accentColor);
     }
-    
+
     if (data.isPlaying !== undefined && data.isPlaying !== null) {
         lastTrackData.isPlaying = data.isPlaying;
-        isPlayingState = data.isPlaying;
-        updatePlayButton(isPlayingState);
+        updatePlayButton(data.isPlaying);
     }
-    
-    document.getElementById('progressFill').style.width = '0%';
-    document.getElementById('currentTime').textContent = '0:00';
-    
-    console.log(`🔄 Трек обновлён: ${lastTrackData.title} - ${lastTrackData.artist}`);
+
+    // сброс прогресса (сервер пришлёт актуальный)
+    durationSec = 0;
+    currentSec = 0;
+    progressFill.style.width = '0%';
+    currentTimeEl.textContent = '0:00';
+    totalTimeEl.textContent = '0:00';
+
+    saveTrackData();
 }
 
 // === ПОЛНОЕ ОБНОВЛЕНИЕ UI ===
 function updateUI(data) {
-    if (data.title && data.title !== 'null' && data.title !== 'undefined' && data.title !== '' && data.title !== '—' && data.title !== '-') {
+    if (isValidString(data.title)) {
         lastTrackData.title = data.title;
         title.textContent = data.title;
-        saveTrackData();
-        console.log(`📝 Название обновлено: ${data.title}`);
+    } else if (isValidString(lastTrackData.title)) {
+        title.textContent = lastTrackData.title;
     }
-    
-    if (data.artist && data.artist !== 'null' && data.artist !== 'undefined' && data.artist !== '' && data.artist !== '—' && data.artist !== '-') {
+
+    if (isValidString(data.artist)) {
         lastTrackData.artist = data.artist;
         artist.textContent = data.artist;
-        saveTrackData();
-        console.log(`📝 Исполнитель обновлён: ${data.artist}`);
+    } else if (isValidString(lastTrackData.artist)) {
+        artist.textContent = lastTrackData.artist;
     }
-    
-    if (!data.title || data.title === '' || data.title === 'null' || data.title === '-' || data.title === '—') {
-        if (lastTrackData.title && lastTrackData.title !== '—') {
-            title.textContent = lastTrackData.title;
-        }
-    }
-    if (!data.artist || data.artist === '' || data.artist === 'null' || data.artist === '-' || data.artist === '—') {
-        if (lastTrackData.artist && lastTrackData.artist !== '—') {
-            artist.textContent = lastTrackData.artist;
-        }
-    }
-    
-    // ТУТ БЫЛА ОШИБКА! ТЕПЕРЬ ИСПРАВЛЕНО:
-    if (data.artwork !== undefined) {
-        const isSafeArtwork = data.artwork && 
-                              data.artwork !== '' && 
-                              data.artwork !== 'null' && 
-                              data.artwork !== 'undefined' && 
-                              !data.artwork.startsWith('file://');
 
-        if (isSafeArtwork) {
+    if (data.artwork !== undefined) {
+        if (isValidArtwork(data.artwork)) {
             lastTrackData.artwork = data.artwork;
-            if (artwork.src !== new URL(data.artwork, location.href).href) {
-                artwork.src = data.artwork;
-            }
+            const target = new URL(data.artwork, location.href).href;
+            if (artwork.src !== target) artwork.src = data.artwork;
             artwork.classList.remove('placeholder');
             artwork.style.display = 'block';
-            saveTrackData();
-            console.log(`🖼️ Обложка обновлена`);
-        } else {
-            if (data.artwork && data.artwork.startsWith('file://')) {
-                console.warn('⚠️ file:// обложка заблокирована браузером');
-            }
-            if (!lastTrackData.artwork || lastTrackData.artwork === '') {
-                artwork.src = '';
-                artwork.classList.add('placeholder');
-                artwork.style.display = 'flex';
-            }
+        } else if (!lastTrackData.artwork) {
+            artwork.src = '';
+            artwork.classList.add('placeholder');
+            artwork.style.display = 'flex';
         }
     }
-    
+
     if (data.service) {
         lastTrackData.service = data.service;
-        const serviceNames = {
-            'yandex': 'Яндекс Музыка',
-            'youtube': 'YouTube Music',
-            'soundcloud': 'SoundCloud',
-            'spotify': 'Spotify',
-            'vk': 'VK Music'
-        };
-        service.textContent = serviceNames[data.service] || data.service;
-        saveTrackData();
+        service.textContent = SERVICE_NAMES[data.service] || data.service;
     }
-    
-    if (data.accentColor && data.accentColor !== 'null' && data.accentColor !== 'undefined') {
-        lastTrackData.accentColor = data.accentColor;
-        currentAccentColor = data.accentColor;
-        document.documentElement.style.setProperty('--accent', currentAccentColor);
-        document.body.style.background = `#0a0a0a`;
-        document.body.style.backgroundImage = `
-            radial-gradient(circle at 50% 0%, ${currentAccentColor}22 0%, transparent 70%)
-        `;
-        updatePlayButtonGlow(currentAccentColor);
-        saveTrackData();
+
+    if (data.accentColor) {
+        applyAccentColor(data.accentColor);
     }
-    
+
     if (data.isPlaying !== undefined && data.isPlaying !== null) {
         lastTrackData.isPlaying = data.isPlaying;
-        isPlayingState = data.isPlaying;
-        updatePlayButton(isPlayingState);
+        updatePlayButton(data.isPlaying);
     }
-    
+
     if (data.volume !== undefined && data.volume !== null) {
         let vol = Math.round(data.volume * 100);
         vol = Math.max(1, Math.min(100, vol));
@@ -971,35 +896,33 @@ function updateUI(data) {
             updateVolumeIcon(vol);
         }
     }
-    
+
     if (data.progress !== undefined) {
         updateProgressOnly(data);
     }
-    
-    restoreTrackData();
+
+    saveTrackData();
 }
 
-// === ОБНОВЛЕНИЕ PLAY BUTTON ===
+// === PLAY BUTTON ===
 function updatePlayButton(playing) {
     isPlayingState = playing;
+    progressBar.classList.toggle('playing', playing);
     if (playing) {
         playBtn.classList.add('playing');
         artwork.classList.add('playing');
         playIcon.innerHTML = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
         playBtn.setAttribute('aria-label', 'Пауза');
-        const rgba = hexToRgba(currentAccentColor, 0.3);
-        playBtn.style.boxShadow = `0 0 40px ${rgba}`;
+        playBtn.style.boxShadow = `0 0 40px ${hexToRgba(currentAccentColor, 0.3)}`;
     } else {
         playBtn.classList.remove('playing');
         artwork.classList.remove('playing');
         playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
         playBtn.setAttribute('aria-label', 'Воспроизвести');
-        const rgbaLight = hexToRgba(currentAccentColor, 0.15);
-        playBtn.style.boxShadow = `0 0 30px ${rgbaLight}`;
+        playBtn.style.boxShadow = `0 0 30px ${hexToRgba(currentAccentColor, 0.15)}`;
     }
 }
 
-// === ИКОНКА ГРОМКОСТИ ===
 function updateVolumeIcon(vol) {
     if (vol <= 1) volumeIcon.textContent = '🔇';
     else if (vol < 30) volumeIcon.textContent = '🔈';
@@ -1007,7 +930,146 @@ function updateVolumeIcon(vol) {
     else volumeIcon.textContent = '🔊';
 }
 
-// === ОТПРАВКА КОМАНД ===
+// === SEEK OVERLAY ===
+function showSeekOverlay(side, totalSec) {
+    const label = (side === 'left' ? '−' : '+') + Math.abs(totalSec);
+    seekOverlayLabel.textContent = label;
+    seekOverlay.classList.remove('left', 'right');
+    seekOverlay.classList.add(side);
+    seekOverlay.classList.remove('show');
+    void seekOverlay.offsetWidth;
+    seekOverlay.classList.add('show');
+
+    clearTimeout(overlayHideTimer);
+    overlayHideTimer = setTimeout(() => {
+        seekOverlay.classList.remove('show');
+    }, 450);
+}
+
+// === ДВОЙНОЙ ТАП ПО КРАЯМ ===
+function handleSideTap(side) {
+    if (!durationSec) return;
+    const now = Date.now();
+
+    if (now - lastTapTime > DOUBLE_TAP_WINDOW) {
+        lastTapTime = now;
+        lastTapSide = side;
+        return;
+    }
+
+    if (side !== lastTapSide) {
+        lastTapTime = 0;
+        lastTapSide = null;
+        pendingSeekMs = 0;
+        return;
+    }
+
+    const stepMs = (side === 'left' ? -1 : 1) * SEEK_STEP * 1000;
+    if (pendingSeekMs !== 0 && Math.sign(pendingSeekMs) === Math.sign(stepMs)) {
+        pendingSeekMs += stepMs;
+    } else {
+        flushPendingSeek();
+        pendingSeekMs = stepMs;
+    }
+
+    showSeekOverlay(side, pendingSeekMs / 1000);
+
+    lastTapTime = 0;
+    lastTapSide = null;
+
+    clearTimeout(flushTimer);
+    flushTimer = setTimeout(flushPendingSeek, ACCUMULATE_WINDOW);
+}
+
+// pointerdown — надёжнее, чем pointerup (не ловит скролл)
+seekTapLeft.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    handleSideTap('left');
+});
+seekTapRight.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    handleSideTap('right');
+});
+
+// защита от зума
+[seekTapLeft, seekTapRight].forEach(el => {
+    el.addEventListener('dblclick', (e) => e.preventDefault());
+});
+
+// === SEEK ОТПРАВКА ===
+function sendSeek(sec) {
+    const dur = durationSec;
+    const position = Math.max(0, Math.min(dur > 0 ? dur : sec, sec));
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ command: 'seek', position }));
+    } else {
+        sendCommand('/api/seek', { position });
+    }
+    seekPreviewSec = position;
+    currentSec = position;
+    renderProgress(position, dur);
+}
+
+function sendSeekBy(delta) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ command: 'seek_by', delta }));
+    } else {
+        const base = currentSec ?? seekPreviewSec ?? 0;
+        sendCommand('/api/seek', { position: Math.max(0, base + delta) });
+    }
+    const base = currentSec ?? seekPreviewSec ?? 0;
+    seekPreviewSec = Math.max(0, Math.min(durationSec || Infinity, base + delta));
+    currentSec = seekPreviewSec;
+    renderProgress(seekPreviewSec, durationSec);
+}
+
+function flushPendingSeek() {
+    if (!pendingSeekMs) return;
+    const delta = pendingSeekMs / 1000;
+    pendingSeekMs = 0;
+    console.log(`📱 Двойной тап: ${delta > 0 ? '+' : ''}${delta} сек`);
+    sendSeekBy(delta);
+}
+
+// === PROGRESS BAR: тап / drag ===
+progressBar.addEventListener('pointerdown', (e) => {
+    if (!durationSec) return;
+    seeking = true;
+    progressBar.classList.add('dragging');   // ←
+    progressBar.setPointerCapture(e.pointerId);
+    const rect = progressBar.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    seekPreviewSec = frac * durationSec;
+    renderProgress(seekPreviewSec, durationSec);
+});
+
+progressBar.addEventListener('pointermove', (e) => {
+    if (!seeking || !durationSec) return;
+    const rect = progressBar.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    seekPreviewSec = frac * durationSec;
+    renderProgress(seekPreviewSec, durationSec);
+});
+
+// pointerup ловим на window — надёжнее при capture
+window.addEventListener('pointerup', (e) => {
+    if (!seeking) return;
+    seeking = false;
+    progressBar.classList.remove('dragging');
+    if (!durationSec) return;
+    const rect = progressBar.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    sendSeek(frac * durationSec);
+});
+
+window.addEventListener('pointercancel', () => {
+    if (!seeking) return;
+    seeking = false;
+    progressBar.classList.remove('dragging');
+    renderProgress(currentSec, durationSec);
+});
+
+// === КОМАНДЫ ===
 async function sendCommand(endpoint, data = {}) {
     try {
         const response = await fetch(endpoint, {
@@ -1017,57 +1079,52 @@ async function sendCommand(endpoint, data = {}) {
         });
         return await response.json();
     } catch (e) {
-        console.error('Ошибка:', e);
+        console.error('Ошибка команды:', e);
     }
 }
 
-// === ОБРАБОТЧИКИ ===
+// === ОБРАБОТЧИКИ КНОПОК ===
 playBtn.addEventListener('click', () => {
     sendCommand('/api/play');
     updatePlayButton(!isPlayingState);
 });
 
-prevBtn.addEventListener('click', () => {
-    sendCommand('/api/prev');
-});
-
-nextBtn.addEventListener('click', () => {
-    sendCommand('/api/next');
-});
+prevBtn.addEventListener('click', () => sendCommand('/api/prev'));
+nextBtn.addEventListener('click', () => sendCommand('/api/next'));
 
 volumeSlider.addEventListener('input', (e) => {
-    let vol = parseInt(e.target.value);
-    if (vol < 1) {
-        vol = 1;
-        e.target.value = 1;
-    }
+    let vol = parseInt(e.target.value, 10);
+    if (vol < 1) { vol = 1; e.target.value = 1; }
     currentVolume = vol;
     volumePercent.textContent = `${vol}%`;
     updateVolumeIcon(vol);
     sendCommand('/api/volume', { volume: vol / 100 });
 });
 
-// === ЗАПУСК ===
+// === ЗАЩИТА ===
+document.addEventListener('contextmenu', (e) => e.preventDefault());
+document.addEventListener('dragstart', (e) => e.preventDefault());
+document.addEventListener('selectstart', (e) => {
+    if (!e.target.closest('input, textarea')) e.preventDefault();
+});
+document.body.addEventListener('touchstart', (e) => {
+    if (e.target.tagName === 'IMG') e.preventDefault();
+}, { passive: false });
 
-// 1. Сначала загружаем сохранённые данные
+// === СТАРТ ===
 loadSavedTrackData();
-
-// 2. Подключаемся к WebSocket
 connect();
 
-// 3. Запрашиваем актуальный статус через HTTP (на случай, если WebSocket ещё не готов)
+// подстраховка, если WS ещё не подключился
 setTimeout(() => {
     fetch('/api/status')
         .then(res => res.json())
         .then(data => {
-            if (data && data.title && data.title !== '—') {
-                updateUI(data);
-            }
+            if (data && data.title && data.title !== '—') updateUI(data);
         })
         .catch(() => {});
 }, 1000);
 
-// 4. Повторный запрос статуса через 3 секунды (для надежности)
 setTimeout(() => {
     if (ws && ws.readyState === WebSocket.OPEN) {
         sendSyncRequest();
@@ -1075,16 +1132,13 @@ setTimeout(() => {
         fetch('/api/status')
             .then(res => res.json())
             .then(data => {
-                if (data && data.title && data.title !== '—') {
-                    updateUI(data);
-                }
+                if (data && data.title && data.title !== '—') updateUI(data);
             })
             .catch(() => {});
     }
 }, 3000);
 
-console.log('📱 MusicHub Mobile v4.1 загружен');
-console.log('📱 Данные сохраняются в localStorage при обновлении страницы!');
+console.log('📱 MusicHub Mobile v4.2 (clean) загружен');
     </script>
 </body>
 </html>

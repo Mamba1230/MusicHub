@@ -105,6 +105,22 @@
         min-width: 0;
     }
 
+        #prog {
+        position: relative;
+        height: 3px;
+        margin-top: calc(6px * var(--s));
+        border-radius: 2px;
+        background: rgba(255, 255, 255, 0.15);
+        overflow: hidden;
+    }
+    #progFill {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 0;
+        background: var(--accent);
+        transition: width 0.25s linear;
+    }
+
     /* Эквалайзер: движется только пока трек играет */
     #eq {
         flex: none;
@@ -143,6 +159,11 @@
                 <div id="eq"><i></i><i></i><i></i></div>
                 <div class="line" id="artistLine"><span id="artist"></span></div>
             </div>
+            <div id="artistRow">
+                <div id="eq"><i></i><i></i><i></i></div>
+                <div class="line" id="artistLine"><span id="artist"></span></div>
+            </div>
+            <div id="prog"><i id="progFill"></i></div>
         </div>
     </div>
 
@@ -299,6 +320,9 @@
 
         if (showFor === 0) card.classList.add('visible');
         else if (trackChanged || resumed) showCard();
+        var dur = s.duration_ms || 0, pos = s.progress_ms || 0;
+        var progFill = document.getElementById('progFill');
+        if (progFill) progFill.style.width = dur > 0 ? Math.min(100, pos / dur * 100).toFixed(2) + '%' : '0%';
     }
 
     function connect() {

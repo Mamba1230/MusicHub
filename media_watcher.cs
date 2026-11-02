@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Security.Cryptography;
@@ -27,8 +28,21 @@ namespace MediaInfoWatcher
 
         // Что уже отправлено клиенту (меняется только под pubLock)
         static string publishedInfo = null;
+        static string publishedTimeline = null;
         static string publishedHash = "";
         static string handledTrack = "";
+
+        // ---------- Источник музыки (процесс) ----------
+        // Кэш по AUMID: AUMID стабилен для приложения, поэтому при смене сессии/трека не сбрасываем.
+        static readonly ConcurrentDictionary<string, (int pid, string name, string path)> sourceCache =
+            new ConcurrentDictionary<string, (int pid, string name, string path)>();
+
+        // Отрицательный результат кэшируем ненадолго: окно приложения может появиться чуть позже,
+        // но перебирать все процессы на каждое событие тоже нельзя.
+        static readonly ConcurrentDictionary<string, long> sourceMissUntil = new ConcurrentDictionary<string, long>();
+        const long SourceMissTtlMs = 30000;
+
+        static readonly (int pid, string name, string path) NoSource = (0, "", "");
 
         static Stream stdout;
 
@@ -77,16 +91,68 @@ namespace MediaInfoWatcher
         }
 
         // Когда Electron закрывается, stdin у дочернего процесса закрывается -> EOF
+        // stdin: построчные JSON-команды от Electron. Когда Electron закрывается,
+        // stdin у дочернего процесса закрывается -> EOF -> завершаем работу.
         static async Task WatchStdinAsync()
         {
             try
             {
-                var input = Console.OpenStandardInput();
-                var buf = new byte[256];
-                while (await input.ReadAsync(buf, 0, buf.Length) > 0) { }
+                using var reader = new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false));
+                string line;
+                while ((line = await reader.ReadLineAsync()) != null)
+                {
+                    if (line.Length == 0) continue;
+                    HandleCommand(line);
+                }
             }
             catch { }
             appCts.Cancel();
+        }
+
+        // Формат: {"cmd":"seek","position":<тики 100 нс от начала трека>}
+        static void HandleCommand(string line)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(line);
+                var root = doc.RootElement;
+                if (!root.TryGetProperty("cmd", out var cmdEl)) return;
+
+                switch (cmdEl.GetString())
+                {
+                    case "seek":
+                        if (root.TryGetProperty("position", out var posEl) && posEl.TryGetInt64(out long ticks) && ticks >= 0)
+                            _ = SeekAsync(ticks);
+                        break;
+                }
+            }
+            catch (Exception ex) { Console.Error.WriteLine($"HandleCommand error: {ex.Message}"); }
+        }
+
+        // Перемотка текущей сессии. Не все плееры поддерживают (вернут false) - это нормально,
+        // клиент увидит реальную позицию из следующего timeline.
+        static async Task SeekAsync(long ticks)
+        {
+            try
+            {
+                GlobalSystemMediaTransportControlsSession s;
+                lock (sessionLock) { s = currentSession; }
+                if (s == null) return;
+
+                bool ok = await s.TryChangePlaybackPositionAsync(ticks);
+
+                // Логируем РЕАЛЬНЫЙ ответ Windows (виден в консоли npm start как "⚠️ Watcher stderr: [SEEK] ...")
+                Console.Error.WriteLine($"[SEEK] ticks={ticks} ok={ok}");
+
+                // Не каждый плеер шлёт TimelinePropertiesChanged после перемотки - публикуем сами.
+                // Дедупликацию сбрасываем: клиент двигает позицию заранее, и если плеер перемотку
+                // отклонил, ему нужно получить реальную позицию, даже если она не изменилась.
+                await Task.Delay(600, appCts.Token);
+                lock (pubLock) { publishedTimeline = null; }
+                PublishTimeline(s, appCts.Token);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { Console.Error.WriteLine($"SeekAsync error: {ex.Message}"); }
         }
 
         // ---------- Сессии и события ----------
@@ -103,6 +169,7 @@ namespace MediaInfoWatcher
                 {
                     currentSession.MediaPropertiesChanged += OnSessionEvent;
                     currentSession.PlaybackInfoChanged += OnSessionEvent;
+                    currentSession.TimelinePropertiesChanged += OnSessionEvent;
                 }
             }
             Schedule();
@@ -114,11 +181,42 @@ namespace MediaInfoWatcher
             {
                 currentSession.MediaPropertiesChanged -= OnSessionEvent;
                 currentSession.PlaybackInfoChanged -= OnSessionEvent;
+                currentSession.TimelinePropertiesChanged -= OnSessionEvent;
                 currentSession = null;
             }
         }
 
-        static void OnSessionEvent(GlobalSystemMediaTransportControlsSession s, object args) => Schedule();
+        // Общий обработчик для всех событий сессии.
+        // Таймлайн обрабатываем отдельно, БЕЗ Schedule(): события таймлайна идут часто,
+        // и каждый Schedule() отменял бы текущий прогон RunAsync (ретраи обложки сбрасывались бы).
+        static void OnSessionEvent(GlobalSystemMediaTransportControlsSession s, object args)
+        {
+            if (args is TimelinePropertiesChangedEventArgs)
+            {
+                OnTimelineChanged(s);
+                return;
+            }
+            Schedule();
+        }
+
+        // Публикация таймлайна по событию. Событие приходит НЕ на каждый тик (плеер сам решает,
+        // когда обновлять Position/LastUpdatedTime) - это нормально: клиент интерполирует позицию
+        // сам по формуле position + (now - updated), пока is_playing = true.
+        static void OnTimelineChanged(GlobalSystemMediaTransportControlsSession s)
+        {
+            try
+            {
+                GlobalSystemMediaTransportControlsSession cur;
+                lock (sessionLock) { cur = currentSession; }
+
+                // Событие от уже неактуальной сессии - игнорируем
+                if (cur == null || !ReferenceEquals(cur, s)) return;
+
+                PublishTimeline(cur, appCts.Token);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { Debug.WriteLine($"OnTimelineChanged error: {ex}"); }
+        }
 
         // Новое событие отменяет предыдущий прогон: одновременно живёт только один
         static void Schedule()
@@ -142,8 +240,15 @@ namespace MediaInfoWatcher
                 {
                     await Task.Delay(Delays[i], ct);
 
+                    // Все обращения к currentSession - под sessionLock
                     GlobalSystemMediaTransportControlsSession s;
-                    lock (sessionLock) { s = currentSession; }
+                    string aumid = "";
+                    lock (sessionLock)
+                    {
+                        s = currentSession;
+                        try { aumid = s?.SourceAppUserModelId ?? ""; }
+                        catch { }
+                    }
                     if (s == null) { PublishClear(ct); return; }
 
                     GlobalSystemMediaTransportControlsSessionMediaProperties props;
@@ -165,7 +270,10 @@ namespace MediaInfoWatcher
                     }
                     catch { }
 
-                    PublishInfo(props.Title ?? "", props.Artist ?? "", props.AlbumTitle ?? "", playing, ct);
+                    var source = ResolveSource(aumid);
+
+                    PublishInfo(props.Title ?? "", props.Artist ?? "", props.AlbumTitle ?? "", playing, source, ct);
+                    PublishTimeline(s, ct);
 
                     // 2) COVER: по хешу, название нужно только чтобы понять "это новый трек?"
                     string trackKey = $"{props.Artist}|{props.Title}|{props.AlbumTitle}";
@@ -201,11 +309,98 @@ namespace MediaInfoWatcher
             catch (Exception ex) { Debug.WriteLine($"RunAsync error: {ex}"); }
         }
 
+        // ---------- Источник музыки ----------
+
+        // Определяет процесс-источник по AUMID сессии.
+        // ОГРАНИЧЕНИЕ: для браузеров (Chrome/Edge/Firefox) результат - сам браузер, а не вкладка.
+        // Штатно (через GSMTC) узнать вкладку нельзя.
+        // Также: у UWP-приложений окно может принадлежать ApplicationFrameHost - тогда источник не найдётся (0/""/"").
+        static (int pid, string name, string path) ResolveSource(string aumid)
+        {
+            if (string.IsNullOrEmpty(aumid)) return NoSource;
+
+            if (sourceCache.TryGetValue(aumid, out var cached))
+            {
+                if (IsProcessAlive(cached)) return cached;
+                // Приложение перезапустили: AUMID тот же, а pid уже другой -> ищем заново
+                sourceCache.TryRemove(aumid, out _);
+            }
+
+            if (sourceMissUntil.TryGetValue(aumid, out long until) && Environment.TickCount64 < until)
+                return NoSource;
+
+            var found = FindSourceProcess(aumid);
+            if (found.pid != 0)
+            {
+                sourceCache[aumid] = found;
+                sourceMissUntil.TryRemove(aumid, out _);
+            }
+            else
+            {
+                sourceMissUntil[aumid] = Environment.TickCount64 + SourceMissTtlMs;
+            }
+            return found;
+        }
+
+        static bool IsProcessAlive((int pid, string name, string path) src)
+        {
+            try
+            {
+                using var p = Process.GetProcessById(src.pid);
+                return !p.HasExited && p.ProcessName == src.name;
+            }
+            catch { return false; }
+        }
+
+        static (int pid, string name, string path) FindSourceProcess(string aumid)
+        {
+            // Для UWP AUMID имеет вид "PackageFamily!App", а в пути лежит только PackageFamily
+            string key = aumid;
+            int bang = aumid.IndexOf('!');
+            if (bang > 0) key = aumid.Substring(0, bang);
+
+            Process[] all;
+            try { all = Process.GetProcesses(); }
+            catch { return NoSource; }
+
+            var result = NoSource;
+            foreach (var p in all)
+            {
+                try
+                {
+                    // Берём первый подходящий, но Dispose нужен для всех -> без break
+                    if (result.pid == 0 && p.MainWindowHandle != IntPtr.Zero)
+                    {
+                        string path = p.MainModule?.FileName;   // у системных процессов бросит - это нормально
+                        if (!string.IsNullOrEmpty(path) &&
+                            path.IndexOf(key, StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            result = (p.Id, p.ProcessName, path);
+                        }
+                    }
+                }
+                catch { }
+                finally { p.Dispose(); }
+            }
+            return result;
+        }
+
         // ---------- Публикация (все проверки отмены под pubLock) ----------
 
-        static void PublishInfo(string title, string artist, string album, bool playing, CancellationToken ct)
+        static void PublishInfo(string title, string artist, string album, bool playing,
+                                (int pid, string name, string path) source, CancellationToken ct)
         {
-            var msg = new { type = "info", title, artist, album, is_playing = playing };
+            var msg = new
+            {
+                type = "info",
+                title,
+                artist,
+                album,
+                is_playing = playing,
+                source_pid = source.pid,
+                source_name = source.name,
+                source_path = source.path
+            };
             string json = JsonSerializer.Serialize(msg);
 
             lock (pubLock)
@@ -214,6 +409,44 @@ namespace MediaInfoWatcher
                 if (json == publishedInfo) return;
                 WriteLine(json);
                 publishedInfo = json;
+            }
+        }
+
+        // Все значения - в тиках (100 нс): position/start/end/min_seek/max_seek - длительности,
+        // updated - UtcTicks момента, когда плеер обновил position.
+        static void PublishTimeline(GlobalSystemMediaTransportControlsSession s, CancellationToken ct)
+        {
+            string json;
+            try
+            {
+                var tl = s.GetTimelineProperties();
+                if (tl == null) return;
+
+                var msg = new
+                {
+                    type = "timeline",
+                    position = tl.Position.Ticks,
+                    start = tl.StartTime.Ticks,
+                    end = tl.EndTime.Ticks,
+                    min_seek = tl.MinSeekTime.Ticks,
+                    max_seek = tl.MaxSeekTime.Ticks,
+                    updated = tl.LastUpdatedTime.UtcTicks
+                };
+                json = JsonSerializer.Serialize(msg);
+            }
+            catch (Exception ex)
+            {
+                // Сессия могла умереть между событием и вызовом - не критично
+                Debug.WriteLine($"PublishTimeline error: {ex.Message}");
+                return;
+            }
+
+            lock (pubLock)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (json == publishedTimeline) return;
+                WriteLine(json);
+                publishedTimeline = json;
             }
         }
 
@@ -250,9 +483,10 @@ namespace MediaInfoWatcher
             lock (pubLock)
             {
                 ct.ThrowIfCancellationRequested();
-                if (publishedInfo == null && publishedHash == "" && handledTrack == "") return;
+                if (publishedInfo == null && publishedTimeline == null && publishedHash == "" && handledTrack == "") return;
                 WriteLine("{\"type\":\"clear\"}");
                 publishedInfo = null;
+                publishedTimeline = null;
                 publishedHash = "";
                 handledTrack = "";
             }

@@ -23,13 +23,29 @@ let authProcess = null;
 let authRestartCount = 0;
 const MAX_RESTARTS = 5;
 
-const APP_VERSION = '3.5.5';
+const APP_VERSION = '3.6.0';
 
 // Константы
 const CHROME_STORE_API = 'https://clients2.google.com/service/update2/crx';
 const EXTENSIONS_DB = path.join(app.getPath('userData'), 'extensions_db.json');
 const sessionKey = crypto.randomBytes(32).toString('hex');
 const EXTENSIONS_PATH = path.join(app.getPath('userData'), 'extensions');
+
+function loadOrCreateApiKey() {
+    const keyPath = path.join(app.getPath('userData'), 'api_key.txt');
+    try {
+        if (fs.existsSync(keyPath)) {
+            const key = fs.readFileSync(keyPath, 'utf8').trim();
+            if (key && key.length >= 16) return key;
+        }
+    } catch (e) {}
+    const newKey = crypto.randomBytes(24).toString('hex');
+    try { fs.writeFileSync(keyPath, newKey); } catch (e) {}
+    return newKey;
+}
+
+const API_TOKEN = loadOrCreateApiKey();
+console.log('🔑 Local API token (persisted):', API_TOKEN);
 
 // Глобальные переменные
 let win;
@@ -69,7 +85,19 @@ let currentMobileStatus = {
 
 
 // Функция отправки статуса всем подключённым клиентам
+ipcMain.handle('get-local-api-key', () => API_TOKEN);
 
+// Если хочешь, чтобы ключ можно было менять (для этого нужны функции loadOrCreateApiKey и saveCustomApiKey)
+ipcMain.handle('set-local-api-key', (event, customKey) => {
+    try {
+        // Если у тебя есть функция saveCustomApiKey, вызывай её
+        // return { success: true, key: saveCustomApiKey(customKey) };
+        // Пока просто заглушка:
+        return { success: false, error: 'Смена ключа не реализована' };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
 
 ipcMain.handle('get-local-ip', () => {
     const interfaces = os.networkInterfaces();
@@ -503,36 +531,48 @@ function updateDiscordPresence(trackInfo) {
     console.log('📌 rpc:', !!rpc);
     console.log('📌 rpcEnabled:', rpcEnabled);
     console.log('📌 trackInfo:', trackInfo);
-    
+
     if (!rpc) {
         console.log('❌ RPC не инициализирован');
         return;
     }
-    
+
     if (!rpcEnabled) {
         console.log('❌ RPC выключен');
         return;
     }
-    
+
     const title = trackInfo?.title || 'Не играет';
     const artist = trackInfo?.artist || '';
-    
-const presence = {
-    details: title,
-    state: artist || 'Ожидание',
-    startTimestamp: Date.now(),
-    largeImageKey: 'musichub_icon',
-    largeImageText: `MusicHub v${APP_VERSION}`,
-    buttons: [
-        {
-            label: '🎵 MusicHub',
-            url: 'https://github.com/Mamba1230/MusicHub'
-        }
-    ]
-};
-    
+
+    const presence = {
+        details: title,
+        state: artist || 'Ожидание',
+        // startTimestamp сюда больше НЕ кладём — он считается ниже из реальной позиции
+        largeImageKey: 'musichub_icon',
+        largeImageText: `MusicHub v${APP_VERSION}`,
+        buttons: [
+            {
+                label: '🎵 MusicHub',
+                url: 'https://github.com/Mamba1230/MusicHub'
+            }
+        ]
+    };
+
+    // Реальный прогресс из системной медиа-сессии (вместо Date.now(), который сбрасывался каждые 15 с).
+    // На паузе таймстемпов нет - Discord не показывает бегущее время.
+    const tl = mediaState.timeline;
+    let startMs = 0;
+    if (mediaState.is_playing && tl && mediaState.title) {
+        startMs = Date.now() - (getMediaPositionMs() - tl.start_ms);
+        presence.startTimestamp = Math.round(startMs);
+        if (tl.end_ms > tl.start_ms) presence.endTimestamp = Math.round(startMs + (tl.end_ms - tl.start_ms));
+    }
+    lastDiscordStartMs = startMs;
+    lastDiscordPlaying = mediaState.is_playing;
+
     console.log('📤 Отправляем в Discord:', JSON.stringify(presence, null, 2));
-    
+
     rpc.setActivity(presence)
         .then(() => {
             console.log('✅ RPC УСПЕШНО УСТАНОВЛЕН!');
@@ -1173,21 +1213,52 @@ function startMobileServerInternal() {
         }
         res.json({ success: true });
     });
+    
+        app.post('/api/seek', express.json(), (req, res) => {
+        const { position } = req.body;   // позиция в секундах
+        const sec = Number(position);
+        if (!Number.isFinite(sec) || sec < 0) {
+            return res.status(400).json({ success: false, error: 'bad position' });
+        }
+        if (win && !win.isDestroyed()) {
+            // Отправляем в renderer: он владеет mediaTimeline и умеет перематывать
+            win.webContents.send('mobile-seek', sec);
+            console.log(`📱 Перемотка на ${sec.toFixed(1)} сек отправлена в renderer`);
+        }
+        res.json({ success: true });
+    });
 
 ws.on('connection', (client) => {
     console.log('📱 Мобильный клиент подключён');
-    
-    // Отправляем статус
-    client.send(JSON.stringify({
-        type: 'status',
-        data: currentMobileStatus
-    }));
 
-    // Отправляем цвет ИЗ ОБЪЕКТА (он всегда существует)
-    client.send(JSON.stringify({
-        type: 'accent_color',
-        color: currentMobileStatus.accentColor || '#1DB954'
-    }));
+    client.send(JSON.stringify({ type: 'status', data: currentMobileStatus }));
+    client.send(JSON.stringify({ type: 'accent_color', color: currentMobileStatus.accentColor || '#1DB954' }));
+
+    client.on('message', (message) => {
+        try {
+            const data = JSON.parse(message);
+            if (data.command === 'seek') {
+                const sec = Number(data.position);
+                if (Number.isFinite(sec) && sec >= 0 && win && !win.isDestroyed()) {
+                    win.webContents.send('mobile-seek', sec);
+                    console.log(`📱 WS seek: ${sec.toFixed(1)} сек`);
+                }
+            } else if (data.command === 'seek_by') {
+                const delta = Number(data.delta);
+                if (Number.isFinite(delta) && win && !win.isDestroyed()) {
+                    win.webContents.send('mobile-seek-by', delta);
+                    console.log(`📱 WS seek_by: ${delta} сек`);
+                }
+            } else if (data.command === 'get_accent_color') {
+                client.send(JSON.stringify({
+                    type: 'accent_color',
+                    color: currentMobileStatus.accentColor || '#1DB954'
+                }));
+            }
+        } catch (e) {
+            console.error('Ошибка обработки сообщения от мобильного клиента:', e);
+        }
+    });
 
     client.on('close', () => {
         console.log('📱 Мобильный клиент отключён');
@@ -2938,21 +3009,63 @@ let mediaWatcherStopping = false;
 // Последнее известное состояние (хранится в памяти, файлов больше нет)
 const mediaState = {
     title: '', artist: '', album: '', is_playing: false,
-    cover: null,          // Buffer
-    coverBase64: null,    // string
-    coverHash: '',
-    coverMime: 'image/jpeg'
+    source_pid: 0, source_name: '', source_path: '',
+    is_own_source: false,   // true — играет само приложение (electron в dev / musichub в сборке)
+    timeline: null,         // { position_ms, start_ms, end_ms, min_seek_ms, max_seek_ms, updated_ms }
+    cover: null, coverBase64: null, coverHash: '', coverMime: 'image/jpeg'
 };
+
+// Источник — это само приложение? В dev это electron.exe, в сборке — MusicHub.exe.
+// Сначала точные признаки (pid / путь к exe), потом имя процесса.
+function isOwnMediaSource() {
+    if (!mediaState.source_pid) return false;
+    if (mediaState.source_pid === process.pid) return true;
+    const srcPath = (mediaState.source_path || '').toLowerCase();
+    if (srcPath && srcPath === (process.execPath || '').toLowerCase()) return true;
+    const expectedName = app.isPackaged ? 'musichub' : 'electron';
+    return (mediaState.source_name || '').toLowerCase() === expectedName;
+}
+
+// Текущая позиция трека (мс) с экстраполяцией между событиями watcher'а
+function getMediaPositionMs() {
+    const tl = mediaState.timeline;
+    if (!tl) return 0;
+    let pos = tl.position_ms;
+    if (mediaState.is_playing) pos += Date.now() - tl.updated_ms;
+    if (tl.end_ms > tl.start_ms) pos = Math.min(Math.max(pos, tl.start_ms), tl.end_ms);
+    return pos;
+}
+
+// Discord: обновляем статус после паузы/перемотки, но не чаще раза в ~1.5 с
+// и только если таймстемпы реально разошлись (иначе упрёмся в лимит Discord)
+let discordRefreshTimer = null;
+let lastDiscordStartMs = 0;
+let lastDiscordPlaying = null;
+function scheduleDiscordRefresh() {
+    if (!rpc || !rpcEnabled) return;
+    clearTimeout(discordRefreshTimer);
+    discordRefreshTimer = setTimeout(() => {
+        const start = mediaState.is_playing && mediaState.timeline ? Date.now() - getMediaPositionMs() : 0;
+        if (mediaState.is_playing === lastDiscordPlaying && Math.abs(start - lastDiscordStartMs) < 2000) return;
+        updateDiscordPresence(global.currentTrackInfo);
+    }, 1500);
+}
+
+let lastSourceWarnKey = '';
 
 function resetMediaState() {
     mediaState.title = ''; mediaState.artist = ''; mediaState.album = '';
     mediaState.is_playing = false;
+    mediaState.source_pid = 0; mediaState.source_name = ''; mediaState.source_path = '';
+    mediaState.is_own_source = false;
+    mediaState.timeline = null;
     mediaState.cover = null; mediaState.coverBase64 = null;
     mediaState.coverHash = ''; mediaState.coverMime = 'image/jpeg';
 }
 
 // ========== OBS-ОВЕРЛЕЙ (тот же порт 3456, SSE) ==========
 const overlayClients = new Set();
+const apiClients = new Set();
 
 function overlayState() {
     return {
@@ -2960,7 +3073,9 @@ function overlayState() {
         artist: mediaState.artist,
         album: mediaState.album,
         is_playing: mediaState.is_playing,
-        cover: mediaState.cover && mediaState.coverHash ? `/artwork?v=${mediaState.coverHash}` : ''
+        cover: mediaState.cover && mediaState.coverHash ? `/artwork?v=${mediaState.coverHash}` : '',
+        progress_ms: mediaState.timeline ? getMediaPositionMs() : 0,
+        duration_ms: mediaState.timeline ? Math.max(0, mediaState.timeline.end_ms - mediaState.timeline.start_ms) : 0
     };
 }
 
@@ -2975,12 +3090,27 @@ function overlayBroadcast() {
     for (const res of overlayClients) overlaySend(res, state);
 }
 
+function apiBroadcast(event, payload) {
+    if (apiClients.size === 0) return;
+    const msg = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
+    for (const res of apiClients) {
+        try { res.write(msg); } catch { apiClients.delete(res); }
+    }
+}
+
 // Пинг, чтобы соединение не считалось мёртвым
 setInterval(() => {
     for (const res of overlayClients) {
         try { res.write(': ping\n\n'); } catch (e) { overlayClients.delete(res); }
     }
 }, 25000).unref();
+
+setInterval(() => {
+    if (overlayClients.size === 0) return;
+    if (!mediaState.is_playing || !mediaState.timeline) return;
+    overlayBroadcast();
+}, 1000).unref();
+
 
 function sendToRenderer(channel, payload) {
     try {
@@ -2992,16 +3122,66 @@ function sendToRenderer(channel, payload) {
 
 function handleWatcherMessage(msg) {
     switch (msg.type) {
-        case 'info':
+        case 'info': {
+            // Позицию при смене play/pause фиксируем, пока состояние ещё старое
+            const frozenPos = getMediaPositionMs();
+            const wasPlaying = mediaState.is_playing;
+
             mediaState.title = msg.title || '';
             mediaState.artist = msg.artist || '';
             mediaState.album = msg.album || '';
             mediaState.is_playing = !!msg.is_playing;
+            mediaState.source_pid = msg.source_pid || 0;
+            mediaState.source_name = msg.source_name || '';
+            mediaState.source_path = msg.source_path || '';
+            mediaState.is_own_source = isOwnMediaSource();
+
+            apiBroadcast('info', {
+                title: mediaState.title, artist: mediaState.artist, album: mediaState.album,
+                is_playing: mediaState.is_playing, is_own_source: mediaState.is_own_source
+            });
+
+            if (wasPlaying !== mediaState.is_playing && mediaState.timeline) {
+                if (!mediaState.is_playing) mediaState.timeline.position_ms = frozenPos;  // пауза: замораживаем
+                mediaState.timeline.updated_ms = Date.now();                              // play: отсчёт заново
+                scheduleDiscordRefresh();
+            }
+
+            // Если источник не определился — статистика для него писаться не будет
+            const warnKey = `${mediaState.source_pid}|${mediaState.title}`;
+            if (!mediaState.source_pid && mediaState.title && warnKey !== lastSourceWarnKey) {
+                lastSourceWarnKey = warnKey;
+                console.log('⚠️ Источник музыки не определён (source_pid=0): статистика не засчитывается');
+            }
+
             sendToRenderer('media-info', {
                 title: mediaState.title, artist: mediaState.artist,
-                album: mediaState.album, is_playing: mediaState.is_playing
+                album: mediaState.album, is_playing: mediaState.is_playing,
+                source_pid: mediaState.source_pid,
+                source_name: mediaState.source_name,
+                source_path: mediaState.source_path,
+                is_own_source: mediaState.is_own_source
             });
             break;
+        }
+
+        case 'timeline': {
+            // Тики .NET (100 нс) -> миллисекунды. updated — UtcTicks, переводим в Unix ms.
+            const T = 10000, UNIX_EPOCH_TICKS = 621355968000000000;
+            mediaState.timeline = {
+                position_ms: msg.position / T,
+                start_ms: msg.start / T,
+                end_ms: msg.end / T,
+                min_seek_ms: msg.min_seek / T,
+                max_seek_ms: msg.max_seek / T,
+                // Плеер не сообщил время обновления -> считаем, что позиция актуальна сейчас
+                updated_ms: msg.updated > UNIX_EPOCH_TICKS ? (msg.updated - UNIX_EPOCH_TICKS) / T : Date.now()
+            };
+            sendToRenderer('media-timeline', mediaState.timeline);
+            scheduleDiscordRefresh();
+            apiBroadcast('timeline', mediaState.timeline);
+            return;   // частые события: overlayBroadcast() ниже не дёргаем
+        }
 
         case 'cover': {
             if (msg.data) {
@@ -3125,11 +3305,12 @@ ipcMain.on('set-all-webviews-volume', (event, volume) => {
 function getMediaFromFiles() {
     if (!mediaState.title) return null;
     const info = {
-        title: mediaState.title,
-        artist: mediaState.artist,
-        album: mediaState.album,
-        is_playing: mediaState.is_playing,
-        cover_hash: mediaState.coverHash
+        title: mediaState.title, artist: mediaState.artist, album: mediaState.album,
+        is_playing: mediaState.is_playing, cover_hash: mediaState.coverHash,
+        source_pid: mediaState.source_pid, source_name: mediaState.source_name,
+        source_path: mediaState.source_path,
+        is_own_source: mediaState.is_own_source,
+        timeline: mediaState.timeline
     };
     if (mediaState.coverBase64) info.artwork_base64 = mediaState.coverBase64;
     return info;
@@ -3182,6 +3363,31 @@ ipcMain.handle('get-media-from-files', async () => {
 // Совместимость: то же самое, что get-media-from-files
 ipcMain.handle('get-windows-media-info', async () => getMediaFromFiles());
 
+ipcMain.handle('media-seek', async (event, positionMs) => {
+    const child = mediaWatcherProcess;
+    const ms = Number(positionMs);
+    if (!child || !child.stdin || child.stdin.destroyed || !Number.isFinite(ms) || ms < 0) {
+        console.log('❌ media-seek: watcher недоступен');
+        return false;
+    }
+    try {
+        child.stdin.write(JSON.stringify({ cmd: 'seek', position: Math.round(ms * 10000) }) + '\n');
+        console.log(`📤 media-seek отправлен: ${Math.round(ms)} мс`);
+        // Возвращаем null: «команда отправлена, результат неизвестен».
+        // Renderer решит по следующему timeline, сработало ли.
+        return null;
+    } catch (e) {
+        console.error('media-seek error:', e);
+        return false;
+    }
+});
+
+ipcMain.handle('media-get-state', async () => ({
+    is_playing: !!mediaState.is_playing,
+    is_own_source: !!mediaState.is_own_source,
+    has_timeline: !!mediaState.timeline,
+    position_ms: mediaState.timeline ? getMediaPositionMs() : 0
+}));
 
 // Запускаем при старте
 app.whenReady().then(() => {
@@ -3247,6 +3453,122 @@ function startArtworkServer() {
                 res.end('overlay.html not found');
             }
         }
+
+// ========== /api/status ==========
+else if (url === '/api/status') {
+    if (req.headers['x-api-key'] !== API_TOKEN) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Unauthorized' }));
+    }
+    if (req.method !== 'GET') {
+        res.writeHead(405);
+        return res.end(JSON.stringify({ error: 'Method Not Allowed' }));
+    }
+    const payload = {
+        title: mediaState.title,
+        artist: mediaState.artist,
+        album: mediaState.album,
+        is_playing: mediaState.is_playing,
+        is_own_source: mediaState.is_own_source,
+        source_pid: mediaState.source_pid,
+        source_name: mediaState.source_name,
+        timeline: mediaState.timeline,
+        position_ms: mediaState.timeline ? getMediaPositionMs() : 0,
+        duration_ms: mediaState.timeline ? Math.max(0, mediaState.timeline.end_ms - mediaState.timeline.start_ms) : 0,
+        cover: mediaState.coverHash ? `/artwork?v=${mediaState.coverHash}` : ''
+    };
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    return res.end(JSON.stringify(payload));
+}
+
+// ========== /api/control ==========
+else if (url === '/api/control') {
+    if (req.headers['x-api-key'] !== API_TOKEN) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Unauthorized' }));
+    }
+    if (req.method !== 'POST') {
+        res.writeHead(405);
+        return res.end(JSON.stringify({ error: 'Method Not Allowed' }));
+    }
+    
+    let body = '';
+    req.on('data', chunk => { body += chunk; if (body.length > 1e6) req.destroy(); });
+    req.on('end', async () => {
+        let data = {};
+        try { data = JSON.parse(body || '{}'); } catch { /* пусто */ }
+        
+        const action = String(data.action || '').toLowerCase();
+        try {
+            const actionMap = {
+                play: 'playpause', pause: 'playpause', toggle: 'playpause',
+                next: 'next', prev: 'previous', previous: 'previous', stop: 'stop'
+            };
+            
+            if (actionMap[action]) {
+                if (win && !win.isDestroyed()) {
+                    win.webContents.send('api-control', { action: actionMap[action] });
+                }
+            } else if (action === 'seek') {
+                const ms = Number(data.position);
+                if (!Number.isFinite(ms) || ms < 0) throw new Error('bad position');
+                if (win && !win.isDestroyed()) {
+                    win.webContents.send('mobile-seek', ms / 1000);
+                }
+            } else {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'unknown action', action }));
+            }
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ success: true, action }));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ success: false, error: e.message }));
+        }
+    });
+}
+
+// ========== /api/devices ==========
+else if (url === '/api/devices') {
+    if (req.headers['x-api-key'] !== API_TOKEN) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Unauthorized' }));
+    }
+    fetch('http://localhost:9876/audio-devices')
+        .then(r => r.json())
+        .then(data => {
+            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify(data));
+        })
+        .catch(e => {
+            res.writeHead(502, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'VolumeController недоступен', detail: e.message }));
+        });
+}
+
+// ========== /api/events (SSE) ==========
+else if (url === '/api/events') {
+    if (req.headers['x-api-key'] !== API_TOKEN) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Unauthorized' }));
+    }
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no'
+    });
+    res.write('retry: 2000\n\n');
+    const client = res;
+    apiClients.add(client);
+    client.write(`event: status\ndata: ${JSON.stringify({
+        title: mediaState.title, artist: mediaState.artist, is_playing: mediaState.is_playing
+    })}\n\n`);
+    req.on('close', () => apiClients.delete(client));
+}
+
+
         else if (url === '/overlay/events') {
             res.writeHead(200, {
                 'Content-Type': 'text/event-stream; charset=utf-8',

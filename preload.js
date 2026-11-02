@@ -38,8 +38,10 @@ const api = {
     getArtworkFromServer: () => ipcRenderer.invoke('get-artwork-from-server'),
     // Push-события от MediaInfoWatcher (колбэк получает уже готовый объект, без event)
     onMediaInfo: (cb) => ipcRenderer.on('media-info', (_e, m) => cb(m)),
+    onMediaTimeline: (cb) => ipcRenderer.on('media-timeline', (_e, t) => cb(t)),
     onMediaCover: (cb) => ipcRenderer.on('media-cover', (_e, c) => cb(c)),
     onMediaClear: (cb) => ipcRenderer.on('media-clear', () => cb()),
+    mediaSeek: (positionMs) => ipcRenderer.invoke('media-seek', positionMs),
     onOpenUrl: (callback) => ipcRenderer.on('open-url', callback),
     onOpenHomePage: (callback) => ipcRenderer.on('open-home-page', callback),
     onOpenExternalUrl: (callback) => ipcRenderer.on('open-external-url', callback),
@@ -57,6 +59,7 @@ const api = {
     mediaNext: () => ipcRenderer.invoke('media-next'),
     mediaPrevious: () => ipcRenderer.invoke('media-previous'),
     mediaPing: () => ipcRenderer.invoke('media-ping'),
+    mediaGetState: () => ipcRenderer.invoke('media-get-state'),
     getAudioDevices: () => ipcRenderer.invoke('get-audio-devices'),
     setAudioConfig: (config) => ipcRenderer.invoke('set-audio-config', config),
     getAudioConfig: () => ipcRenderer.invoke('get-audio-config'),
@@ -67,6 +70,8 @@ const api = {
     getHotkeysFromStorage: () => ipcRenderer.invoke('get-hotkeys-from-storage'),
     sendMobileStatus: (status) => ipcRenderer.send('mobile-update-status', status),
     onMobileCommand: (callback) => ipcRenderer.on('mobile-command', callback),
+    onMobileSeek: (callback) => ipcRenderer.on('mobile-seek', (_e, sec) => callback(sec)),
+    onMobileSeekBy: (callback) => ipcRenderer.on('mobile-seek-by', (_e, delta) => callback(delta)),
     onMobileVolume: (callback) => ipcRenderer.on('mobile-volume', callback),
     onMobileServerStarted: (callback) => ipcRenderer.on('mobile-server-started', callback),
     getLocalIP: () => ipcRenderer.invoke('get-local-ip'),
@@ -87,6 +92,12 @@ const api = {
     // Tray controls
     toggleTrayControls: (enabled) => ipcRenderer.send('toggle-tray-controls', enabled),
     playerStateChanged: (isPlaying) => ipcRenderer.send('player-state-changed', isPlaying),
+
+        // ========== ЛОКАЛЬНЫЙ API ==========
+    getLocalApiKey: () => ipcRenderer.invoke('get-local-api-key'),
+    setLocalApiKey: (key) => ipcRenderer.invoke('set-local-api-key', key),
+    regenerateLocalApiKey: () => ipcRenderer.invoke('regenerate-local-api-key'),
+    onApiControl: (callback) => ipcRenderer.on('api-control', (_e, data) => callback(data)),
     
     // AI команды
     parseAICommand: (text) => ipcRenderer.invoke('parse-ai-command', text),

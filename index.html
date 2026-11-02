@@ -38,7 +38,7 @@
         <img id="splashGif" style="max-width: 200px; max-height: 200px; display: none; border-radius: 20px;">
     </div>
     <div class="splash-title" style="font-size: 28px; font-weight: 600; margin-bottom: 10px;">MusicHub</div>
-    <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v3.5.5</div>
+    <div class="splash-version" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 30px;">v3.6.0</div>
     <div class="splash-tip" id="splashTip" style="font-size: 14px; color: var(--text-secondary); max-width: 400px; text-align: center; padding: 0 20px; margin-bottom: 20px;"></div>
     <div class="splash-progress" style="width: 300px; height: 3px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
         <div class="splash-progress-bar" style="width: 0%; height: 100%; background: var(--accent-color); transition: width 0.1s linear;"></div>
@@ -638,6 +638,36 @@
     </div>
 </div>
 
+<div class="settings-card">
+    <div class="card-title">🔌 Локальный API</div>
+    <div class="settings-grid">
+        <div class="setting-item full-width">
+            <label>URL</label>
+            <input type="text" class="feedback-input" readonly value="http://127.0.0.1:3456"
+                   onclick="this.select()">
+        </div>
+        <div class="setting-item full-width">
+            <label>API Key</label>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <input type="text" id="localApiKey" class="feedback-input" readonly
+                       placeholder="Загрузка..." style="flex: 1; font-family: monospace;">
+                <button id="toggleApiKeyBtn" class="btn-secondary" type="button" title="Показать/скрыть">👁</button>
+                <button id="copyApiKeyBtn" class="btn-secondary" type="button" title="Копировать">📋</button>
+                <button id="apiHelpBtn" class="btn-secondary" type="button" title="Помощь по API">❓</button>
+            </div>
+            <div class="setting-hint">
+                Передавай в заголовке <code>X-API-Key</code>. Ключ меняется при перезапуске приложения.
+            </div>
+        </div>
+        <div class="setting-item full-width">
+            <label>Пример (curl)</label>
+            <pre style="background:var(--bg-secondary);padding:10px;border-radius:8px;font-size:11px;white-space:pre-wrap;">curl.exe -H "X-API-Key: <key>" http://127.0.0.1:3456/api/status
+
+curl.exe --json '{\"action\":\"toggle\"}' -H "X-API-Key: <key>" http://127.0.0.1:3456/api/control</pre>
+        </div>
+    </div>
+</div>
+
             </section>
 
             
@@ -789,7 +819,7 @@
                     <div class="about-info">
                         <div class="about-row">
     <span>Версия</span>
-    <b id="easterEggVersion" class="easter-egg-version">3.5.5</b>
+    <b id="easterEggVersion" class="easter-egg-version">3.6.0</b>
 </div>
                         <div class="about-row"><span>Разработчик</span><b>Mamba1230</b></div>
                         <div class="about-row"><span>GitHub</span>
@@ -1037,5 +1067,144 @@
 </div>
 
     <script src="renderer.js"></script>
+
+    <!-- ============ МОДАЛКА: ПОМОЩЬ ПО API ============ -->
+<div id="apiHelpModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+     background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); z-index: 99999;
+     justify-content: center; align-items: center;">
+    <div style="background: var(--bg-secondary, #1a1a1a); border-radius: 20px; padding: 24px;
+                max-width: 720px; width: 92%; max-height: 85vh; overflow-y: auto;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+                border: 1px solid var(--border-color, #333);">
+
+        <!-- Заголовок -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h2 style="font-size: 20px; font-weight: 700; color: var(--text-primary, #fff); margin: 0;">
+                🧭 Помощь по Локальному API
+            </h2>
+            <button id="apiHelpClose" style="background: none; border: none; color: #666;
+                    font-size: 24px; cursor: pointer; padding: 4px 8px; border-radius: 8px;">✕</button>
+        </div>
+
+        <p style="font-size: 13px; color: var(--text-secondary, #999); margin-bottom: 16px;">
+            Базовый URL: <code>http://127.0.0.1:3456</code><br>
+            Авторизация: заголовок <code>X-API-Key: &lt;ключ из настроек&gt;</code>
+        </p>
+
+        <!-- Эндпоинты -->
+        <details open style="margin-bottom: 12px;">
+            <summary style="cursor: pointer; font-weight: 600; color: var(--text-primary, #fff); padding: 8px 0;">
+                📊 GET /api/status — текущий трек
+            </summary>
+            <div style="padding: 8px 12px; background: rgba(255,255,255,0.03); border-radius: 10px; margin-top: 6px;">
+                <p style="font-size: 12px; color: var(--text-secondary, #999); margin-bottom: 8px;">Возвращает JSON с текущим треком, обложкой и прогрессом.</p>
+                <pre style="background: var(--bg-primary, #0a0a0a); color: #d4d4d4; padding: 10px; border-radius: 8px;
+                            font-size: 11px; overflow-x: auto; margin: 0; white-space: pre-wrap;">curl.exe -H "X-API-Key: &lt;key&gt;" http://127.0.0.1:3456/api/status</pre>
+                <button class="api-copy-example" data-copy='curl.exe -H "X-API-Key: KEY" http://127.0.0.1:3456/api/status'
+                        style="margin-top: 8px; background: rgba(255,255,255,0.05); border: 1px solid #333;
+                               color: #888; border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 11px;">
+                    📋 Скопировать
+                </button>
+            </div>
+        </details>
+
+        <details style="margin-bottom: 12px;">
+            <summary style="cursor: pointer; font-weight: 600; color: var(--text-primary, #fff); padding: 8px 0;">
+                🎮 POST /api/control — управление плеером
+            </summary>
+            <div style="padding: 8px 12px; background: rgba(255,255,255,0.03); border-radius: 10px; margin-top: 6px;">
+                <p style="font-size: 12px; color: var(--text-secondary, #999); margin-bottom: 8px;">
+                    Тело (JSON): <code>{ "action": "..." }</code><br>
+                    Действия: <code>toggle</code>, <code>next</code>, <code>prev</code>, <code>stop</code>, <code>seek</code>
+                </p>
+
+                <p style="font-size: 11px; font-weight: 600; color: var(--text-primary, #fff); margin: 8px 0 4px;">Play/Pause:</p>
+                <pre style="background: var(--bg-primary, #0a0a0a); color: #d4d4d4; padding: 10px; border-radius: 8px;
+                            font-size: 11px; overflow-x: auto; margin: 0; white-space: pre-wrap;">curl.exe --json '{\"action\":\"toggle\"}' -H "X-API-Key: &lt;key&gt;" http://127.0.0.1:3456/api/control</pre>
+                <button class="api-copy-example" data-copy='curl.exe --json "{\"action\":\"toggle\"}" -H "X-API-Key: KEY" http://127.0.0.1:3456/api/control'
+                        style="margin-top: 6px; background: rgba(255,255,255,0.05); border: 1px solid #333;
+                               color: #888; border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 11px;">
+                    📋 Скопировать
+                </button>
+
+                <p style="font-size: 11px; font-weight: 600; color: var(--text-primary, #fff); margin: 12px 0 4px;">Следующий трек:</p>
+                <pre style="background: var(--bg-primary, #0a0a0a); color: #d4d4d4; padding: 10px; border-radius: 8px;
+                            font-size: 11px; overflow-x: auto; margin: 0; white-space: pre-wrap;">curl.exe --json '{\"action\":\"next\"}' -H "X-API-Key: &lt;key&gt;" http://127.0.0.1:3456/api/control</pre>
+
+                <p style="font-size: 11px; font-weight: 600; color: var(--text-primary, #fff); margin: 12px 0 4px;">Перемотка на 60 сек (позиция в мс):</p>
+                <pre style="background: var(--bg-primary, #0a0a0a); color: #d4d4d4; padding: 10px; border-radius: 8px;
+                            font-size: 11px; overflow-x: auto; margin: 0; white-space: pre-wrap;">curl.exe --json '{\"action\":\"seek\",\"position\":60000}' -H "X-API-Key: &lt;key&gt;" http://127.0.0.1:3456/api/control</pre>
+            </div>
+        </details>
+
+        <details style="margin-bottom: 12px;">
+            <summary style="cursor: pointer; font-weight: 600; color: var(--text-primary, #fff); padding: 8px 0;">
+                🐘 PowerShell — Invoke-RestMethod (рекомендуется)
+            </summary>
+            <div style="padding: 8px 12px; background: rgba(255,255,255,0.03); border-radius: 10px; margin-top: 6px;">
+                <p style="font-size: 12px; color: var(--text-secondary, #999); margin-bottom: 8px;">
+                    В PowerShell <code>curl</code> — это алиас на <code>Invoke-WebRequest</code>, поэтому используй <code>Invoke-RestMethod</code> или <code>curl.exe</code>.
+                </p>
+                <pre style="background: var(--bg-primary, #0a0a0a); color: #d4d4d4; padding: 10px; border-radius: 8px;
+                            font-size: 11px; overflow-x: auto; margin: 0; white-space: pre-wrap;">$headers = @{ "X-API-Key" = "&lt;key&gt;" }
+
+# Toggle
+Invoke-RestMethod -Uri "http://127.0.0.1:3456/api/control" -Method POST `
+    -Headers $headers -ContentType "application/json" `
+    -Body (@{ action = "toggle" } | ConvertTo-Json)
+
+# Seek на 60 секунд
+Invoke-RestMethod -Uri "http://127.0.0.1:3456/api/control" -Method POST `
+    -Headers $headers -ContentType "application/json" `
+    -Body (@{ action = "seek"; position = 60000 } | ConvertTo-Json)</pre>
+                <button class="api-copy-example" data-copy='$headers = @{ "X-API-Key" = "KEY" }
+Invoke-RestMethod -Uri "http://127.0.0.1:3456/api/control" -Method POST -Headers $headers -ContentType "application/json" -Body (@{ action = "toggle" } | ConvertTo-Json)'
+                        style="margin-top: 8px; background: rgba(255,255,255,0.05); border: 1px solid #333;
+                               color: #888; border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 11px;">
+                    📋 Скопировать
+                </button>
+            </div>
+        </details>
+
+        <details style="margin-bottom: 12px;">
+            <summary style="cursor: pointer; font-weight: 600; color: var(--text-primary, #fff); padding: 8px 0;">
+                📡 SSE /api/events — подписка на изменения
+            </summary>
+            <div style="padding: 8px 12px; background: rgba(255,255,255,0.03); border-radius: 10px; margin-top: 6px;">
+                <p style="font-size: 12px; color: var(--text-secondary, #999); margin-bottom: 8px;">
+                    Сервер будет присылать события при смене трека и play/pause.
+                </p>
+                <pre style="background: var(--bg-primary, #0a0a0a); color: #d4d4d4; padding: 10px; border-radius: 8px;
+                            font-size: 11px; overflow-x: auto; margin: 0; white-space: pre-wrap;">curl.exe -N -H "X-API-Key: &lt;key&gt;" http://127.0.0.1:3456/api/events</pre>
+            </div>
+        </details>
+
+        <details style="margin-bottom: 12px;">
+            <summary style="cursor: pointer; font-weight: 600; color: var(--text-primary, #fff); padding: 8px 0;">
+                🎧 GET /api/devices — аудиоустройства
+            </summary>
+            <div style="padding: 8px 12px; background: rgba(255,255,255,0.03); border-radius: 10px; margin-top: 6px;">
+                <pre style="background: var(--bg-primary, #0a0a0a); color: #d4d4d4; padding: 10px; border-radius: 8px;
+                            font-size: 11px; overflow-x: auto; margin: 0; white-space: pre-wrap;">curl.exe -H "X-API-Key: &lt;key&gt;" http://127.0.0.1:3456/api/devices</pre>
+            </div>
+        </details>
+
+        <!-- Подвал -->
+        <div style="display: flex; justify-content: space-between; align-items: center;
+                    margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color, #333);">
+            <button id="apiHelpInsertKey" style="background: rgba(255,255,255,0.05); border: 1px solid #333;
+                    color: #888; border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 12px;">
+                🔑 Вставить мой ключ
+            </button>
+            <button id="apiHelpCloseBtn" style="background: var(--accent-color, #1DB954); color: #000;
+                    border: none; border-radius: 10px; padding: 10px 20px; cursor: pointer;
+                    font-size: 14px; font-weight: 600;">
+                Понятно
+            </button>
+        </div>
+    </div>
+</div>
+
+
 </body>
 </html>
